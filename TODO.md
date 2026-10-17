@@ -12,14 +12,14 @@ fixed-point maths only, deterministic containers and RNG) because multiplayer
 relies on every peer computing exactly the same game state.
 
 ## M0 — Project foundation
-- [ ] 0.1 Repository hygiene: .gitignore, .gitattributes, .editorconfig, .clang-format
-- [ ] 0.2 Root CMake project (C++23, warning flags, warnings-as-errors option) + CMakePresets (Windows MSVC/VS 2026, Linux GCC/Clang)
-- [ ] 0.3 Third-party dependencies via FetchContent pinned to release tags: GLFW, GLM, Dear ImGui
-- [ ] 0.4 Minimal OpenGL 3.3 core function loader (no code generator required)
-- [ ] 0.5 Target layout: tp_core, tp_sim, tp_net, tp_render, transport-poly (client), transport-poly-server (dedicated), tp_tests
-- [ ] 0.6 Tiny unit test framework + CTest integration
-- [ ] 0.7 GitHub Actions CI: build + test on Windows and Ubuntu
-- [ ] 0.8 README with build instructions; docs/ARCHITECTURE.md
+- [x] 0.1 Repository hygiene: .gitignore, .gitattributes, .editorconfig, .clang-format
+- [x] 0.2 Root CMake project (C++23, warning flags, warnings-as-errors option) + CMakePresets (Windows MSVC/VS 2026, Linux GCC/Clang)
+- [x] 0.3 Third-party dependencies via FetchContent pinned to release tags: GLFW, GLM, Dear ImGui
+- [x] 0.4 Minimal OpenGL 3.3 core function loader (no code generator required)
+- [x] 0.5 Target layout: tp_core, tp_sim, tp_net, tp_render, transport-poly (client), transport-poly-server (dedicated), tp_tests
+- [x] 0.6 Tiny unit test framework + CTest integration
+- [~] 0.7 GitHub Actions CI: build + test on Windows and Ubuntu (workflow written; runs once the repo is pushed)
+- [x] 0.8 README with build instructions; docs/ARCHITECTURE.md
 
 ## M1 — Core library
 - [ ] 1.1 Integer aliases, assertions (`TP_ASSERT`), utility helpers

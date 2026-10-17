@@ -1,0 +1,67 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+    {
+      "name": "windows-msvc",
+      "inherits": "base",
+      "displayName": "Windows MSVC (Ninja Multi-Config, run from a VS developer prompt)",
+      "generator": "Ninja Multi-Config",
+      "cacheVariables": { "CMAKE_C_COMPILER": "cl", "CMAKE_CXX_COMPILER": "cl" },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "windows-vs2026",
+      "inherits": "base",
+      "displayName": "Visual Studio 2026 solution",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "linux-gcc",
+      "inherits": "base",
+      "displayName": "Linux GCC (Ninja Multi-Config)",
+      "generator": "Ninja Multi-Config",
+      "cacheVariables": { "CMAKE_C_COMPILER": "gcc", "CMAKE_CXX_COMPILER": "g++" },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-clang",
+      "inherits": "base",
+      "displayName": "Linux Clang (Ninja Multi-Config)",
+      "generator": "Ninja Multi-Config",
+      "cacheVariables": { "CMAKE_C_COMPILER": "clang", "CMAKE_CXX_COMPILER": "clang++" },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-headless",
+      "inherits": "linux-gcc",
+      "displayName": "Linux GCC, dedicated server + tests only (no X11/OpenGL needed)",
+      "cacheVariables": { "TP_BUILD_CLIENT": "OFF" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "windows-msvc-debug", "configurePreset": "windows-msvc", "configuration": "Debug" },
+    { "name": "windows-msvc-release", "configurePreset": "windows-msvc", "configuration": "RelWithDebInfo" },
+    { "name": "windows-vs2026-debug", "configurePreset": "windows-vs2026", "configuration": "Debug" },
+    { "name": "windows-vs2026-release", "configurePreset": "windows-vs2026", "configuration": "RelWithDebInfo" },
+    { "name": "linux-gcc-debug", "configurePreset": "linux-gcc", "configuration": "Debug" },
+    { "name": "linux-gcc-release", "configurePreset": "linux-gcc", "configuration": "RelWithDebInfo" },
+    { "name": "linux-clang-debug", "configurePreset": "linux-clang", "configuration": "Debug" },
+    { "name": "linux-clang-release", "configurePreset": "linux-clang", "configuration": "RelWithDebInfo" },
+    { "name": "linux-headless-release", "configurePreset": "linux-headless", "configuration": "RelWithDebInfo" }
+  ],
+  "testPresets": [
+    { "name": "windows-msvc-debug", "configurePreset": "windows-msvc", "configuration": "Debug", "output": { "outputOnFailure": true } },
+    { "name": "windows-msvc-release", "configurePreset": "windows-msvc", "configuration": "RelWithDebInfo", "output": { "outputOnFailure": true } },
+    { "name": "linux-gcc-debug", "configurePreset": "linux-gcc", "configuration": "Debug", "output": { "outputOnFailure": true } },
+    { "name": "linux-gcc-release", "configurePreset": "linux-gcc", "configuration": "RelWithDebInfo", "output": { "outputOnFailure": true } },
+    { "name": "linux-headless-release", "configurePreset": "linux-headless", "configuration": "RelWithDebInfo", "output": { "outputOnFailure": true } }
+  ]
+}

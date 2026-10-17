@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Configure
+        run: cmake --preset windows-msvc
+      - name: Build
+        run: cmake --build --preset windows-msvc-release
+      - name: Test
+        run: ctest --preset windows-msvc-release
+
+  linux:
+    runs-on: ubuntu-24.04
+    env:
+      CC: gcc-14
+      CXX: g++-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-14 ninja-build libgl1-mesa-dev xorg-dev
+      - name: Configure
+        run: cmake --preset linux-gcc
+      - name: Build
+        run: cmake --build --preset linux-gcc-release
+      - name: Test
+        run: ctest --preset linux-gcc-release
