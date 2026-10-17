@@ -41,8 +41,8 @@ relies on every peer computing exactly the same game state.
 - [x] 2.5 Chunk storage: corner heights, ground, trees, road / tram / rail layers, structures, owner
 - [x] 2.6 Active chunk map; activation = deterministic generation (pure function of seed + coordinate)
 - [x] 2.7 Tile slope classification (flat, inclined, steep) and foundations
-- [~] 2.8 Terraform: raise / lower corners with neighbour propagation, cost, restrictions (planner done; command + cost in M4)
-- [ ] 2.9 Tree planting / removal, clearing cost
+- [x] 2.8 Terraform: raise / lower corners with neighbour propagation, cost, restrictions
+- [x] 2.9 Tree planting / removal, clearing cost
 
 ## M3 — Rendering foundation
 - [x] 3.1 Window + GL 3.3 core context (GLFW), vsync, DPI awareness, resize
@@ -63,14 +63,14 @@ relies on every peer computing exactly the same game state.
 - [x] 3.16 Screenshot key
 
 ## M4 — Game state, commands, companies
-- [ ] 4.1 `World` game state container and fixed tick loop (30 ticks/s × game speed)
-- [ ] 4.2 Command framework: typed commands (std::variant), serialisation, test / execute phases, cost, error messages
-- [ ] 4.3 Command queue scheduled by tick; single player runs through the same server path as multiplayer
-- [ ] 4.4 Companies: create, colour, name, money, loan, bankruptcy
-- [ ] 4.5 Finances: income / expense categories, monthly & yearly ledgers, interest, maintenance
-- [ ] 4.6 World state hash for desync detection
-- [ ] 4.7 Determinism test: two worlds + same command stream ⇒ identical hash over many ticks
-- [ ] 4.8 Exploration: clients request chunk activation as the camera moves; server rate-limits
+- [x] 4.1 `World` game state container and fixed tick loop (30 ticks/s × game speed)
+- [x] 4.2 Command framework: typed commands (std::variant), serialisation, test / execute phases, cost, error messages
+- [x] 4.3 Command queue scheduled by tick; single player runs through the same server path as multiplayer
+- [~] 4.4 Companies: create, colour, name, money, loan, bankruptcy (bankruptcy pending)
+- [~] 4.5 Finances: income / expense categories, monthly & yearly ledgers, interest, maintenance (ledgers + interest; maintenance with infrastructure)
+- [~] 4.6 World state hash for desync detection (clock, RNG, companies, chunks; extend as systems arrive)
+- [x] 4.7 Determinism test: two worlds + same command stream ⇒ identical hash over many ticks
+- [x] 4.8 Exploration: clients request chunk activation as the camera moves; server rate-limits
 
 ## M5 — Towns, buildings & people
 - [ ] 5.1 Deterministic town sites per region, size classes (village / town / city)

@@ -71,6 +71,7 @@ private:
         ChunkPos pos;
         u32 revision = 0;
         int lod = 0;
+        bool active = false;
         GpuMesh ground;
         GpuMesh water;
         Buffer treeBuffer;

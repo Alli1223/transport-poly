@@ -10,6 +10,7 @@
 
 #include <array>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <optional>
 #include <set>
@@ -116,6 +117,10 @@ inline constexpr bool kIsVector = false;
 template <class T, class A>
 inline constexpr bool kIsVector<std::vector<T, A>> = true;
 template <class T>
+inline constexpr bool kIsDeque = false;
+template <class T, class A>
+inline constexpr bool kIsDeque<std::deque<T, A>> = true;
+template <class T>
 inline constexpr bool kIsArray = false;
 template <class T, usize N>
 inline constexpr bool kIsArray<std::array<T, N>> = true;
@@ -170,7 +175,7 @@ public:
             out_.le(static_cast<std::make_unsigned_t<T>>(v));
         } else if constexpr (std::is_same_v<T, std::string>) {
             out_.string(v);
-        } else if constexpr (detail::kIsVector<T>) {
+        } else if constexpr (detail::kIsVector<T> || detail::kIsDeque<T>) {
             out_.varint(v.size());
             for (const auto& e : v) write(static_cast<const typename T::value_type&>(e));
         } else if constexpr (detail::kIsArray<T>) {
@@ -243,6 +248,11 @@ public:
             } else {
                 for (auto& e : v) read(e);
             }
+        } else if constexpr (detail::kIsDeque<T>) {
+            const usize n = readCount();
+            v.clear();
+            v.resize(n);
+            for (auto& e : v) read(e);
         } else if constexpr (detail::kIsArray<T>) {
             for (auto& e : v) read(e);
         } else if constexpr (detail::kIsOptional<T>) {

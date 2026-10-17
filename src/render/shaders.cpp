@@ -81,6 +81,25 @@ std::string terrainFS() {
 in vec3 vWorldPos;
 in vec3 vNormal;
 in vec3 vColor;
+uniform float uExplored;
+out vec4 fragColor;
+void main() {
+    vec3 n = normalize(vNormal);
+    vec3 albedo = vColor;
+    // Unexplored land is shown desaturated and slightly darker.
+    float grey = dot(albedo, vec3(0.3, 0.59, 0.11));
+    albedo = mix(vec3(grey), albedo, mix(0.35, 1.0, uExplored)) * mix(0.8, 1.0, uExplored);
+    vec3 c = litColor(albedo, n, vWorldPos);
+    fragColor = vec4(toSrgb(applyFog(c, vWorldPos)), 1.0);
+}
+)"});
+}
+
+std::string modelFS() {
+    return join({kHeader, kLighting, R"(
+in vec3 vWorldPos;
+in vec3 vNormal;
+in vec3 vColor;
 out vec4 fragColor;
 void main() {
     vec3 n = normalize(vNormal);
@@ -117,7 +136,6 @@ void main() {
 )"});
 }
 
-std::string modelFS() { return terrainFS(); }
 
 std::string waterVS() {
     return join({kHeader, R"(

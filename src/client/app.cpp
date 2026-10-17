@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -30,7 +31,7 @@ void glfwErrorCallback(int code, const char* description) { log::error("GLFW err
 
 App* appFrom(GLFWwindow* w) { return static_cast<App*>(glfwGetWindowUserPointer(w)); }
 
-// Finds a dry spot close to the origin to start the camera at.
+// Finds a dry spot close to `start` for the camera.
 TilePos findLandNear(const TerrainGenerator& gen, TilePos start) {
     for (i32 r = 0; r < 4000; r += 8) {
         for (i32 i = 0; i < 16; ++i) {
@@ -43,9 +44,26 @@ TilePos findLandNear(const TerrainGenerator& gen, TilePos start) {
     return start;
 }
 
+std::optional<TilePos> findCoastNear(const TerrainGenerator& g, TilePos s0) {
+    for (i32 r = 0; r < 20000; r += 16) {
+        for (i32 i = 0; i < 64; ++i) {
+            const double a = i * 6.2831853 / 64.0;
+            const TilePos p{s0.x + static_cast<i32>(std::cos(a) * r), s0.y + static_cast<i32>(std::sin(a) * r)};
+            if (g.rawHeight(p.x, p.y) >= -2 * kHeightOne) continue;
+            for (i32 k = 0; k < r; k += 2) {
+                const TilePos q{p.x - static_cast<i32>(std::cos(a) * k), p.y - static_cast<i32>(std::sin(a) * k)};
+                if (g.rawHeight(q.x, q.y) > 0) return q;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 void App::onScroll(double dy) { scrollAccum_ += dy; }
+
+void App::onFramebufferSize(int width, int height) { camera_.setViewport(width, height); }
 
 bool App::parseArgs(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
@@ -58,7 +76,7 @@ bool App::parseArgs(int argc, char** argv) {
         } else if (arg == "--seed") {
             if (const char* v = next()) seed_ = std::strtoull(v, nullptr, 10);
         } else if (arg == "--time") {
-            if (const char* v = next()) minuteOfDay_ = std::atof(v) * 60.0;
+            if (const char* v = next()) fixedTimeOfDay_ = std::atof(v) * 60.0;
         } else if (arg == "--camera") {
             // x,z,distance,yawDegrees[,pitchDegrees]
             if (const char* v = next()) {
@@ -102,8 +120,6 @@ void App::captureScreenshot(const std::string& path) {
         log::error("Failed to save screenshot {}", path);
 }
 
-void App::onFramebufferSize(int width, int height) { camera_.setViewport(width, height); }
-
 bool App::init() {
     glfwSetErrorCallback(glfwErrorCallback);
     if (!glfwInit()) return false;
@@ -121,8 +137,8 @@ bool App::init() {
     glfwSwapInterval(1);
     glfwSetWindowUserPointer(window_, this);
     glfwSetScrollCallback(window_, [](GLFWwindow* w, double, double dy) { appFrom(w)->onScroll(dy); });
-    glfwSetFramebufferSizeCallback(window_,
-                                   [](GLFWwindow* w, int width, int height) { appFrom(w)->onFramebufferSize(width, height); });
+    glfwSetFramebufferSizeCallback(
+        window_, [](GLFWwindow* w, int width, int height) { appFrom(w)->onFramebufferSize(width, height); });
 
     if (!gl::load(reinterpret_cast<gl::LoadProc>(glfwGetProcAddress))) return false;
     log::info("OpenGL {} on {}", reinterpret_cast<const char*>(glGetString(GL_VERSION)),
@@ -149,25 +165,25 @@ bool App::init() {
     int fbw = 0, fbh = 0;
     glfwGetFramebufferSize(window_, &fbw, &fbh);
     camera_.setViewport(fbw, fbh);
-    newWorld(seed_);
+    newGame(seed_);
     return true;
 }
 
-void App::newWorld(u64 seed) {
+void App::newGame(u64 seed) {
     seed_ = seed;
-    map_ = std::make_unique<Map>(seed);
+    WorldSettings settings;
+    settings.seed = seed;
+    session_ = std::make_unique<LocalSession>(settings);
     renderer_.invalidateAll();
-    const TilePos start = findLandNear(map_->generator(), {0, 0});
-    camera_.targetGoal = glm::dvec3(start.x + 0.5, gfx::terrainHeightAt(*map_, start.x + 0.5, start.y + 0.5),
-                                    start.y + 0.5);
+    explorePending_.clear();
+    const TilePos start = findLandNear(world().map.generator(), {0, 0});
+    camera_.targetGoal =
+        glm::dvec3(start.x + 0.5, gfx::terrainHeightAt(world().map, start.x + 0.5, start.y + 0.5), start.y + 0.5);
     camera_.snapToGoals();
-    // Activate a small area so the difference between simulated and generated chunks is testable.
-    const ChunkPos c = chunkOf(start);
-    for (i32 dy = -1; dy <= 1; ++dy)
-        for (i32 dx = -1; dx <= 1; ++dx) map_->activate({c.x + dx, c.y + dy});
 }
 
 void App::shutdown() {
+    session_.reset();
     if (ImGui::GetCurrentContext()) {
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplGlfw_Shutdown();
@@ -219,20 +235,154 @@ void App::updateCamera(double dt) {
             const double k = camera_.distance * 0.0016;
             camera_.pan(-dx * k, dy * k);
         }
-        hover_ = gfx::pickTerrain(*map_, camera_.screenRay(mx * sx, my * sy));
+        hover_ = gfx::pickTerrain(world().map, camera_.screenRay(mx * sx, my * sy));
     } else {
         hover_ = {};
     }
     scrollAccum_ = 0.0;
 
     // Keep the orbit target on the ground.
-    camera_.targetGoal.y = gfx::terrainHeightAt(*map_, camera_.targetGoal.x, camera_.targetGoal.z);
+    camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
     camera_.update(dt);
+}
+
+void App::updateExploration(double now) {
+    if (now - lastExplore_ < 0.15) return;
+    lastExplore_ = now;
+    const Map& map = world().map;
+    std::erase_if(explorePending_, [&](const auto& kv) {
+        return map.isActive(ChunkPos::fromKey(kv.first)) || now - kv.second > 3.0;
+    });
+    const double radius = std::clamp(camera_.distance * 1.1, 64.0, 200.0);
+    const double cx = camera_.target.x, cz = camera_.target.z;
+    struct Want {
+        ChunkPos pos;
+        double d2;
+    };
+    std::vector<Want> wanted;
+    const i32 x0 = static_cast<i32>(std::floor((cx - radius) / kChunkSize));
+    const i32 x1 = static_cast<i32>(std::floor((cx + radius) / kChunkSize));
+    const i32 z0 = static_cast<i32>(std::floor((cz - radius) / kChunkSize));
+    const i32 z1 = static_cast<i32>(std::floor((cz + radius) / kChunkSize));
+    for (i32 z = z0; z <= z1; ++z) {
+        for (i32 x = x0; x <= x1; ++x) {
+            const ChunkPos p{x, z};
+            if (map.isActive(p) || explorePending_.contains(p.key())) continue;
+            const double dx = (x + 0.5) * kChunkSize - cx, dz = (z + 0.5) * kChunkSize - cz;
+            const double d2 = dx * dx + dz * dz;
+            if (d2 > radius * radius) continue;
+            wanted.push_back({p, d2});
+        }
+    }
+    if (wanted.empty()) return;
+    std::sort(wanted.begin(), wanted.end(), [](const Want& a, const Want& b) { return a.d2 < b.d2; });
+    CmdActivateChunks cmd;
+    for (const Want& w : wanted) {
+        if (cmd.chunks.size() >= 32) break;
+        cmd.chunks.push_back(w.pos);
+        explorePending_[w.pos.key()] = now;
+    }
+    session_->submit(std::move(cmd));
+}
+
+void App::handleTools() {
+    if (tool_ == Tool::None || !hover_.hit || ImGui::GetIO().WantCaptureMouse) return;
+    if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
+    switch (tool_) {
+    case Tool::Raise: session_->submit(CmdTerraform{hover_.corner, 1}); break;
+    case Tool::Lower: session_->submit(CmdTerraform{hover_.corner, -1}); break;
+    case Tool::Clear: session_->submit(CmdClearArea{hover_.tile, hover_.tile}); break;
+    case Tool::Trees: session_->submit(CmdPlantTrees{hover_.tile, hover_.tile}); break;
+    case Tool::None: break;
+    }
+}
+
+void App::processFeedback(double now) {
+    for (const CommandFeedback& f : session_->takeFeedback()) {
+        if (f.result.ok) {
+            if (f.result.cost > 0) toasts_.push_back({std::format("-{}", formatMoney(f.result.cost)), now + 2.0, false});
+        } else if (f.name != "Explore") {
+            toasts_.push_back({std::format("{}: {}", f.name, f.result.error), now + 4.0, true});
+        }
+    }
+    while (toasts_.size() > 6) toasts_.pop_front();
+}
+
+void App::drawToasts(double now) {
+    std::erase_if(toasts_, [&](const Toast& t) { return t.expires < now; });
+    if (toasts_.empty()) return;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 60.0f),
+                            ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.6f);
+    ImGui::Begin("##toasts", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    for (const Toast& t : toasts_)
+        ImGui::TextColored(t.error ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f) : ImVec4(1.0f, 0.9f, 0.5f, 1.0f), "%s",
+                           t.text.c_str());
+    ImGui::End();
+}
+
+void App::drawHud() {
+    World& w = world();
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + 6.0f), ImGuiCond_Always,
+                            ImVec2(0.5f, 0.0f));
+    ImGui::SetNextWindowBgAlpha(0.75f);
+    ImGui::Begin("##hud", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    const Company* co = w.companies.tryGet(session_->localCompany());
+    ImGui::Text("%s  %s", formatDate(w.clock.day()).c_str(), formatTimeOfDay(w.clock.minuteOfDay()).c_str());
+    ImGui::SameLine(0, 24);
+    if (co) {
+        ImGui::TextColored(co->money < 0 ? ImVec4(1, 0.4f, 0.4f, 1) : ImVec4(0.6f, 1, 0.6f, 1), "%s",
+                           formatMoney(co->money).c_str());
+        ImGui::SameLine(0, 24);
+        ImGui::TextUnformatted(co->name.c_str());
+        ImGui::SameLine(0, 24);
+    }
+    const int speeds[] = {0, 1, 2, 4, 8, 16};
+    const char* labels[] = {"||", "1x", "2x", "4x", "8x", "16x"};
+    for (int i = 0; i < 6; ++i) {
+        if (i) ImGui::SameLine();
+        const bool active = session_->speed() == speeds[i];
+        if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton(labels[i])) session_->setSpeed(speeds[i]);
+        if (active) ImGui::PopStyleColor();
+    }
+    ImGui::End();
+}
+
+void App::drawToolbar() {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 8.0f),
+                            ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.75f);
+    ImGui::Begin("##tools", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    const auto button = [&](const char* label, Tool t) {
+        const bool active = tool_ == t;
+        if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::Button(label)) tool_ = active ? Tool::None : t;
+        if (active) ImGui::PopStyleColor();
+        ImGui::SameLine();
+    };
+    button("Raise land", Tool::Raise);
+    button("Lower land", Tool::Lower);
+    button("Bulldoze", Tool::Clear);
+    button("Plant trees", Tool::Trees);
+    ImGui::NewLine();
+    ImGui::End();
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) tool_ = Tool::None;
 }
 
 void App::drawDebugUi() {
     if (!showDebug_) return;
     const gfx::RenderStats& st = renderer_.stats();
+    World& w = world();
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
     ImGui::Begin("Debug", &showDebug_, ImGuiWindowFlags_AlwaysAutoResize);
     ImGui::Text("%s %s", kGameName.data(), kVersionString.data());
@@ -240,10 +390,9 @@ void App::drawDebugUi() {
     ImGui::Text("Camera %.1f, %.1f  dist %.0f", camera_.target.x, camera_.target.z, camera_.distance);
     ImGui::Text("Chunks: %d visible, %d cached, %d built", st.chunksVisible, st.chunksCached, st.meshesBuilt);
     ImGui::Text("Triangles: %zu  Trees: %zu", st.trianglesDrawn, st.treesDrawn);
+    ImGui::Text("Tick %lld  explored chunks %zu", static_cast<long long>(w.clock.tick), w.map.activeChunks().size());
+    ImGui::Text("State hash %016llx", static_cast<unsigned long long>(w.stateHash()));
     ImGui::Separator();
-    float tod = static_cast<float>(minuteOfDay_ / 60.0);
-    if (ImGui::SliderFloat("Time of day", &tod, 0.0f, 24.0f, "%.2f h")) minuteOfDay_ = tod * 60.0;
-    ImGui::Checkbox("Run clock", &timeRunning_);
     ImGui::Checkbox("Shadows", &renderer_.settings.shadows);
     ImGui::SameLine();
     ImGui::Checkbox("Wireframe", &renderer_.settings.wireframe);
@@ -251,16 +400,15 @@ void App::drawDebugUi() {
     static int seedInput = 20261017;
     ImGui::InputInt("Seed", &seedInput);
     ImGui::SameLine();
-    if (ImGui::Button("Generate")) newWorld(static_cast<u64>(static_cast<u32>(seedInput)));
+    if (ImGui::Button("New game")) newGame(static_cast<u64>(static_cast<u32>(seedInput)));
     ImGui::Separator();
     if (hover_.hit) {
-        const TileCorners c = map_->corners(hover_.tile);
+        const TileCorners c = w.map.corners(hover_.tile);
         ImGui::Text("Tile (%d, %d)  corners %d %d %d %d", hover_.tile.x, hover_.tile.y, c.h[0], c.h[1], c.h[2], c.h[3]);
-        if (const Tile* t = map_->tile(hover_.tile)) {
-            ImGui::Text("Active: type %d ground %d trees %d", static_cast<int>(t->type), static_cast<int>(t->ground),
-                        t->trees);
+        if (const Tile* t = w.map.tile(hover_.tile)) {
+            ImGui::Text("type %d ground %d trees %d", static_cast<int>(t->type), static_cast<int>(t->ground), t->trees);
         } else {
-            ImGui::TextUnformatted("Unexplored (generated preview)");
+            ImGui::TextUnformatted("Unexplored");
         }
     }
     ImGui::End();
@@ -274,32 +422,14 @@ int App::run(int argc, char** argv) {
         return EXIT_FAILURE;
     }
     if (gotoWater_) {
-        // Jump to the nearest coastline: walk outwards until a sea corner is found.
-        const TerrainGenerator& g = map_->generator();
         const TilePos s0{static_cast<i32>(camera_.target.x), static_cast<i32>(camera_.target.z)};
-        bool found = false;
-        for (i32 r = 0; r < 20000 && !found; r += 16) {
-            for (i32 i = 0; i < 64 && !found; ++i) {
-                const double a = i * 6.2831853 / 64.0;
-                const TilePos p{s0.x + static_cast<i32>(std::cos(a) * r), s0.y + static_cast<i32>(std::sin(a) * r)};
-                if (g.rawHeight(p.x, p.y) < -2 * kHeightOne) {
-                    // Step back towards the start until we reach land: that is the coast.
-                    for (i32 k = 0; k < r; k += 2) {
-                        const TilePos q{p.x - static_cast<i32>(std::cos(a) * k), p.y - static_cast<i32>(std::sin(a) * k)};
-                        if (g.rawHeight(q.x, q.y) > 0) {
-                            startCamera_ = glm::dvec4(q.x, q.y, startCamera_ ? startCamera_->z : 70.0,
-                                                      startCamera_ ? startCamera_->w : 35.0);
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
+        if (const auto coast = findCoastNear(world().map.generator(), s0))
+            startCamera_ = glm::dvec4(coast->x, coast->y, startCamera_ ? startCamera_->z : 70.0,
+                                      startCamera_ ? startCamera_->w : 35.0);
     }
     if (startCamera_) {
         const glm::dvec4 c = *startCamera_;
-        camera_.targetGoal = glm::dvec3(c.x, gfx::terrainHeightAt(*map_, c.x, c.y), c.y);
+        camera_.targetGoal = glm::dvec3(c.x, gfx::terrainHeightAt(world().map, c.x, c.y), c.y);
         camera_.distanceGoal = c.z;
         camera_.yawGoal = glm::radians(c.w);
         if (startPitchDeg_ > 0.0) camera_.pitchGoal = glm::radians(startPitchDeg_);
@@ -313,7 +443,9 @@ int App::run(int argc, char** argv) {
         const double dt = std::min(now - last, 0.1);
         last = now;
         timeSeconds_ += dt;
-        if (timeRunning_) minuteOfDay_ = std::fmod(minuteOfDay_ + dt * 30.0, 1440.0);
+
+        session_->update(dt);
+        processFeedback(now);
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -321,21 +453,37 @@ int App::run(int argc, char** argv) {
 
         if (ImGui::IsKeyPressed(ImGuiKey_F3)) showDebug_ = !showDebug_;
         if (ImGui::IsKeyPressed(ImGuiKey_F12)) pendingScreenshot_ = true;
+        if (!ImGui::GetIO().WantCaptureKeyboard && ImGui::IsKeyPressed(ImGuiKey_Space))
+            session_->setSpeed(session_->speed() == 0 ? 1 : 0);
         updateCamera(dt);
+        updateExploration(now);
+        handleTools();
 
         std::vector<gfx::OverlayQuad> overlays;
         if (hover_.hit) {
-            const TileCorners c = map_->corners(hover_.tile);
+            const TileCorners c = world().map.corners(hover_.tile);
             const double x = hover_.tile.x, z = hover_.tile.y, e = 0.02;
             overlays.push_back({{{x, c.h[0] * gfx::kHeightStep + e, z},
                                  {x + 1, c.h[1] * gfx::kHeightStep + e, z},
                                  {x + 1, c.h[2] * gfx::kHeightStep + e, z + 1},
                                  {x, c.h[3] * gfx::kHeightStep + e, z + 1}},
                                 gfx::rgba(255, 255, 255, 90)});
+            if (tool_ == Tool::Raise || tool_ == Tool::Lower) {
+                const double cx = hover_.corner.x, cz = hover_.corner.y;
+                const double cyy = world().map.cornerHeight(hover_.corner.x, hover_.corner.y) * gfx::kHeightStep + 0.05;
+                const double r = 0.18;
+                overlays.push_back({{{cx - r, cyy, cz - r}, {cx + r, cyy, cz - r}, {cx + r, cyy, cz + r}, {cx - r, cyy, cz + r}},
+                                    gfx::rgba(255, 220, 60, 200)});
+            }
         }
 
+        drawHud();
+        drawToolbar();
         drawDebugUi();
-        renderer_.render(*map_, camera_, minuteOfDay_, timeSeconds_, overlays);
+        drawToasts(now);
+        const double minute = fixedTimeOfDay_ ? *fixedTimeOfDay_
+                                              : world().clock.minuteOfDay() + session_->tickFraction();
+        renderer_.render(world().map, camera_, minute, timeSeconds_, overlays);
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         ++frameCount;

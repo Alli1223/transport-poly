@@ -168,6 +168,7 @@ void WorldRenderer::buildChunkMesh(const Map& map, ChunkPos pos, int lod, ChunkM
     }
     const Chunk* active = map.chunk(pos);
     mesh.revision = active ? active->revision + 1 : 0;
+    mesh.active = active != nullptr;
 }
 
 void WorldRenderer::drawChunks(const std::vector<const ChunkMesh*>& chunks,
@@ -181,6 +182,7 @@ void WorldRenderer::drawChunks(const std::vector<const ChunkMesh*>& chunks,
     ts.use();
     for (const ChunkMesh* c : chunks) {
         ts.set("uOffset", offsetOf(c));
+        if (!shadowPass) ts.set("uExplored", c->active ? 1.0f : 0.0f);
         c->ground.draw();
         if (!shadowPass) stats_.trianglesDrawn += static_cast<usize>(c->ground.vertexCount() / 3);
     }
