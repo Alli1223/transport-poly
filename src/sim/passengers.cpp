@@ -274,7 +274,7 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
     auto it = station->waiting.find(next);
     if (it == station->waiting.end()) return moved;
     std::vector<PersonId>& queue = it->second;
-    const usize capacity = v.info().capacity;
+    const usize capacity = v.capacity();
     usize taken = 0;
     while (taken < queue.size() && v.passengers.size() < capacity) {
         const PersonId pid = queue[taken++];

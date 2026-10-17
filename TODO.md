@@ -91,7 +91,7 @@ relies on every peer computing exactly the same game state.
 ## M6 — Infrastructure
 - [x] 6.1 Roads: road bits per tile, build / remove along a drag line, slopes, costs, town roads
 - [x] 6.2 Road rendering (straight, curves, junctions, slopes, dead ends)
-- [ ] 6.3 Rails: 6 track bits per tile (incl. diagonals), drag building, slopes
+- [~] 6.3 Rails: 6 track bits per tile (incl. diagonals), drag building, slopes (track pieces, slopes, straight + diagonal line planner; build command next)
 - [ ] 6.4 Rail rendering (ballast, sleepers, rails; diagonals)
 - [ ] 6.5 Level crossings (road + rail)
 - [ ] 6.6 Signals: block, path and one-way path signals; signal rendering
@@ -110,7 +110,7 @@ relies on every peer computing exactly the same game state.
 - [x] 7.4 Road pathfinder (A* over the road graph with deterministic tie breaking)
 - [x] 7.5 Road vehicle movement: lanes, curves, junctions, queueing, gridlock breaker
 - [x] 7.6 Tram movement (tram network, articulated trams)
-- [ ] 7.7 Rail pathfinder and train movement: consists, acceleration / braking, curve speed limits, slopes
+- [~] 7.7 Rail pathfinder and train movement: consists, acceleration / braking, curve speed limits, slopes (rail A* path finder, train state fields, rail models; movement next)
 - [ ] 7.8 Signal logic, path reservation, collision prevention
 - [ ] 7.9 Ship pathfinder over water tiles and ship movement
 - [x] 7.10 Loading / unloading at stations, dwell time

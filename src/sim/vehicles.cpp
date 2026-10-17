@@ -187,7 +187,7 @@ void arriveAtStop(World& w, VehicleId id) {
 void finishLoading(World& w, VehicleId id) {
     Vehicle& v = w.vehicles[id];
     const auto o = targetOrder(v);
-    if (o && (o->flags & kOrderFullLoad) && v.passengers.size() < v.info().capacity &&
+    if (o && (o->flags & kOrderFullLoad) && v.passengers.size() < v.capacity() &&
         w.clock.tick < v.loadingUntil + 8 * kTicksPerHour) {
         // Keep boarding newcomers while waiting for a full load (gives up after eight hours).
         const i32 n = passengers::exchangeAtStop(w, id, o->station);
@@ -375,7 +375,7 @@ void tickAll(World& w) {
 void daily(World& w) {
     for (auto [id, v] : w.vehicles) {
         if (v.state == VehicleState::InDepot && v.stopped) continue;
-        const Money cost = (v.info().runningCost + 182) / 365;
+        const Money cost = (v.runningCost() + 182) / 365;
         if (Company* c = w.companies.tryGet(v.owner)) c->spend(runningCategory(v.info().type), cost);
         v.profitThisYear -= cost;
     }

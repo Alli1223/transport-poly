@@ -6,6 +6,7 @@
 #include "sim/coords.hpp"
 #include "sim/ids.hpp"
 
+#include <deque>
 #include <span>
 #include <string>
 #include <string_view>
@@ -28,6 +29,7 @@ struct VehicleModel {
     i32 introYear;
     i32 lifeYears;
     u8 visual;       // rendering model variant
+    bool powered = false; // trains: locomotives and multiple units can lead a train
 };
 
 std::span<const VehicleModel> vehicleModels();
@@ -58,6 +60,20 @@ struct Order {
     template <class Ar>
     void serialize(Ar& ar) {
         ar(kind, station, depot, flags);
+    }
+};
+
+// One track piece a train occupies or has reserved: the tile, the edge it is entered through and
+// the edge it is left through.
+struct TrackSeg {
+    TilePos tile;
+    Dir entry = Dir::S;
+    Dir exit = Dir::N;
+
+    friend bool operator==(const TrackSeg&, const TrackSeg&) = default;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(tile, entry, exit);
     }
 };
 
@@ -98,6 +114,12 @@ struct Vehicle {
     std::vector<PersonId> passengers;
     i64 loadingUntil = 0;
 
+    // Trains only.
+    std::vector<u16> cars;       // consist, cars[0] leads (its model is also `model`)
+    std::deque<TrackSeg> trail;  // pieces under the train, head first
+    std::deque<TrackSeg> ahead;  // pieces reserved in front of the head, in driving order
+    i32 retryTicks = 0;
+
     Money profitThisYear = 0;
     Money profitLastYear = 0;
     Money value = 0;
@@ -105,13 +127,27 @@ struct Vehicle {
     i32 passengersThisYear = 0;
 
     const VehicleModel& info() const { return vehicleModel(model); }
+    // Seats in the whole vehicle (all cars of a train).
+    u32 capacity() const {
+        if (cars.empty()) return info().capacity;
+        u32 c = 0;
+        for (const u16 m : cars) c += vehicleModel(m).capacity;
+        return c;
+    }
+    Money runningCost() const {
+        if (cars.empty()) return info().runningCost;
+        Money c = 0;
+        for (const u16 m : cars) c += vehicleModel(m).runningCost;
+        return c;
+    }
     const Order* currentOrder() const { return orders.empty() ? nullptr : &orders[orderIndex % orders.size()]; }
 
     template <class Ar>
     void serialize(Ar& ar) {
         ar(serial, owner, model, unitNumber, state, stopped, sendToDepot, lost, depot, tile, entry, exit, progress,
            speed, stopAtMiddle, blockedTicks, path, pathIndex, tilesSincePlan, orders, orderIndex, passengers,
-           loadingUntil, profitThisYear, profitLastYear, value, builtTick, passengersThisYear);
+           loadingUntil, cars, trail, ahead, retryTicks, profitThisYear, profitLastYear, value, builtTick,
+           passengersThisYear);
     }
 };
 
@@ -140,6 +176,18 @@ constexpr i32 pathLength(Dir entry, Dir exit) {
     }
     return kPathStraight;
 }
+
+namespace trains {
+
+void tick(World& w, VehicleId id);
+// Tries to leave the depot; returns true once the train is out on the track.
+bool leaveDepot(World& w, VehicleId id);
+// Releases every track reservation held by the train.
+void releaseAll(World& w, VehicleId id);
+i32 consistLength(const Vehicle& v); // in progress units
+i32 maxSpeed(const Vehicle& v);      // units per tick
+
+} // namespace trains
 
 namespace vehicles {
 
