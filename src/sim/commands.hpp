@@ -8,6 +8,7 @@
 #include "sim/company.hpp"
 #include "sim/coords.hpp"
 #include "sim/ids.hpp"
+#include "sim/vehicle.hpp"
 
 #include <string>
 #include <string_view>
@@ -77,8 +78,103 @@ struct CmdPlantTrees {
     }
 };
 
+// Build road (or tram track) along a straight line between two tiles.
+struct CmdBuildRoad {
+    TilePos from;
+    TilePos to;
+    bool tram = false;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(from, to, tram);
+    }
+};
+
+struct CmdRemoveRoad {
+    TilePos from;
+    TilePos to;
+    bool tram = false;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(from, to, tram);
+    }
+};
+
+// Drive-through bus or tram stop on a straight road tile.
+struct CmdBuildRoadStop {
+    TilePos tile;
+    bool tram = false;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(tile, tram);
+    }
+};
+
+// Road / tram depot whose exit faces an adjacent road.
+struct CmdBuildRoadDepot {
+    TilePos tile;
+    Dir facing = Dir::S;
+    bool tram = false;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(tile, facing, tram);
+    }
+};
+
+struct CmdBuyVehicle {
+    DepotId depot;
+    u16 model = 0;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(depot, model);
+    }
+};
+
+struct CmdSellVehicle {
+    VehicleId vehicle;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(vehicle);
+    }
+};
+
+struct CmdStartStopVehicle {
+    VehicleId vehicle;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(vehicle);
+    }
+};
+
+struct CmdSendToDepot {
+    VehicleId vehicle;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(vehicle);
+    }
+};
+
+// Replaces the vehicle's whole order list.
+struct CmdSetOrders {
+    VehicleId vehicle;
+    std::vector<Order> orders;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(vehicle, orders);
+    }
+};
+
+struct CmdSkipOrder {
+    VehicleId vehicle;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(vehicle);
+    }
+};
+
 using CommandPayload =
-    std::variant<CmdActivateChunks, CmdCreateCompany, CmdSetLoan, CmdTerraform, CmdClearArea, CmdPlantTrees>;
+    std::variant<CmdActivateChunks, CmdCreateCompany, CmdSetLoan, CmdTerraform, CmdClearArea, CmdPlantTrees, CmdBuildRoad,
+                 CmdRemoveRoad, CmdBuildRoadStop, CmdBuildRoadDepot, CmdBuyVehicle, CmdSellVehicle, CmdStartStopVehicle,
+                 CmdSendToDepot, CmdSetOrders, CmdSkipOrder>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

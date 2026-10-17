@@ -109,25 +109,21 @@ CommandResult handle(World& w, const Command& c, const CmdClearArea& x, bool exe
     if (r.area() > 128 * 128) return CommandResult::failure("Area too large");
     Money cost = 0;
     bool anything = false;
+    std::string firstError;
+    const std::unordered_set<u64> busy = occupiedTiles(w);
     for (i32 y = r.y0; y <= r.y1; ++y) {
         for (i32 xx = r.x0; xx <= r.x1; ++xx) {
-            Tile* tile = w.map.tile({xx, y});
-            if (!tile) return CommandResult::failure("Area not explored");
-            if (tile->type != TileType::Clear) continue;
-            Money tileCost = static_cast<Money>(tile->trees) * prices::kRemoveTree;
-            if (tile->ground == Ground::Rough) tileCost += prices::kClearRough;
-            if (tile->ground == Ground::Rock) tileCost += prices::kClearRock;
-            if (tileCost == 0) continue;
-            anything = true;
-            cost += tileCost;
-            if (exec) {
-                tile->trees = 0;
-                if (tile->ground == Ground::Rough || tile->ground == Ground::Rock) tile->ground = Ground::Grass;
-                w.map.touch({xx, y});
+            if (!w.map.tile({xx, y})) return CommandResult::failure("Area not explored");
+            const CommandResult t = demolishTile(w, c.company, {xx, y}, exec, busy);
+            if (t.ok) {
+                anything = true;
+                cost += t.cost;
+            } else if (firstError.empty()) {
+                firstError = t.error;
             }
         }
     }
-    if (!anything) return CommandResult::failure("Nothing to clear");
+    if (!anything) return CommandResult::failure(firstError.empty() ? "Nothing to clear" : firstError);
     return CommandResult::success(cost, Expense::Construction);
 }
 

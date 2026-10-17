@@ -50,6 +50,16 @@ std::string_view commandName(const CommandPayload& payload) {
                           [](const CmdTerraform&) { return std::string_view("Terraform"); },
                           [](const CmdClearArea&) { return std::string_view("Clear area"); },
                           [](const CmdPlantTrees&) { return std::string_view("Plant trees"); },
+                          [](const CmdBuildRoad& c) { return std::string_view(c.tram ? "Build tram track" : "Build road"); },
+                          [](const CmdRemoveRoad&) { return std::string_view("Remove road"); },
+                          [](const CmdBuildRoadStop& c) { return std::string_view(c.tram ? "Build tram stop" : "Build bus stop"); },
+                          [](const CmdBuildRoadDepot&) { return std::string_view("Build depot"); },
+                          [](const CmdBuyVehicle&) { return std::string_view("Buy vehicle"); },
+                          [](const CmdSellVehicle&) { return std::string_view("Sell vehicle"); },
+                          [](const CmdStartStopVehicle&) { return std::string_view("Start/stop vehicle"); },
+                          [](const CmdSendToDepot&) { return std::string_view("Send to depot"); },
+                          [](const CmdSetOrders&) { return std::string_view("Change orders"); },
+                          [](const CmdSkipOrder&) { return std::string_view("Skip order"); },
                       },
                       payload);
 }

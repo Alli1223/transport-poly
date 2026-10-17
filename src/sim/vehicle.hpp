@@ -1,0 +1,160 @@
+#pragma once
+// Vehicles: the model catalogue, orders and per-vehicle state.
+
+#include "core/money.hpp"
+#include "core/types.hpp"
+#include "sim/coords.hpp"
+#include "sim/ids.hpp"
+
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace tp {
+
+class World;
+
+enum class VehicleType : u8 { Road, Tram, Rail, Ship };
+
+struct VehicleModel {
+    std::string_view name;
+    VehicleType type;
+    u16 capacity;    // passengers
+    u16 maxSpeedKmh; // displayed speed
+    u16 length;      // in 1/16 tile
+    Money price;
+    Money runningCost; // per year
+    i32 introYear;
+    i32 lifeYears;
+    u8 visual;       // rendering model variant
+};
+
+std::span<const VehicleModel> vehicleModels();
+const VehicleModel& vehicleModel(u16 index);
+std::string_view vehicleTypeName(VehicleType t);
+
+// Simulation speed units: 1 tile = 256 units of progress. A 56 km/h bus covers ~0.18 tiles per
+// tick (about five tiles per real second at normal speed).
+inline constexpr i32 kTileUnits = 256;
+constexpr i32 speedUnits(i32 kmh) { return (kmh * 80 + 50) / 100; } // units per tick
+
+enum OrderFlags : u8 {
+    kOrderNonStop = 1 << 0,
+    kOrderFullLoad = 1 << 1,
+    kOrderUnloadOnly = 1 << 2,
+    kOrderNoLoading = 1 << 3,
+};
+
+enum class OrderKind : u8 { Station, Depot };
+
+struct Order {
+    OrderKind kind = OrderKind::Station;
+    StationId station;
+    DepotId depot;
+    u8 flags = 0;
+
+    friend bool operator==(const Order&, const Order&) = default;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(kind, station, depot, flags);
+    }
+};
+
+enum class VehicleState : u8 {
+    InDepot, // parked inside its depot
+    Driving, // travelling towards the current order target
+    Loading, // stopped at a station
+};
+
+struct Vehicle {
+    u32 serial = 0;
+    CompanyId owner;
+    u16 model = 0;
+    u16 unitNumber = 0;
+    VehicleState state = VehicleState::InDepot;
+    bool stopped = true; // the player's start / stop switch
+    bool sendToDepot = false;
+    bool lost = false;
+    DepotId depot; // depot it was bought in / last visited
+
+    // Position on the road network: the tile, the edge it entered through, the edge it leaves
+    // through and the progress along that in-tile path.
+    TilePos tile;
+    Dir entry = Dir::S;
+    Dir exit = Dir::N;
+    i32 progress = 0;
+    i32 speed = 0; // current speed, units per tick
+    bool stopAtMiddle = false;
+    i32 blockedTicks = 0; // ticks spent waiting behind another vehicle (gridlock breaker)
+
+    std::vector<u8> path; // planned exits (Dir) for the tiles after the current one
+    u32 pathIndex = 0;
+    i32 tilesSincePlan = 0;
+
+    std::vector<Order> orders;
+    u8 orderIndex = 0;
+
+    std::vector<PersonId> passengers;
+    i64 loadingUntil = 0;
+
+    Money profitThisYear = 0;
+    Money profitLastYear = 0;
+    Money value = 0;
+    i64 builtTick = 0;
+    i32 passengersThisYear = 0;
+
+    const VehicleModel& info() const { return vehicleModel(model); }
+    const Order* currentOrder() const { return orders.empty() ? nullptr : &orders[orderIndex % orders.size()]; }
+
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(serial, owner, model, unitNumber, state, stopped, sendToDepot, lost, depot, tile, entry, exit, progress,
+           speed, stopAtMiddle, blockedTicks, path, pathIndex, tilesSincePlan, orders, orderIndex, passengers,
+           loadingUntil, profitThisYear, profitLastYear, value, builtTick, passengersThisYear);
+    }
+};
+
+// In-tile path lengths (units) for road vehicles driving on the right.
+inline constexpr i32 kPathStraight = 256;
+inline constexpr i32 kPathRightTurn = 121; // inner curve
+inline constexpr i32 kPathLeftTurn = 281;  // outer curve
+inline constexpr i32 kPathUTurn = 341;
+
+enum class TurnKind : u8 { Straight, Right, Left, UTurn };
+
+constexpr TurnKind turnKind(Dir entry, Dir exit) {
+    const Dir travel = opposite(entry);
+    if (exit == travel) return TurnKind::Straight;
+    if (exit == entry) return TurnKind::UTurn;
+    if (exit == rotateCW(travel)) return TurnKind::Right;
+    return TurnKind::Left;
+}
+
+constexpr i32 pathLength(Dir entry, Dir exit) {
+    switch (turnKind(entry, exit)) {
+    case TurnKind::Straight: return kPathStraight;
+    case TurnKind::Right: return kPathRightTurn;
+    case TurnKind::Left: return kPathLeftTurn;
+    case TurnKind::UTurn: return kPathUTurn;
+    }
+    return kPathStraight;
+}
+
+namespace vehicles {
+
+VehicleId buy(World& w, CompanyId owner, DepotId depot, u16 model);
+void sell(World& w, VehicleId id);
+void start(World& w, VehicleId id);
+// Called every tick for every vehicle.
+void tickAll(World& w);
+void daily(World& w);
+void yearly(World& w);
+// Removes a passenger from a vehicle (e.g. because the person is deleted).
+void dropPassengers(World& w, VehicleId id);
+// Marks every vehicle's path as stale (after the road network changed).
+void invalidatePaths(World& w);
+
+} // namespace vehicles
+
+} // namespace tp

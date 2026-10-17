@@ -8,8 +8,11 @@
 #include "sim/company.hpp"
 #include "sim/ids.hpp"
 #include "sim/map.hpp"
+#include "sim/passengers.hpp"
 #include "sim/person.hpp"
+#include "sim/station.hpp"
 #include "sim/town.hpp"
+#include "sim/vehicle.hpp"
 
 #include <deque>
 #include <functional>
@@ -17,6 +20,7 @@
 #include <queue>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace tp {
@@ -27,8 +31,8 @@ inline constexpr u32 kSaveVersion = 1;
 struct WorldSettings {
     u64 seed = 1;
     i32 startYear = 1950;
-    Money initialLoan = 300'000;
-    Money maxLoan = 1'000'000;
+    Money initialLoan = 500'000;
+    Money maxLoan = 2'000'000;
     i32 interestPercent = 4;
     i32 maxActiveChunks = 20'000;
     i32 maxChunksPerCommand = 64;
@@ -65,12 +69,21 @@ public:
     Pool<Town, TownId> towns;
     Pool<Building, BuildingId> buildings;
     Pool<Person, PersonId> people;
+    Pool<Station, StationId> stations;
+    Pool<Depot, DepotId> depots;
+    Pool<Vehicle, VehicleId> vehicles;
     std::set<u64> processedTownCells; // town cells already founded or known to be empty
     u32 nextSerial = 0;               // serial numbers for buildings / people
     std::deque<NewsItem> news;
 
-    // Derived (not saved): pending person events ordered by (tick, id).
+    // --- Derived state (not saved, rebuilt deterministically) ---------------------------
+    // Pending person events ordered by (tick, id).
     std::priority_queue<PersonEvent, std::vector<PersonEvent>, std::greater<PersonEvent>> personEvents;
+    // Chunk key -> stations whose catchment touches the chunk.
+    std::unordered_map<u64, std::vector<StationId>> stationIndex;
+    // Tile key -> vehicles on the tile (rebuilt every tick).
+    std::unordered_map<u64, std::vector<VehicleId>> vehicleTiles;
+    RoutingTable routing;
 
     // Advances the simulation by one tick (15 in-game seconds).
     void tick();
@@ -87,8 +100,13 @@ public:
     void serialize(Ar& ar) {
         ar(settings);
         if constexpr (Ar::kReading) map = Map(settings.seed);
-        ar(clock, rng, map, companies, towns, buildings, people, processedTownCells, nextSerial, news);
-        if constexpr (Ar::kReading) people::rebuildEvents(*this);
+        ar(clock, rng, map, companies, towns, buildings, people, stations, depots, vehicles, processedTownCells,
+           nextSerial, news);
+        if constexpr (Ar::kReading) {
+            people::rebuildEvents(*this);
+            stations::rebuildIndex(*this);
+            routing = RoutingTable{};
+        }
     }
 
 private:

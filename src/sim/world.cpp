@@ -12,12 +12,15 @@ World::World(const WorldSettings& s) : settings(s), rng(s.seed, 0x5EED), map(s.s
 
 void World::tick() {
     ++clock.tick;
+    passengers::updateRouting(*this);
     people::process(*this);
+    vehicles::tickAll(*this);
     if (clock.isNewDay()) onNewDay();
 }
 
 void World::onNewDay() {
     towns::growAll(*this);
+    vehicles::daily(*this);
     const CivilDate d = clock.date();
     if (d.day == 1) {
         onNewMonth();
@@ -27,6 +30,7 @@ void World::onNewDay() {
 
 void World::onNewMonth() {
     towns::monthly(*this);
+    stations::monthly(*this);
     people::jobMarket(*this);
     for (auto [id, c] : companies) {
         // Monthly loan interest.
@@ -43,6 +47,7 @@ void World::onNewMonth() {
 }
 
 void World::onNewYear() {
+    vehicles::yearly(*this);
     const i32 year = clock.date().year;
     for (auto [id, c] : companies) {
         c.thisYear.year = year - 1;
@@ -78,6 +83,9 @@ u64 World::stateHash() const {
     for (const auto [id, p] : people)
         acc += static_cast<u64>(p.nextEvent) * 1315423911ULL ^ (static_cast<u64>(p.state) << 3) ^ id.value;
     h.add(acc);
+    h.addAll(stations.size(), depots.size(), vehicles.size());
+    for (const auto [id, v] : vehicles)
+        h.addAll(id.value, v.tile.x, v.tile.y, v.progress, v.speed, static_cast<u8>(v.state), v.passengers.size());
     return h.value();
 }
 

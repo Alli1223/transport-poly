@@ -4,6 +4,8 @@
 
 #include "sim/commands.hpp"
 
+#include <unordered_set>
+
 namespace tp::cmd {
 
 CommandResult handle(World& w, const Command& c, const CmdActivateChunks& x, bool exec);
@@ -12,6 +14,22 @@ CommandResult handle(World& w, const Command& c, const CmdSetLoan& x, bool exec)
 CommandResult handle(World& w, const Command& c, const CmdTerraform& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdClearArea& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdPlantTrees& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdBuildRoad& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdRemoveRoad& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdBuildRoadStop& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdBuildRoadDepot& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdBuyVehicle& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdSellVehicle& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdStartStopVehicle& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdSendToDepot& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdSetOrders& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdSkipOrder& x, bool exec);
+
+// Tiles currently occupied by vehicles, computed directly from the vehicle pool so the result
+// never depends on derived caches (which differ right after loading a game).
+std::unordered_set<u64> occupiedTiles(const World& w);
+// Bulldozes a single tile for `company` (used by CmdClearArea). Returns cost or an error.
+CommandResult demolishTile(World& w, CompanyId company, TilePos t, bool exec, const std::unordered_set<u64>& busy);
 
 // Helpers shared by handlers.
 struct Rect {

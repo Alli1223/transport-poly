@@ -38,8 +38,10 @@ struct Person {
     PersonState state = PersonState::AtHome;
     TripPurpose purpose = TripPurpose::None;
     bool carOwner = false;
-    u16 departMinute = 7 * 60; // usual weekday departure
+    u16 departMinute = 7 * 60; // usual weekday departure (adapts to the commute duration)
     u16 workMinutes = 8 * 60;
+    u16 arriveMinute = 8 * 60 + 30; // preferred arrival time at work
+    u16 commuteMinutes = 30;        // duration of the last commute
     i64 nextEvent = -1;        // tick of the next scheduled state change, -1 = none
     i64 tripStart = 0;
     TilePos tripFrom2;         // trip end points in half tiles (for rendering pedestrians)
@@ -48,14 +50,16 @@ struct Person {
     StationId targetStation;   // station to alight at for the current leg
     StationId finalStation;    // station closest to the destination
     VehicleId vehicle;
+    i64 boardTick = 0;         // when the current ride started (fare calculation)
     u32 nameSeed = 0;
 
     bool employed() const { return work.valid(); }
 
     template <class Ar>
     void serialize(Ar& ar) {
-        ar(serial, home, work, shop, town, state, purpose, carOwner, departMinute, workMinutes, nextEvent, tripStart,
-           tripFrom2, tripTo2, station, targetStation, finalStation, vehicle, nameSeed);
+        ar(serial, home, work, shop, town, state, purpose, carOwner, departMinute, workMinutes, arriveMinute,
+           commuteMinutes, nextEvent, tripStart,
+           tripFrom2, tripTo2, station, targetStation, finalStation, vehicle, boardTick, nameSeed);
     }
 };
 
@@ -68,9 +72,9 @@ struct PersonEvent {
 
 // Travel speeds in ticks per tile (a tick is 15 game seconds).
 inline constexpr i64 kWalkTicksPerTile = 30;  // ~1 tile per real second at normal speed
-inline constexpr i64 kDriveTicksPerTile = 10;
+inline constexpr i64 kDriveTicksPerTile = 6;  // about as fast as a bus, without stops
 inline constexpr i64 kDriveOverheadTicks = 15 * kTicksPerMinute;
-inline constexpr i64 kLiftTicksPerTile = 12;
+inline constexpr i64 kLiftTicksPerTile = 8;
 inline constexpr i64 kLiftOverheadTicks = 30 * kTicksPerMinute;
 inline constexpr i32 kMaxWalkTiles = 7;
 
@@ -79,9 +83,13 @@ namespace people {
 PersonId create(World& w, BuildingId home);
 void remove(World& w, PersonId id);
 void schedule(World& w, PersonId id, i64 tick);
+// Travels without public transport (walk / drive / lift) between two half-tile positions.
+void travelAbstract(World& w, PersonId id, TilePos from2, TilePos to2, bool newTrip);
 // Runs all events due at the current tick.
 void process(World& w);
 void assignJob(World& w, PersonId id);
+// Re-plans the next departure of a person who is at home (e.g. after finding a job).
+void reschedule(World& w, PersonId id);
 void assignShop(World& w, PersonId id);
 // Matches unemployed people with vacancies in nearby towns.
 void jobMarket(World& w);

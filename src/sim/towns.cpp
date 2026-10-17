@@ -326,6 +326,7 @@ BuildingId placeBuilding(World& w, TownId townId, u16 type, TilePos pos, Dir fac
                     ++b.workers;
                     ++town->workers;
                     p->work = b.ref(id);
+                    people::reschedule(w, pid);
                 } else {
                     still.push_back(pid);
                 }

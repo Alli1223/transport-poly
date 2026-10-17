@@ -81,7 +81,7 @@ relies on every peer computing exactly the same game state.
 - [x] 5.6 Job market: assign work places (same town first, then nearby towns), unemployment
 - [x] 5.7 Shopping: assign a retail building in the nearest city
 - [x] 5.8 Weekly schedule: 5 work days, 2 shopping days; departure times; dwell times
-- [~] 5.9 Trip planner: walk / public transport / private car (abstract) mode choice (walk / car / lift; transit with stations)
+- [x] 5.9 Trip planner: walk / public transport / private car (abstract) mode choice
 - [x] 5.10 Event driven people simulation (priority queue by tick) for scalability
 - [~] 5.11 Town growth (roads + buildings) driven by population, jobs and transport service (daily growth by class and demand; service bonus with stations)
 - [ ] 5.12 New towns spawn over time in explored land
@@ -89,7 +89,7 @@ relies on every peer computing exactly the same game state.
 - [~] 5.14 Town statistics (population, passengers last month, served %) (monthly trip stats per mode)
 
 ## M6 — Infrastructure
-- [~] 6.1 Roads: road bits per tile, build / remove along a drag line, slopes, costs, town roads (pieces, slopes, foundations, town roads; company build command next)
+- [x] 6.1 Roads: road bits per tile, build / remove along a drag line, slopes, costs, town roads
 - [x] 6.2 Road rendering (straight, curves, junctions, slopes, dead ends)
 - [ ] 6.3 Rails: 6 track bits per tile (incl. diagonals), drag building, slopes
 - [ ] 6.4 Rail rendering (ballast, sleepers, rails; diagonals)
@@ -98,32 +98,32 @@ relies on every peer computing exactly the same game state.
 - [ ] 6.7 Tram tracks (on roads and tram-only)
 - [ ] 6.8 Bridges and tunnels for road / rail
 - [ ] 6.9 Canals and water tiles editing
-- [ ] 6.10 Stations: bus stop, tram stop, rail station (platform length / count), dock; names; joining adjacent tiles; catchment radius
-- [ ] 6.11 Depots: road, tram, rail, ship
-- [ ] 6.12 Demolish tool with cost; ownership checks
+- [~] 6.10 Stations: bus stop, tram stop, rail station (platform length / count), dock; names; joining adjacent tiles; catchment radius (bus / tram stops with joining, names, catchment; rail + docks later)
+- [~] 6.11 Depots: road, tram, rail, ship (road + tram depots)
+- [x] 6.12 Demolish tool with cost; ownership checks
 - [ ] 6.13 Infrastructure maintenance costs
 
 ## M7 — Vehicles
-- [ ] 7.1 Vehicle model catalogue (buses, trams, locomotives, multiple units, carriages, ferries) with stats & intro dates
-- [ ] 7.2 Buy / sell / clone vehicles in depots; start / stop; send to depot
-- [ ] 7.3 Orders: go to station (stop / non-stop), go via, full load, unload, depot service; shared orders; skip order
-- [ ] 7.4 Road pathfinder (A* over the road graph with deterministic tie breaking)
-- [ ] 7.5 Road vehicle movement: lanes, curves, junctions, queueing, gridlock breaker
+- [~] 7.1 Vehicle model catalogue (buses, trams, locomotives, multiple units, carriages, ferries) with stats & intro dates (buses + trams so far)
+- [~] 7.2 Buy / sell / clone vehicles in depots; start / stop; send to depot (buy / sell / start-stop / send to depot; clone later)
+- [~] 7.3 Orders: go to station (stop / non-stop), go via, full load, unload, depot service; shared orders; skip order (station + depot orders, full load, no loading, skip; shared orders later)
+- [x] 7.4 Road pathfinder (A* over the road graph with deterministic tie breaking)
+- [x] 7.5 Road vehicle movement: lanes, curves, junctions, queueing, gridlock breaker
 - [ ] 7.6 Tram movement (tram network, articulated trams)
 - [ ] 7.7 Rail pathfinder and train movement: consists, acceleration / braking, curve speed limits, slopes
 - [ ] 7.8 Signal logic, path reservation, collision prevention
 - [ ] 7.9 Ship pathfinder over water tiles and ship movement
-- [ ] 7.10 Loading / unloading at stations, dwell time
+- [x] 7.10 Loading / unloading at stations, dwell time
 - [ ] 7.11 Vehicle ageing, reliability, breakdowns, servicing at depots
-- [ ] 7.12 Vehicle profit tracking (this year / last year), running costs
+- [x] 7.12 Vehicle profit tracking (this year / last year), running costs
 
 ## M8 — Passengers & economy
-- [ ] 8.1 Link graph from vehicle orders (capacity, frequency, travel time)
-- [ ] 8.2 Station-to-station routing tables (Dijkstra per station, periodic recompute)
-- [ ] 8.3 Passengers waiting per station per next hop; station capacity; station rating
-- [ ] 8.4 Boarding / alighting and transfers; passengers are the actual Person entities
-- [ ] 8.5 Fare payment by distance & travel time (per leg, per company)
-- [ ] 8.6 Passengers giving up after long waits ⇒ rating penalty
+- [x] 8.1 Link graph from vehicle orders (capacity, frequency, travel time)
+- [x] 8.2 Station-to-station routing tables (Dijkstra per station, periodic recompute)
+- [~] 8.3 Passengers waiting per station per next hop; station capacity; station rating (waiting per next hop; simple rating)
+- [x] 8.4 Boarding / alighting and transfers; passengers are the actual Person entities
+- [x] 8.5 Fare payment by distance & travel time (per leg, per company)
+- [x] 8.6 Passengers giving up after long waits ⇒ rating penalty
 - [ ] 8.7 Economy events: inflation (optional), recessions
 - [ ] 8.8 Freight milestone: industries, cargo chains, trucks / freight wagons / cargo ships
 

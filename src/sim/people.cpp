@@ -2,6 +2,7 @@
 
 #include "core/hash.hpp"
 #include "core/math.hpp"
+#include "sim/passengers.hpp"
 #include "sim/world.hpp"
 
 #include <algorithm>
@@ -74,26 +75,31 @@ void scheduleFromHome(World& w, PersonId id) {
 void startTrip(World& w, PersonId id, TilePos from2, TilePos to2) {
     Person& p = w.people[id];
     const i64 dist = distanceTiles(from2, to2);
-    Town* town = w.towns.tryGet(p.town);
-    i64 duration;
-    if (dist <= kMaxWalkTiles) {
-        p.state = PersonState::Walking;
-        duration = std::max<i64>(1, dist) * kWalkTicksPerTile;
-        if (town) ++town->thisMonth.walked;
-    } else if (p.carOwner) {
-        p.state = PersonState::Driving;
-        duration = dist * kDriveTicksPerTile + kDriveOverheadTicks;
-        if (town) ++town->thisMonth.drove;
-    } else {
-        p.state = PersonState::Lift;
-        duration = dist * kLiftTicksPerTile + kLiftOverheadTicks;
-        if (town) ++town->thisMonth.lifts;
-    }
-    if (town) ++town->thisMonth.trips;
     p.tripStart = w.clock.tick;
     p.tripFrom2 = from2;
     p.tripTo2 = to2;
-    schedule(w, id, w.clock.tick + duration);
+    Town* town = w.towns.tryGet(p.town);
+    if (town) ++town->thisMonth.trips;
+    if (dist > kMaxWalkTiles - 2) {
+        passengers::TransitPlan plan;
+        if (passengers::planTrip(w, from2, to2, plan)) {
+            const i64 car = dist * kDriveTicksPerTile + kDriveOverheadTicks;
+            // People without a car use public transport whenever a reasonable route exists; car
+            // owners only switch when it is within 1.5x of the driving time.
+            const bool take = p.carOwner ? plan.total * 10 < car * 15 : plan.total < 6 * kTicksPerHour;
+            (void)car;
+            if (take) {
+                p.state = PersonState::ToStop;
+                p.station = plan.origin;
+                p.targetStation = plan.nextHop;
+                p.finalStation = plan.destination;
+                if (town) ++town->thisMonth.transit;
+                schedule(w, id, w.clock.tick + std::max<i64>(1, plan.walkToStop));
+                return;
+            }
+        }
+    }
+    travelAbstract(w, id, from2, to2, false);
 }
 
 void arrive(World& w, PersonId id) {
@@ -102,6 +108,10 @@ void arrive(World& w, PersonId id) {
     switch (p.purpose) {
     case TripPurpose::Work: {
         p.state = PersonState::AtWork;
+        // Learn from the commute: leave earlier or later next time to arrive on time.
+        const i64 commute = std::clamp<i64>((now - p.tripStart) / kTicksPerMinute, 5, 300);
+        p.commuteMinutes = static_cast<u16>((p.commuteMinutes * 3 + commute) / 4);
+        p.departMinute = static_cast<u16>(std::max<i64>(4 * 60, p.arriveMinute - p.commuteMinutes - 10));
         const i64 planned =
             w.clock.tickOfDay(w.clock.day()) + (p.departMinute + p.workMinutes + 45) * kTicksPerMinute;
         schedule(w, id, std::max(planned, now + 2 * kTicksPerHour));
@@ -120,6 +130,39 @@ void arrive(World& w, PersonId id) {
         break;
     }
 }
+
+void handleEvent(World& w, PersonId id);
+
+} // namespace
+
+void travelAbstract(World& w, PersonId id, TilePos from2, TilePos to2, bool newTrip) {
+    Person& p = w.people[id];
+    const i64 dist = distanceTiles(from2, to2);
+    Town* town = w.towns.tryGet(p.town);
+    if (newTrip) {
+        p.tripStart = w.clock.tick;
+        if (town) ++town->thisMonth.trips;
+    }
+    p.tripFrom2 = from2;
+    p.tripTo2 = to2;
+    i64 duration;
+    if (dist <= kMaxWalkTiles) {
+        p.state = PersonState::Walking;
+        duration = std::max<i64>(1, dist) * kWalkTicksPerTile;
+        if (town) ++town->thisMonth.walked;
+    } else if (p.carOwner) {
+        p.state = PersonState::Driving;
+        duration = dist * kDriveTicksPerTile + kDriveOverheadTicks;
+        if (town) ++town->thisMonth.drove;
+    } else {
+        p.state = PersonState::Lift;
+        duration = dist * kLiftTicksPerTile + kLiftOverheadTicks;
+        if (town) ++town->thisMonth.lifts;
+    }
+    schedule(w, id, w.clock.tick + duration);
+}
+
+namespace {
 
 void handleEvent(World& w, PersonId id) {
     Person& p = w.people[id];
@@ -169,11 +212,13 @@ void handleEvent(World& w, PersonId id) {
         arrive(w, id);
         return;
     case PersonState::ToStop:
-    case PersonState::Waiting:
-    case PersonState::Riding:
-        // Transit legs are driven by stations and vehicles; nothing scheduled here yet.
-        arrive(w, id);
+        passengers::arriveAtStation(w, id);
         return;
+    case PersonState::Waiting:
+        passengers::giveUpWaiting(w, id);
+        return;
+    case PersonState::Riding:
+        return; // the vehicle drives this leg
     }
 }
 
@@ -189,7 +234,8 @@ PersonId create(World& w, BuildingId homeId) {
         p.serial = ++w.nextSerial;
         p.home = home.ref(homeId);
         p.town = home.town;
-        p.departMinute = static_cast<u16>(6 * 60 + rng.below(150));
+        p.arriveMinute = static_cast<u16>(7 * 60 + 30 + rng.below(120));
+        p.departMinute = static_cast<u16>(p.arriveMinute - p.commuteMinutes);
         p.workMinutes = static_cast<u16>(7 * 60 + rng.below(150));
         p.carOwner = rng.chance(static_cast<u32>(carOwnershipPercent(w.clock.date().year)), 100);
         p.nameSeed = rng.next();
@@ -205,6 +251,17 @@ PersonId create(World& w, BuildingId homeId) {
 
 void remove(World& w, PersonId id) {
     Person& p = w.people[id];
+    if (p.state == PersonState::Waiting) {
+        if (Station* s = w.stations.tryGet(p.station)) {
+            auto it = s->waiting.find(p.targetStation);
+            if (it != s->waiting.end()) {
+                std::erase(it->second, id);
+                if (it->second.empty()) s->waiting.erase(it);
+            }
+        }
+    } else if (p.state == PersonState::Riding) {
+        if (Vehicle* v = w.vehicles.tryGet(p.vehicle)) std::erase(v->passengers, id);
+    }
     if (Building* b = resolve(w, p.home); b && b->residents > 0) --b->residents;
     if (Building* b = resolve(w, p.work); b && b->workers > 0) {
         --b->workers;
@@ -229,6 +286,10 @@ void process(World& w) {
         if (!p || p->serial != ev.serial || p->nextEvent != ev.tick) continue; // stale
         handleEvent(w, id);
     }
+}
+
+void reschedule(World& w, PersonId id) {
+    if (w.people[id].state == PersonState::AtHome) scheduleFromHome(w, id);
 }
 
 void assignJob(World& w, PersonId id) {
@@ -289,7 +350,10 @@ void jobMarket(World& w) {
             if (!p || p->employed() || p->town != tid) continue;
             bool found = findVacancy(w, tid, pid);
             for (usize i = 0; !found && i < candidates.size(); ++i) found = findVacancy(w, candidates[i].id, pid);
-            if (!found) still.push_back(pid);
+            if (found)
+                reschedule(w, pid);
+            else
+                still.push_back(pid);
         }
         w.towns[tid].unemployed = std::move(still);
     }

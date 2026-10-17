@@ -1,9 +1,10 @@
 #pragma once
-// Road pieces on tiles: terrain rules, connectivity and construction helpers.
+// Road and tram pieces on tiles: terrain rules, connectivity and construction helpers.
 //
-// A road tile stores up to four half-tile pieces (N, E, S, W) running from the tile centre to an
-// edge. Roads may run straight up a ramp slope; on other non-steep slopes they sit on a flat
-// foundation one level above the lowest corner.
+// A road tile stores up to four half-tile road pieces (low nibble of Tile::road) and four tram
+// pieces (high nibble), each running from the tile centre to an edge. Pieces may run straight up a
+// ramp slope; on other non-steep slopes they sit on a flat foundation one level above the lowest
+// corner. Road pieces belong to Tile::roadOwner, tram pieces to Tile::owner.
 
 #include "core/types.hpp"
 #include "sim/coords.hpp"
@@ -18,8 +19,13 @@ inline constexpr u8 kRoadPieceMask = 0x0F;
 
 constexpr u8 roadPieces(const Tile& t) { return t.road & kRoadPieceMask; }
 constexpr u8 tramPieces(const Tile& t) { return static_cast<u8>(t.road >> 4); }
+constexpr u8 allRoadPieces(const Tile& t) { return static_cast<u8>(roadPieces(t) | tramPieces(t)); }
+constexpr u8 layerPieces(const Tile& t, bool tram) { return tram ? tramPieces(t) : roadPieces(t); }
 constexpr bool hasRoadPiece(const Tile& t, Dir d) { return (t.road & dirBit(d)) != 0; }
 constexpr u8 axisBits(Dir d) { return static_cast<u8>(dirBit(d) | dirBit(opposite(d))); }
+constexpr bool isStraight(u8 pieces) {
+    return pieces == (dirBit(Dir::N) | dirBit(Dir::S)) || pieces == (dirBit(Dir::E) | dirBit(Dir::W));
+}
 
 enum class Surface : u8 { Flat, Ramp, Foundation, Invalid };
 
@@ -33,12 +39,12 @@ int roadEdgeHalfLevels(const TileCorners& c, Surface surface, Dir d);
 // Height in levels of a flat surface (Flat / Foundation).
 u8 flatSurfaceLevel(const Slope& s, Surface surface);
 
-// Whether pieces can be added on both sides of the edge between `a` and its neighbour in `d`
-// (terrain, contents and edge heights).
-bool canConnectRoad(const Map& map, TilePos a, Dir d);
-// Adds the pieces; returns false (and changes nothing) if impossible. New road tiles get `owner`.
-bool connectRoad(Map& map, TilePos a, Dir d, u8 owner);
-// Adds a single dead-end piece without touching the neighbour (e.g. stubs towards buildings).
-bool addRoadPiece(Map& map, TilePos t, Dir d, u8 owner);
+// Whether pieces of the given layer can be added on both sides of the edge between `a` and its
+// neighbour in `d` (terrain, contents and edge heights).
+bool canConnectRoad(const Map& map, TilePos a, Dir d, bool tram = false);
+// Adds the pieces; returns false (and changes nothing) if impossible. New pieces get `owner`.
+bool connectRoad(Map& map, TilePos a, Dir d, u8 owner, bool tram = false);
+// Adds a single piece without touching the neighbour (e.g. the road stub in front of a depot).
+bool addRoadPiece(Map& map, TilePos t, Dir d, u8 owner, bool tram = false);
 
 } // namespace tp
