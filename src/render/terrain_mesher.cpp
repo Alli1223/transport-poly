@@ -2,6 +2,7 @@
 
 #include "core/hash.hpp"
 #include "sim/road.hpp"
+#include "sim/station.hpp"
 #include "sim/world.hpp"
 
 #include <glm/gtc/constants.hpp>
@@ -40,6 +41,9 @@ constexpr u32 kMarking = rgba(236, 234, 220);
 constexpr u32 kFoundation = rgba(150, 134, 112);
 constexpr u32 kUrbanRoad = rgba(112, 112, 114);
 constexpr u32 kUrbanBuilding = rgba(160, 152, 140);
+constexpr u32 kBallast = rgba(128, 118, 106);
+constexpr u32 kRail = rgba(88, 88, 94);
+constexpr u32 kStopMarking = rgba(232, 196, 64);
 
 u32 groundColor(const Tile& t) {
     switch (t.ground) {
@@ -86,29 +90,61 @@ void quadOnSurface(MeshBuilder& mb, const TopSurface& s, float x0, float z0, flo
     mb.triangleUp(p(u0, v0), p(u0, v1), p(u1, v1), color);
 }
 
-void addRoad(MeshBuilder& mb, const TopSurface& s, float x0, float z0, u8 pieces) {
-    constexpr float p0 = 0.1f, p1 = 0.9f;   // pavement extent
+void addRoad(MeshBuilder& mb, const TopSurface& s, float x0, float z0, u8 roadBits, u8 tramBits, bool stop) {
+    constexpr float p0 = 0.1f, p1 = 0.9f;   // pavement / track bed extent
     constexpr float a0 = 0.22f, a1 = 0.78f; // asphalt extent
-    const bool n = pieces & dirBit(Dir::N), e = pieces & dirBit(Dir::E);
-    const bool so = pieces & dirBit(Dir::S), w = pieces & dirBit(Dir::W);
-    quadOnSurface(mb, s, x0, z0, p0, p0, p1, p1, 0.015f, kPavement);
-    if (n) quadOnSurface(mb, s, x0, z0, p0, 0.0f, p1, p0, 0.015f, kPavement);
-    if (so) quadOnSurface(mb, s, x0, z0, p0, p1, p1, 1.0f, 0.015f, kPavement);
-    if (w) quadOnSurface(mb, s, x0, z0, 0.0f, p0, p0, p1, 0.015f, kPavement);
-    if (e) quadOnSurface(mb, s, x0, z0, p1, p0, 1.0f, p1, 0.015f, kPavement);
-    quadOnSurface(mb, s, x0, z0, a0, a0, a1, a1, 0.025f, kAsphalt);
-    if (n) quadOnSurface(mb, s, x0, z0, a0, 0.0f, a1, a0, 0.025f, kAsphalt);
-    if (so) quadOnSurface(mb, s, x0, z0, a0, a1, a1, 1.0f, 0.025f, kAsphalt);
-    if (w) quadOnSurface(mb, s, x0, z0, 0.0f, a0, a0, a1, 0.025f, kAsphalt);
-    if (e) quadOnSurface(mb, s, x0, z0, a1, a0, 1.0f, a1, 0.025f, kAsphalt);
-    // Dashed centre line on straight roads.
-    constexpr float m0 = 0.488f, m1 = 0.512f;
-    if (pieces == (dirBit(Dir::N) | dirBit(Dir::S))) {
-        quadOnSurface(mb, s, x0, z0, m0, 0.08f, m1, 0.33f, 0.03f, kMarking);
-        quadOnSurface(mb, s, x0, z0, m0, 0.58f, m1, 0.83f, 0.03f, kMarking);
-    } else if (pieces == (dirBit(Dir::E) | dirBit(Dir::W))) {
-        quadOnSurface(mb, s, x0, z0, 0.08f, m0, 0.33f, m1, 0.03f, kMarking);
-        quadOnSurface(mb, s, x0, z0, 0.58f, m0, 0.83f, m1, 0.03f, kMarking);
+    const u8 all = static_cast<u8>(roadBits | tramBits);
+    const bool n = all & dirBit(Dir::N), e = all & dirBit(Dir::E);
+    const bool so = all & dirBit(Dir::S), w = all & dirBit(Dir::W);
+    const u32 bed = roadBits ? kPavement : kBallast;
+    quadOnSurface(mb, s, x0, z0, p0, p0, p1, p1, 0.015f, bed);
+    if (n) quadOnSurface(mb, s, x0, z0, p0, 0.0f, p1, p0, 0.015f, bed);
+    if (so) quadOnSurface(mb, s, x0, z0, p0, p1, p1, 1.0f, 0.015f, bed);
+    if (w) quadOnSurface(mb, s, x0, z0, 0.0f, p0, p0, p1, 0.015f, bed);
+    if (e) quadOnSurface(mb, s, x0, z0, p1, p0, 1.0f, p1, 0.015f, bed);
+    if (roadBits) {
+        const bool rn = roadBits & dirBit(Dir::N), re = roadBits & dirBit(Dir::E);
+        const bool rs = roadBits & dirBit(Dir::S), rw = roadBits & dirBit(Dir::W);
+        quadOnSurface(mb, s, x0, z0, a0, a0, a1, a1, 0.025f, kAsphalt);
+        if (rn) quadOnSurface(mb, s, x0, z0, a0, 0.0f, a1, a0, 0.025f, kAsphalt);
+        if (rs) quadOnSurface(mb, s, x0, z0, a0, a1, a1, 1.0f, 0.025f, kAsphalt);
+        if (rw) quadOnSurface(mb, s, x0, z0, 0.0f, a0, a0, a1, 0.025f, kAsphalt);
+        if (re) quadOnSurface(mb, s, x0, z0, a1, a0, 1.0f, a1, 0.025f, kAsphalt);
+        // Dashed centre line on straight roads (not at stops).
+        constexpr float m0 = 0.488f, m1 = 0.512f;
+        if (!stop && roadBits == (dirBit(Dir::N) | dirBit(Dir::S)) && !tramBits) {
+            quadOnSurface(mb, s, x0, z0, m0, 0.08f, m1, 0.33f, 0.03f, kMarking);
+            quadOnSurface(mb, s, x0, z0, m0, 0.58f, m1, 0.83f, 0.03f, kMarking);
+        } else if (!stop && roadBits == (dirBit(Dir::E) | dirBit(Dir::W)) && !tramBits) {
+            quadOnSurface(mb, s, x0, z0, 0.08f, m0, 0.33f, m1, 0.03f, kMarking);
+            quadOnSurface(mb, s, x0, z0, 0.58f, m0, 0.83f, m1, 0.03f, kMarking);
+        }
+    }
+    if (stop) {
+        // Yellow stop bay lines along both kerbs.
+        if (all & dirBit(Dir::N)) {
+            quadOnSurface(mb, s, x0, z0, 0.235f, 0.15f, 0.255f, 0.85f, 0.032f, kStopMarking);
+            quadOnSurface(mb, s, x0, z0, 0.745f, 0.15f, 0.765f, 0.85f, 0.032f, kStopMarking);
+        } else {
+            quadOnSurface(mb, s, x0, z0, 0.15f, 0.235f, 0.85f, 0.255f, 0.032f, kStopMarking);
+            quadOnSurface(mb, s, x0, z0, 0.15f, 0.745f, 0.85f, 0.765f, 0.032f, kStopMarking);
+        }
+    }
+    // Tram rails: one track per lane, from the tile centre to each connected edge.
+    constexpr float lane = 0.2f, gauge = 0.055f, rw = 0.012f;
+    for (const Dir d : kDirs) {
+        if (!(tramBits & dirBit(d))) continue;
+        for (const float side : {-lane, lane}) {
+            for (const float rail : {-gauge, gauge}) {
+                const float c = 0.5f + side + rail;
+                switch (d) {
+                case Dir::N: quadOnSurface(mb, s, x0, z0, c - rw, 0.0f, c + rw, 0.5f + lane, 0.035f, kRail); break;
+                case Dir::S: quadOnSurface(mb, s, x0, z0, c - rw, 0.5f - lane, c + rw, 1.0f, 0.035f, kRail); break;
+                case Dir::W: quadOnSurface(mb, s, x0, z0, 0.0f, c - rw, 0.5f + lane, c + rw, 0.035f, kRail); break;
+                case Dir::E: quadOnSurface(mb, s, x0, z0, 0.5f - lane, c - rw, 1.0f, c + rw, 0.035f, kRail); break;
+                }
+            }
+        }
     }
 }
 
@@ -195,19 +231,25 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 base = shade(base, std::max(0.45f, 1.0f + depth * 0.18f));
             } else if (tile.type == TileType::Building) {
                 base = lod == 0 ? buildingGround(tile, world) : kUrbanBuilding;
-            } else if (tile.type == TileType::Road && lod > 0) {
+            } else if ((tile.type == TileType::Road || tile.type == TileType::Station) && lod > 0) {
                 base = kUrbanRoad;
+            } else if (tile.type == TileType::Depot) {
+                base = lod == 0 ? kPlaza : kUrbanBuilding;
             }
             cellColor[static_cast<usize>(j * cells + i)] = base;
 
             // Structures on slopes stand on a flat foundation instead of the terrain.
             TopSurface top;
             bool structure = false;
-            if (lod == 0 && (tile.type == TileType::Road || tile.type == TileType::Building)) {
+            const bool roadLike =
+                tile.type == TileType::Road ||
+                (tile.type == TileType::Station && (static_cast<StopKind>(tile.extra) == StopKind::Bus ||
+                                                    static_cast<StopKind>(tile.extra) == StopKind::Tram));
+            if (lod == 0 && (roadLike || tile.type == TileType::Building || tile.type == TileType::Depot)) {
                 structure = true;
                 top.corners = chunk.corners(lx, ly);
                 const Slope slope = computeSlope(top.corners);
-                top.surface = tile.type == TileType::Road ? roadSurface(slope, roadPieces(tile)) : buildingSurface(slope);
+                top.surface = roadLike ? roadSurface(slope, allRoadPieces(tile)) : buildingSurface(slope);
                 if (top.surface == Surface::Invalid) top.surface = Surface::Foundation;
                 top.level = flatSurfaceLevel(slope, top.surface);
             }
@@ -228,7 +270,10 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                     ground.triangleUp(ne, sw, se, c1);
                 }
             }
-            if (structure && tile.type == TileType::Road) addRoad(ground, top, x0, z0, roadPieces(tile));
+            if (structure && roadLike)
+                addRoad(ground, top, x0, z0, roadPieces(tile), tramPieces(tile), tile.type == TileType::Station);
+            if (structure && tile.type == TileType::Depot)
+                quadOnSurface(ground, top, x0, z0, 0.04f, 0.04f, 0.96f, 0.96f, 0.012f, kPlaza);
 
             if (tile.type == TileType::Water) {
                 const u32 wc = rgba(255, 255, 255);

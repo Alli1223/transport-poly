@@ -3,6 +3,7 @@
 #include "core/hash.hpp"
 #include "core/log.hpp"
 #include "render/shaders.hpp"
+#include "render/vehicle_pose.hpp"
 #include "sim/road.hpp"
 
 #include <glm/gtc/constants.hpp>
@@ -77,6 +78,22 @@ u32 buildingTint(const Building& b) {
     case BuildingCategory::Industrial: return kIndustrial[h % std::size(kIndustrial)];
     default: return kCommercial[h % std::size(kCommercial)];
     }
+}
+
+u32 companyTint(const World& w, CompanyId id) {
+    const Company* c = w.companies.tryGet(id);
+    const u32 rgb = companyColourRgb(c ? c->colour : 14);
+    return rgba(static_cast<u8>(rgb >> 16), static_cast<u8>(rgb >> 8), static_cast<u8>(rgb));
+}
+
+ModelId vehicleModelId(const VehicleModel& m) {
+    switch (m.type) {
+    case VehicleType::Road: return models::bus(m.visual);
+    case VehicleType::Tram: return models::tram(m.visual);
+    case VehicleType::Rail: return models::train(m.visual);
+    case VehicleType::Ship: return models::ship(m.visual);
+    }
+    return models::bus(0);
 }
 
 } // namespace
@@ -203,6 +220,35 @@ void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, Ch
                 mesh.maxY = std::max(mesh.maxY, y + 4.6f);
             }
         }
+        // Stop shelters and depots.
+        for (i32 ly = 0; ly < kChunkSize; ++ly) {
+            for (i32 lx = 0; lx < kChunkSize; ++lx) {
+                const Tile& t = active->tile(lx, ly);
+                const TilePos wp{o.x + lx, o.y + ly};
+                if (t.type == TileType::Station &&
+                    (static_cast<StopKind>(t.extra) == StopKind::Bus || static_cast<StopKind>(t.extra) == StopKind::Tram)) {
+                    const Station* st = world.stations.tryGet(StationId(t.index));
+                    const u32 tint = companyTint(world, st ? st->owner : CompanyId{});
+                    const float y = roadSurfaceY(world, wp, 0.5f, 0.5f) + 0.015f;
+                    const bool northSouth = allRoadPieces(t) & dirBit(Dir::N);
+                    // One shelter on each kerb, open towards the road.
+                    if (northSouth) {
+                        items.emplace_back(models::kBusStop, makeInstance({lx + 0.92f, y, ly + 0.5f}, facingYaw(Dir::W), 1.0f, tint));
+                        items.emplace_back(models::kBusStop, makeInstance({lx + 0.08f, y, ly + 0.5f}, facingYaw(Dir::E), 1.0f, tint));
+                    } else {
+                        items.emplace_back(models::kBusStop, makeInstance({lx + 0.5f, y, ly + 0.92f}, facingYaw(Dir::N), 1.0f, tint));
+                        items.emplace_back(models::kBusStop, makeInstance({lx + 0.5f, y, ly + 0.08f}, facingYaw(Dir::S), 1.0f, tint));
+                    }
+                } else if (t.type == TileType::Depot) {
+                    const Depot* d = world.depots.tryGet(DepotId(t.index));
+                    if (!d) continue;
+                    const float y = static_cast<float>(map.corners(wp).min()) * kHeightStep;
+                    items.emplace_back(d->kind == DepotKind::Tram ? models::kTramDepot : models::kRoadDepot,
+                                       makeInstance({lx + 0.5f, y, ly + 0.5f}, facingYaw(d->facing), 1.0f,
+                                                    companyTint(world, d->owner)));
+                }
+            }
+        }
     }
     mesh.buildings.upload(items);
     mesh.revision = active ? active->revision + 1 : 0;
@@ -238,8 +284,26 @@ void WorldRenderer::drawChunks(const DrawLists& lists, const glm::dvec3& origin,
     }
 }
 
+void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin, const glm::dvec3& focus,
+                                    double radius, double tickFraction) {
+    dynamic_.clear();
+    for (const auto [id, v] : world.vehicles) {
+        if (v.state == VehicleState::InDepot) continue;
+        const double dx = v.tile.x - focus.x, dz = v.tile.y - focus.z;
+        if (dx * dx + dz * dz > radius * radius) continue;
+        const auto pose = vehiclePose(world, v, tickFraction);
+        if (!pose) continue;
+        glm::mat4 m = glm::translate(glm::mat4(1.0f), glm::vec3(pose->pos - origin));
+        m = glm::rotate(m, pose->yaw, glm::vec3(0, 1, 0));
+        m = glm::rotate(m, pose->pitch, glm::vec3(0, 0, 1));
+        dynamic_.add(vehicleModelId(v.info()), makeInstance(m, companyTint(world, v.owner)));
+        ++stats_.vehiclesDrawn;
+    }
+    dynamic_.upload();
+}
+
 void WorldRenderer::render(const World& world, const Camera& cam, double minuteOfDay, double timeSeconds,
-                           const std::vector<OverlayQuad>& overlays) {
+                           double tickFraction, const std::vector<OverlayQuad>& overlays) {
     const Map& map = world.map;
     ++frame_;
     stats_ = {};
@@ -366,6 +430,8 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(FrameUniforms), &fu);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
+    collectVehicles(world, origin, cam.target, buildingRadius, tickFraction);
+
     // --- Shadow pass ------------------------------------------------------------------------
     if (shadows) {
         glBindFramebuffer(GL_FRAMEBUFFER, shadowFbo_.get());
@@ -377,6 +443,9 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(1.5f, 3.0f);
         drawChunks(shadow, origin, true);
+        shadowModelShader_->use();
+        shadowModelShader_->set("uOffset", glm::vec3(0.0f));
+        dynamic_.draw(models_);
         glDisable(GL_POLYGON_OFFSET_FILL);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
@@ -404,6 +473,9 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
 
     if (settings.wireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     drawChunks(main, origin, false);
+    modelShader_->use();
+    modelShader_->set("uOffset", glm::vec3(0.0f));
+    dynamic_.draw(models_);
     if (settings.wireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
     // Water (translucent)

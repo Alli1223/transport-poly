@@ -15,7 +15,22 @@ struct GLFWwindow;
 
 namespace tp {
 
-enum class Tool { None, Raise, Lower, Clear, Trees };
+enum class Tool {
+    None,
+    Raise,
+    Lower,
+    Clear,
+    Trees,
+    Road,
+    RemoveRoad,
+    BusStop,
+    RoadDepot,
+    TramTrack,
+    RemoveTram,
+    TramStop,
+    TramDepot,
+    PickOrder, // click a station to append it to the selected vehicle's orders
+};
 
 class App {
 public:
@@ -26,14 +41,13 @@ public:
     void onFramebufferSize(int width, int height);
 
 private:
+    // app.cpp
     bool init();
     void shutdown();
     void newGame(u64 seed);
     void updateCamera(double dt);
     void updateExploration(double now);
-    void handleTools();
     void drawHud();
-    void drawToolbar();
     void drawDebugUi();
     void drawToasts(double now);
     void drawTownLabels();
@@ -43,12 +57,46 @@ private:
     void captureScreenshot(const std::string& path);
     World& world() { return session_->world(); }
 
+    // app_tools.cpp
+    void drawToolbar();
+    void handleTools(std::vector<gfx::OverlayQuad>& overlays);
+    void handleClick();
+    std::optional<CommandPayload> dragCommand(TilePos a, TilePos b) const;
+    void addTileOverlay(std::vector<gfx::OverlayQuad>& overlays, TilePos t, u32 color, double lift = 0.04) const;
+    VehicleId pickVehicle() const;
+
+    // app_windows.cpp
+    void drawWindows();
+    void drawDepotWindow();
+    void drawVehicleWindow();
+    void drawStationWindow();
+    void drawTownWindow();
+    void drawFinanceWindow();
+    void drawVehicleList();
+    std::string vehicleName(const Vehicle& v) const;
+    std::string vehicleStatus(const Vehicle& v) const;
+    void focusOn(TilePos t);
+
     GLFWwindow* window_ = nullptr;
     gfx::WorldRenderer renderer_;
     gfx::Camera camera_;
     std::unique_ptr<GameSession> session_;
     gfx::TerrainHit hover_;
+    gfx::Ray mouseRay_;
+    bool mouseOverUi_ = false;
     Tool tool_ = Tool::None;
+    std::optional<TilePos> dragStart_;
+
+    // Open windows / selection.
+    DepotId selDepot_;
+    VehicleId selVehicle_;
+    StationId selStation_;
+    TownId selTown_;
+    VehicleId followVehicle_;
+    bool showFinances_ = false;
+    bool showVehicleList_ = false;
+    // Commands whose result should open a window (sequence number -> kind).
+    u32 pendingBuySeq_ = 0;
 
     // Exploration requests in flight: chunk key -> time requested.
     std::unordered_map<u64, double> explorePending_;
@@ -79,6 +127,8 @@ private:
     bool pendingScreenshot_ = false;
     bool gotoWater_ = false;
     double gotoTownDistance_ = 0.0; // > 0: jump to the biggest town at this zoom (automation)
+    bool demoNetwork_ = false;      // automation: build a demo bus line in the biggest town
+    bool followFirst_ = false;      // automation: follow the first vehicle
 };
 
 } // namespace tp

@@ -70,6 +70,18 @@ void ModelLibrary::build() {
         buildDeciduous(mb, v);
         add(static_cast<ModelId>(models::kTreeDeciduous0 + v), mb);
     }
+    for (const ModelId id : {models::kBusStop, models::kRoadDepot, models::kTramDepot, models::kPerson}) {
+        MeshBuilder mb;
+        buildTransportModels(mb, id);
+        add(id, mb);
+    }
+    for (int v = 0; v < 8; ++v) {
+        for (const ModelId id : {models::bus(v), models::tram(v)}) {
+            MeshBuilder mb;
+            buildTransportModels(mb, id);
+            if (!mb.vertices.empty()) add(id, mb);
+        }
+    }
     const auto types = buildingTypes();
     for (u16 t = 0; t < types.size() && t < models::kMaxBuildingTypes; ++t) {
         for (u8 v = 0; v < models::kBuildingVariants; ++v) {

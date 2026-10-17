@@ -10,8 +10,11 @@
 #include "core/calendar.hpp"
 #include "core/log.hpp"
 #include "core/png.hpp"
+#include "core/math.hpp"
 #include "core/version.hpp"
 #include "render/gl.hpp"
+#include "render/vehicle_pose.hpp"
+#include "sim/road.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -59,6 +62,56 @@ std::optional<TilePos> findCoastNear(const TerrainGenerator& g, TilePos s0) {
     return std::nullopt;
 }
 
+// Builds a small bus line in the biggest town (used for automated screenshots / smoke tests).
+void buildDemoNetwork(World& w, CompanyId company) {
+    const Town* town = nullptr;
+    for (const auto [id, t] : w.towns)
+        if (!town || t.population > town->population) town = &t;
+    if (!town) return;
+    const auto run = [&](CommandPayload p) {
+        Command c;
+        c.company = company;
+        c.payload = std::move(p);
+        return executeCommand(w, c);
+    };
+    std::vector<TilePos> stops;
+    for (const TilePos r : town->roads) {
+        const Tile* t = w.map.tile(r);
+        if (!t || t->type != TileType::Road || !isStraight(roadPieces(*t)) || !w.map.slope(r).isFlat()) continue;
+        bool farEnough = true;
+        for (const TilePos s : stops) farEnough = farEnough && manhattan(s.x - r.x, s.y - r.y) >= 9;
+        if (farEnough && run(CmdBuildRoadStop{r, false}).ok) stops.push_back(r);
+        if (stops.size() >= 4) break;
+    }
+    if (stops.size() < 2) return;
+    DepotId depot;
+    for (const TilePos r : town->roads) {
+        for (const Dir d : kDirs) {
+            const CommandResult res = run(CmdBuildRoadDepot{neighbour(r, d), opposite(d), false});
+            if (res.ok) {
+                depot = DepotId(res.createdId);
+                break;
+            }
+        }
+        if (depot.valid()) break;
+    }
+    if (!depot.valid()) return;
+    std::vector<Order> orders;
+    for (const TilePos s : stops) {
+        Order o;
+        o.station = StationId(w.map.tile(s)->index);
+        orders.push_back(o);
+    }
+    for (int i = 0; i < 4; ++i) {
+        const CommandResult buy = run(CmdBuyVehicle{depot, 0});
+        if (!buy.ok) break;
+        const VehicleId v(buy.createdId);
+        std::rotate(orders.begin(), orders.begin() + 1, orders.end());
+        run(CmdSetOrders{v, orders});
+        run(CmdStartStopVehicle{v});
+    }
+}
+
 } // namespace
 
 void App::onScroll(double dy) { scrollAccum_ += dy; }
@@ -89,6 +142,10 @@ bool App::parseArgs(int argc, char** argv) {
             if (const char* v = next()) gotoTownDistance_ = std::max(6.0, std::atof(v));
         } else if (arg == "--goto-water") {
             gotoWater_ = true;
+        } else if (arg == "--follow") {
+            followFirst_ = true;
+        } else if (arg == "--demo-network") {
+            demoNetwork_ = true;
         } else if (arg == "--no-debug") {
             showDebug_ = false;
         } else {
@@ -201,9 +258,15 @@ void App::shutdown() {
 }
 
 void App::updateCamera(double dt) {
+    if (const Vehicle* v = world().vehicles.tryGet(followVehicle_)) {
+        if (const auto pose = gfx::vehiclePose(world(), *v, session_->tickFraction())) camera_.targetGoal = pose->pos;
+    } else {
+        followVehicle_ = {};
+    }
     if (autoScreenshot_) {
         // Ignore all input during automated screenshots.
         hover_ = {};
+        mouseOverUi_ = true;
         camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
         camera_.update(dt);
         return;
@@ -234,7 +297,10 @@ void App::updateCamera(double dt) {
         if (down(GLFW_KEY_S) || down(GLFW_KEY_DOWN)) forward -= speed;
         if (down(GLFW_KEY_D) || down(GLFW_KEY_RIGHT)) right += speed;
         if (down(GLFW_KEY_A) || down(GLFW_KEY_LEFT)) right -= speed;
-        if (right != 0.0 || forward != 0.0) camera_.pan(right, forward);
+        if (right != 0.0 || forward != 0.0) {
+            camera_.pan(right, forward);
+            followVehicle_ = {};
+        }
         if (down(GLFW_KEY_Q)) camera_.orbit(-1.6 * dt, 0.0);
         if (down(GLFW_KEY_E)) camera_.orbit(1.6 * dt, 0.0);
         if (down(GLFW_KEY_R)) camera_.orbit(0.0, 1.0 * dt);
@@ -249,10 +315,12 @@ void App::updateCamera(double dt) {
             const double k = camera_.distance * 0.0016;
             camera_.pan(-dx * k, dy * k);
         }
-        hover_ = gfx::pickTerrain(world().map, camera_.screenRay(mx * sx, my * sy));
+        mouseRay_ = camera_.screenRay(mx * sx, my * sy);
+        hover_ = gfx::pickTerrain(world().map, mouseRay_);
     } else {
         hover_ = {};
     }
+    mouseOverUi_ = io.WantCaptureMouse;
     scrollAccum_ = 0.0;
 
     // Keep the orbit target on the ground.
@@ -299,23 +367,16 @@ void App::updateExploration(double now) {
     session_->submit(std::move(cmd));
 }
 
-void App::handleTools() {
-    if (autoScreenshot_) return;
-    if (tool_ == Tool::None || !hover_.hit || ImGui::GetIO().WantCaptureMouse) return;
-    if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
-    switch (tool_) {
-    case Tool::Raise: session_->submit(CmdTerraform{hover_.corner, 1}); break;
-    case Tool::Lower: session_->submit(CmdTerraform{hover_.corner, -1}); break;
-    case Tool::Clear: session_->submit(CmdClearArea{hover_.tile, hover_.tile}); break;
-    case Tool::Trees: session_->submit(CmdPlantTrees{hover_.tile, hover_.tile}); break;
-    case Tool::None: break;
-    }
-}
-
 void App::processFeedback(double now) {
     for (const CommandFeedback& f : session_->takeFeedback()) {
         if (f.result.ok) {
+            if (f.seq == pendingBuySeq_ && f.result.createdId != 0xFFFFFFFFu) {
+                selVehicle_ = VehicleId(f.result.createdId);
+                pendingBuySeq_ = 0;
+            }
             if (f.result.cost > 0) toasts_.push_back({std::format("-{}", formatMoney(f.result.cost)), now + 2.0, false});
+            else if (f.result.cost < 0)
+                toasts_.push_back({std::format("+{}", formatMoney(-f.result.cost)), now + 2.0, false});
         } else if (f.name != "Explore") {
             toasts_.push_back({std::format("{}: {}", f.name, f.result.error), now + 4.0, true});
         }
@@ -401,30 +462,6 @@ void App::drawHud() {
         if (active) ImGui::PopStyleColor();
     }
     ImGui::End();
-}
-
-void App::drawToolbar() {
-    const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 8.0f),
-                            ImGuiCond_Always, ImVec2(0.5f, 1.0f));
-    ImGui::SetNextWindowBgAlpha(0.75f);
-    ImGui::Begin("##tools", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
-    const auto button = [&](const char* label, Tool t) {
-        const bool active = tool_ == t;
-        if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::Button(label)) tool_ = active ? Tool::None : t;
-        if (active) ImGui::PopStyleColor();
-        ImGui::SameLine();
-    };
-    button("Raise land", Tool::Raise);
-    button("Lower land", Tool::Lower);
-    button("Bulldoze", Tool::Clear);
-    button("Plant trees", Tool::Trees);
-    ImGui::NewLine();
-    ImGui::End();
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) tool_ = Tool::None;
 }
 
 void App::drawDebugUi() {
@@ -525,36 +562,34 @@ int App::run(int argc, char** argv) {
                 camera_.snapToGoals();
             }
         }
-        updateCamera(dt);
-        updateExploration(now);
-        handleTools();
-
-        std::vector<gfx::OverlayQuad> overlays;
-        if (hover_.hit) {
-            const TileCorners c = world().map.corners(hover_.tile);
-            const double x = hover_.tile.x, z = hover_.tile.y, e = 0.02;
-            overlays.push_back({{{x, c.h[0] * gfx::kHeightStep + e, z},
-                                 {x + 1, c.h[1] * gfx::kHeightStep + e, z},
-                                 {x + 1, c.h[2] * gfx::kHeightStep + e, z + 1},
-                                 {x, c.h[3] * gfx::kHeightStep + e, z + 1}},
-                                gfx::rgba(255, 255, 255, 90)});
-            if (tool_ == Tool::Raise || tool_ == Tool::Lower) {
-                const double cx = hover_.corner.x, cz = hover_.corner.y;
-                const double cyy = world().map.cornerHeight(hover_.corner.x, hover_.corner.y) * gfx::kHeightStep + 0.05;
-                const double r = 0.18;
-                overlays.push_back({{{cx - r, cyy, cz - r}, {cx + r, cyy, cz - r}, {cx + r, cyy, cz + r}, {cx - r, cyy, cz + r}},
-                                    gfx::rgba(255, 220, 60, 200)});
+        if (demoNetwork_ && frameCount == 100) {
+            if (auto* local = dynamic_cast<LocalSession*>(session_.get()))
+                buildDemoNetwork(local->world(), local->localCompany());
+        }
+        if (followFirst_ && frameCount == 160) {
+            for (const auto [id, v] : world().vehicles) {
+                if (v.state == VehicleState::InDepot) continue;
+                followVehicle_ = id;
+                selVehicle_ = id;
+                break;
             }
         }
+        updateCamera(dt);
+        updateExploration(now);
+
+        std::vector<gfx::OverlayQuad> overlays;
+        if (hover_.hit && tool_ == Tool::None) addTileOverlay(overlays, hover_.tile, gfx::rgba(255, 255, 255, 70), 0.04);
+        handleTools(overlays);
 
         drawHud();
         drawToolbar();
+        drawWindows();
         drawDebugUi();
         drawToasts(now);
         const double minute =
             fixedTimeOfDay_ ? *fixedTimeOfDay_ : world().clock.exactMinuteOfDay(session_->tickFraction());
         drawTownLabels();
-        renderer_.render(world(), camera_, minute, timeSeconds_, overlays);
+        renderer_.render(world(), camera_, minute, timeSeconds_, session_->tickFraction(), overlays);
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         ++frameCount;

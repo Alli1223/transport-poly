@@ -57,9 +57,9 @@ relies on every peer computing exactly the same game state.
 - [x] 3.10 Shadow mapping (directional, PCF)
 - [~] 3.11 Day / night cycle bound to the game clock, lit windows and street lights at night (sky + sun follow the clock; lit windows later)
 - [x] 3.12 Mouse picking: ray vs heightfield, tile / corner hit info
-- [~] 3.13 Procedural low poly model library (houses, apartments, offices, shops, factories, trees, stations, depots, vehicles, people) (trees + 15 building types)
-- [~] 3.14 Instanced renderers for trees, buildings, vehicles, people (trees + buildings)
-- [ ] 3.15 Selection highlight + ghost previews for build tools
+- [~] 3.13 Procedural low poly model library (houses, apartments, offices, shops, factories, trees, stations, depots, vehicles, people) (trees, 15 building types, buses, trams, stops, depots)
+- [~] 3.14 Instanced renderers for trees, buildings, vehicles, people (trees, buildings, vehicles)
+- [x] 3.15 Selection highlight + ghost previews for build tools
 - [x] 3.16 Screenshot key
 
 ## M4 — Game state, commands, companies
@@ -145,17 +145,17 @@ relies on every peer computing exactly the same game state.
 - [ ] 10.10 Integration test: server + 2 clients ⇒ identical hashes
 
 ## M11 — UI
-- [ ] 11.1 Dear ImGui integration, theme, font
+- [~] 11.1 Dear ImGui integration, theme, font (default ImGui theme for now)
 - [ ] 11.2 Main menu: new game (seed, settings), load, host, join, settings, quit
-- [ ] 11.3 Main toolbar, time controls (pause, speeds), date / money display
-- [ ] 11.4 Construction toolbars: road, tram, rail, signals, stations, depots, water, terraform, trees, demolish
-- [ ] 11.5 Depot window: buy vehicles (model list with stats)
-- [ ] 11.6 Vehicle window: status, orders editor, details, follow camera
-- [ ] 11.7 Vehicle list per company, filters
-- [ ] 11.8 Station window (waiting passengers by destination, ratings)
-- [ ] 11.9 Town window and town directory
-- [ ] 11.10 Finance window (income / expenses, loan) & company window
-- [ ] 11.11 News feed and error message popups
+- [x] 11.3 Main toolbar, time controls (pause, speeds), date / money display
+- [~] 11.4 Construction toolbars: road, tram, rail, signals, stations, depots, water, terraform, trees, demolish (landscaping, road, tram tools with previews and cost; rail / water later)
+- [x] 11.5 Depot window: buy vehicles (model list with stats)
+- [x] 11.6 Vehicle window: status, orders editor, details, follow camera
+- [~] 11.7 Vehicle list per company, filters (basic list)
+- [x] 11.8 Station window (waiting passengers by destination, ratings)
+- [~] 11.9 Town window and town directory (town window; directory later)
+- [~] 11.10 Finance window (income / expenses, loan) & company window (ledger + loan buttons)
+- [~] 11.11 News feed and error message popups (toasts for costs and errors; news feed later)
 - [ ] 11.12 Minimap
 - [ ] 11.13 Overlays: catchment areas, passenger flow, town zones
 - [ ] 11.14 Settings window: graphics (shadows, view distance), controls, gameplay

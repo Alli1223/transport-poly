@@ -33,6 +33,7 @@ struct RenderStats {
     int meshesBuilt = 0;
     usize treesDrawn = 0;
     usize buildingsDrawn = 0;
+    usize vehiclesDrawn = 0;
     usize trianglesDrawn = 0;
 };
 
@@ -60,7 +61,7 @@ class WorldRenderer {
 public:
     bool init();
     void render(const World& world, const Camera& camera, double minuteOfDay, double timeSeconds,
-                const std::vector<OverlayQuad>& overlays);
+                double tickFraction, const std::vector<OverlayQuad>& overlays);
 
     RenderSettings settings;
     const RenderStats& stats() const { return stats_; }
@@ -106,6 +107,8 @@ private:
     void buildChunkMesh(const World& world, ChunkPos pos, int lod, ChunkMesh& mesh);
     void ensureShadowTarget();
     void drawChunks(const DrawLists& lists, const glm::dvec3& origin, bool shadowPass);
+    void collectVehicles(const World& world, const glm::dvec3& origin, const glm::dvec3& focus, double radius,
+                         double tickFraction);
 
     std::optional<Shader> terrainShader_, modelShader_, waterShader_, skyShader_;
     std::optional<Shader> shadowStaticShader_, shadowModelShader_, overlayShader_;
@@ -116,6 +119,7 @@ private:
     Texture shadowTex_;
     int shadowSize_ = 0;
     GpuMesh overlayMesh_;
+    InstanceBatch dynamic_; // vehicles and other moving things, rebuilt every frame
 
     std::unordered_map<u64, ChunkMesh> meshes_;
     u64 frame_ = 0;

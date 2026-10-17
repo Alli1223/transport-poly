@@ -23,16 +23,25 @@ inline constexpr ModelId kTreeConiferSnow = 3;
 inline constexpr ModelId kTreeDeciduous0 = 4;
 inline constexpr ModelId kTreeDeciduous1 = 5;
 inline constexpr ModelId kTreeDeciduous2 = 6;
+inline constexpr ModelId kBusStop = 8;
+inline constexpr ModelId kRoadDepot = 9;
+inline constexpr ModelId kTramDepot = 10;
+inline constexpr ModelId kPerson = 11;
 
 inline constexpr ModelId kBuildingBase = 16;
 inline constexpr ModelId kBuildingVariants = 3;
 inline constexpr ModelId kMaxBuildingTypes = 32;
 
-inline constexpr ModelId kCount = kBuildingBase + kMaxBuildingTypes * kBuildingVariants + 64;
+inline constexpr ModelId kVehicleBase = kBuildingBase + kMaxBuildingTypes * kBuildingVariants;
+inline constexpr ModelId kCount = kVehicleBase + 48;
 
 constexpr ModelId building(u16 type, u8 variant) {
     return static_cast<ModelId>(kBuildingBase + type * kBuildingVariants + variant % kBuildingVariants);
 }
+constexpr ModelId bus(int visual) { return static_cast<ModelId>(kVehicleBase + visual); }
+constexpr ModelId tram(int visual) { return static_cast<ModelId>(kVehicleBase + 8 + visual); }
+constexpr ModelId train(int visual) { return static_cast<ModelId>(kVehicleBase + 16 + visual); }
+constexpr ModelId ship(int visual) { return static_cast<ModelId>(kVehicleBase + 32 + visual); }
 } // namespace models
 
 inline constexpr usize kModelCount = models::kCount;
@@ -51,6 +60,8 @@ ModelInstance makeInstance(const glm::mat4& transform, u32 tint = rgba(255, 255,
 
 // Builds the mesh of a town building type / variant (footprint centred on the origin, entrance +Z).
 void buildBuildingModel(MeshBuilder& mb, u16 type, u8 variant);
+// Builds vehicle, stop, depot and person models (leaves `mb` empty for unknown ids).
+void buildTransportModels(MeshBuilder& mb, ModelId id);
 
 class ModelLibrary {
 public:
