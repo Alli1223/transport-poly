@@ -31,6 +31,8 @@ public:
     virtual int speed() const = 0;
     virtual void setSpeed(int speed) = 0;
     virtual bool isMultiplayer() const { return false; }
+    // False while a network client is still connecting / downloading the map.
+    virtual bool ready() const { return true; }
     virtual std::vector<CommandFeedback> takeFeedback() = 0;
     virtual std::string status() const { return {}; }
 };

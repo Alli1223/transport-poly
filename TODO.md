@@ -128,21 +128,21 @@ relies on every peer computing exactly the same game state.
 - [ ] 8.8 Freight milestone: industries, cargo chains, trucks / freight wagons / cargo ships
 
 ## M9 — Save / Load
-- [ ] 9.1 Full world serialisation (versioned)
+- [x] 9.1 Full world serialisation (versioned)
 - [ ] 9.2 Save / load UI, autosave every N months, quicksave
-- [ ] 9.3 Round-trip determinism test (save → load → continue ⇒ same hash)
+- [x] 9.3 Round-trip determinism test (save → load → continue ⇒ same hash)
 
 ## M10 — Multiplayer
-- [ ] 10.1 Cross-platform TCP socket layer (Winsock / BSD sockets), non-blocking
-- [ ] 10.2 Packet framing & protocol definitions, version handshake
-- [ ] 10.3 Server: client management, company assignment, command validation & scheduling, frame broadcast
-- [ ] 10.4 Client: map download, catch-up, frame-limited simulation, command submission
-- [ ] 10.5 Sync checks (state hash) & desync handling
-- [ ] 10.6 Chat & client list
-- [ ] 10.7 Dedicated headless server executable (CLI args, console commands)
+- [x] 10.1 Cross-platform TCP socket layer (Winsock / BSD sockets), non-blocking
+- [x] 10.2 Packet framing & protocol definitions, version handshake
+- [x] 10.3 Server: client management, company assignment, command validation & scheduling, frame broadcast
+- [x] 10.4 Client: map download, catch-up, frame-limited simulation, command submission
+- [x] 10.5 Sync checks (state hash) & desync handling
+- [~] 10.6 Chat & client list (protocol + server side; client UI next)
+- [x] 10.7 Dedicated headless server executable (CLI args, console commands)
 - [ ] 10.8 Host a game from the client (listen server) and join by address
 - [ ] 10.9 Pause / speed control rules in multiplayer
-- [ ] 10.10 Integration test: server + 2 clients ⇒ identical hashes
+- [x] 10.10 Integration test: server + 2 clients ⇒ identical hashes
 
 ## M11 — UI
 - [~] 11.1 Dear ImGui integration, theme, font (default ImGui theme for now)

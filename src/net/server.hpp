@@ -45,8 +45,10 @@ public:
     // Results of commands issued by `client` since the last call.
     std::vector<CommandRecord> takeResults(u16 client);
 
-    // Networking hook: called for every tick with the commands executed in it (before the tick).
+    // Networking hooks: called for every tick with the commands executed in it (before the
+    // tick), and after the tick finished.
     std::function<void(i64 tick, const std::vector<Command>&)> onTick;
+    std::function<void(i64 tick)> onTickDone;
 
 private:
     std::unique_ptr<World> world_;

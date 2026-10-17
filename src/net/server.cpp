@@ -32,6 +32,7 @@ void Server::step() {
         results_.push_back({tick, cmd, std::move(r)});
     }
     world_->tick();
+    if (onTickDone) onTickDone(tick);
 }
 
 int Server::update(double dtSeconds) {
