@@ -95,7 +95,7 @@ relies on every peer computing exactly the same game state.
 - [ ] 6.4 Rail rendering (ballast, sleepers, rails; diagonals)
 - [ ] 6.5 Level crossings (road + rail)
 - [ ] 6.6 Signals: block, path and one-way path signals; signal rendering
-- [ ] 6.7 Tram tracks (on roads and tram-only)
+- [x] 6.7 Tram tracks (on roads and tram-only)
 - [ ] 6.8 Bridges and tunnels for road / rail
 - [ ] 6.9 Canals and water tiles editing
 - [~] 6.10 Stations: bus stop, tram stop, rail station (platform length / count), dock; names; joining adjacent tiles; catchment radius (bus / tram stops with joining, names, catchment; rail + docks later)
@@ -109,7 +109,7 @@ relies on every peer computing exactly the same game state.
 - [~] 7.3 Orders: go to station (stop / non-stop), go via, full load, unload, depot service; shared orders; skip order (station + depot orders, full load, no loading, skip; shared orders later)
 - [x] 7.4 Road pathfinder (A* over the road graph with deterministic tie breaking)
 - [x] 7.5 Road vehicle movement: lanes, curves, junctions, queueing, gridlock breaker
-- [ ] 7.6 Tram movement (tram network, articulated trams)
+- [x] 7.6 Tram movement (tram network, articulated trams)
 - [ ] 7.7 Rail pathfinder and train movement: consists, acceleration / braking, curve speed limits, slopes
 - [ ] 7.8 Signal logic, path reservation, collision prevention
 - [ ] 7.9 Ship pathfinder over water tiles and ship movement

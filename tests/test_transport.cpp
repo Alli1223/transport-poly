@@ -202,3 +202,76 @@ TEST_CASE("transport: vehicles can only be sold when stopped in a depot") {
     CHECK(w.companies[net->company].money > before);
     CHECK(!w.vehicles.contains(net->bus));
 }
+
+TEST_CASE("transport: trams run on tram track laid along a road") {
+    World w = makeWorld();
+    for (i32 y = -6; y <= 6; ++y)
+        for (i32 x = -6; x <= 6; ++x) w.activateChunk({x, y});
+    const CommandResult cr = executeCommand(w, cmd(CompanyId{}, CmdCreateCompany{"Trams Ltd", 0xFF}));
+    const CompanyId co(static_cast<u8>(cr.createdId));
+    // Find a straight east-west run of at least 10 connected road tiles.
+    std::optional<TilePos> runStart;
+    i32 runLen = 0;
+    for (const auto [tid, town] : w.towns) {
+        for (const TilePos r : town.roads) {
+            i32 len = 0;
+            TilePos t = r;
+            while (len < 14) {
+                const Tile* tile = w.map.tile(t);
+                if (!tile || tile->type != TileType::Road || !(roadPieces(*tile) & dirBit(Dir::E))) break;
+                ++len;
+                t = neighbour(t, Dir::E);
+            }
+            if (len >= 10 && len > runLen) {
+                runStart = r;
+                runLen = len;
+            }
+        }
+    }
+    REQUIRE(runStart.has_value());
+    const TilePos a = *runStart;
+    const TilePos b{a.x + runLen - 1, a.y};
+    REQUIRE(executeCommand(w, cmd(co, CmdBuildRoad{a, b, true})).ok);
+    const TilePos sa{a.x + 1, a.y}, sb{b.x - 1, b.y};
+    const CommandResult stopA = executeCommand(w, cmd(co, CmdBuildRoadStop{sa, true}));
+    const CommandResult stopB = executeCommand(w, cmd(co, CmdBuildRoadStop{sb, true}));
+    REQUIRE(stopA.ok);
+    REQUIRE(stopB.ok);
+    DepotId depot;
+    for (i32 x = a.x + 2; x < b.x - 1 && !depot.valid(); ++x) {
+        for (const Dir side : {Dir::N, Dir::S}) {
+            const TilePos site = neighbour({x, a.y}, side);
+            if (const Tile* st = w.map.tile(site); st && st->type == TileType::Building)
+                executeCommand(w, cmd(co, CmdClearArea{site, site})); // make room, as a player would
+            const CommandResult r = executeCommand(w, cmd(co, CmdBuildRoadDepot{site, opposite(side), true}));
+            if (r.ok) {
+                depot = DepotId(r.createdId);
+                break;
+            }
+        }
+    }
+    REQUIRE(depot.valid());
+    const CommandResult buy = executeCommand(w, cmd(co, CmdBuyVehicle{depot, 4}));
+    REQUIRE(buy.ok);
+    const VehicleId tram(buy.createdId);
+    Order oa, ob;
+    oa.station = StationId(w.map.tile(sa)->index);
+    ob.station = StationId(w.map.tile(sb)->index);
+    REQUIRE(executeCommand(w, cmd(co, CmdSetOrders{tram, {oa, ob}})).ok);
+    REQUIRE(executeCommand(w, cmd(co, CmdStartStopVehicle{tram})).ok);
+    i64 lastA = -1, visitsA = 0, lastB = -1, visitsB = 0;
+    for (i64 t = 0; t < kTicksPerDay; ++t) {
+        w.tick();
+        if (w.stations[oa.station].lastVisitTick != lastA) {
+            lastA = w.stations[oa.station].lastVisitTick;
+            ++visitsA;
+        }
+        if (w.stations[ob.station].lastVisitTick != lastB) {
+            lastB = w.stations[ob.station].lastVisitTick;
+            ++visitsB;
+        }
+    }
+    CHECK(!w.vehicles[tram].lost);
+    CHECK(visitsA >= 3);
+    CHECK(visitsB >= 3);
+}
