@@ -1,6 +1,7 @@
 #pragma once
-// Game time. One simulation tick is one in-game minute. Dates use the proleptic Gregorian
-// calendar, stored as a day number relative to 1970-01-01 (day 0, a Thursday).
+// Game time. One simulation tick is 15 in-game seconds (4 ticks per minute, 5760 per day; a day
+// lasts 3.2 real minutes at normal speed). Dates use the proleptic Gregorian calendar, stored as a
+// day number relative to 1970-01-01 (day 0, a Thursday).
 
 #include "core/types.hpp"
 
@@ -9,7 +10,8 @@
 
 namespace tp {
 
-inline constexpr i64 kTicksPerHour = 60;
+inline constexpr i64 kTicksPerMinute = 4;
+inline constexpr i64 kTicksPerHour = 60 * kTicksPerMinute;
 inline constexpr i64 kTicksPerDay = 24 * kTicksPerHour;
 inline constexpr i64 kTicksPerWeek = 7 * kTicksPerDay;
 // Real-time ticks per second at normal game speed.
@@ -68,7 +70,11 @@ struct GameClock {
     i32 startDay = daysFromCivil(1950, 1, 2); // a Monday
 
     constexpr i32 day() const { return startDay + static_cast<i32>(tick / kTicksPerDay); }
-    constexpr i32 minuteOfDay() const { return static_cast<i32>(tick % kTicksPerDay); }
+    constexpr i32 minuteOfDay() const { return static_cast<i32>((tick % kTicksPerDay) / kTicksPerMinute); }
+    // Fractional minute of the day including progress towards the next tick (for rendering).
+    constexpr double exactMinuteOfDay(double tickFraction) const {
+        return (static_cast<double>(tick % kTicksPerDay) + tickFraction) / static_cast<double>(kTicksPerMinute);
+    }
     constexpr Weekday weekday() const { return weekdayFromDays(day()); }
     constexpr CivilDate date() const { return civilFromDays(day()); }
     constexpr bool isNewDay() const { return tick % kTicksPerDay == 0; }

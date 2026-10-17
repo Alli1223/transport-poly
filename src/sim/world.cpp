@@ -12,10 +12,12 @@ World::World(const WorldSettings& s) : settings(s), rng(s.seed, 0x5EED), map(s.s
 
 void World::tick() {
     ++clock.tick;
+    people::process(*this);
     if (clock.isNewDay()) onNewDay();
 }
 
 void World::onNewDay() {
+    towns::growAll(*this);
     const CivilDate d = clock.date();
     if (d.day == 1) {
         onNewMonth();
@@ -24,6 +26,8 @@ void World::onNewDay() {
 }
 
 void World::onNewMonth() {
+    towns::monthly(*this);
+    people::jobMarket(*this);
     for (auto [id, c] : companies) {
         // Monthly loan interest.
         if (c.loan > 0) {
@@ -53,6 +57,7 @@ void World::onNewYear() {
 
 bool World::activateChunk(ChunkPos pos) {
     if (!map.activate(pos)) return false;
+    towns::onChunkActivated(*this, pos);
     return true;
 }
 
@@ -67,6 +72,12 @@ u64 World::stateHash() const {
     h.add(rng.stateForHash());
     h.add(map.activeChunks().size());
     for (const auto [id, c] : companies) h.addAll(id.value, c.money, c.loan);
+    h.addAll(towns.size(), buildings.size(), people.size(), nextSerial);
+    for (const auto [id, t] : towns) h.addAll(id.value, t.population, t.jobs, t.workers, t.roads.size());
+    u64 acc = 0;
+    for (const auto [id, p] : people)
+        acc += static_cast<u64>(p.nextEvent) * 1315423911ULL ^ (static_cast<u64>(p.state) << 3) ^ id.value;
+    h.add(acc);
     return h.value();
 }
 

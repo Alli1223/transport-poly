@@ -46,9 +46,11 @@ integers, so precision does not degrade far away from the origin.
 
 ## Time
 
-One simulation tick is one in-game minute; a day has 1440 ticks. At normal
-speed the game runs 30 ticks per second (48 s per day). Weekdays drive the
-citizens' schedules: Monday–Friday work, Saturday–Sunday shopping.
+One simulation tick is 15 in-game seconds; a day has 5760 ticks. At normal
+speed the game runs 30 ticks per second, so a day lasts 3.2 real minutes and a
+bus crossing a town takes about ten real seconds (roughly an in-game hour).
+Weekdays drive the citizens' schedules: Monday–Friday work, Saturday–Sunday
+shopping.
 
 ## Multiplayer flow
 

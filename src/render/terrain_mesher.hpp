@@ -1,5 +1,6 @@
 #pragma once
-// Builds the low poly geometry of a chunk: ground triangles, water surface and tree placements.
+// Builds the low poly geometry of a chunk: ground triangles, road surfaces, foundations, water
+// surface and tree placements.
 
 #include "core/types.hpp"
 #include "render/mesh.hpp"
@@ -8,6 +9,10 @@
 
 #include <functional>
 #include <vector>
+
+namespace tp {
+class World;
+}
 
 namespace tp::gfx {
 
@@ -36,8 +41,9 @@ struct ChunkGeometry {
 using WaterLookup = std::function<bool(TilePos)>;
 
 // lod 0 = one quad per tile; lod n merges 2^n x 2^n tiles per quad (no trees) for distant chunks.
+// `world` (optional) provides building information for ground colours under buildings.
 ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen, const WaterLookup& waterOutside,
-                                 int lod = 0);
+                                 int lod = 0, const World* world = nullptr);
 
 // Triangulation shared by the mesher and picking: true if the tile is split along NE-SW.
 bool tileSplitNESW(const TileCorners& c);

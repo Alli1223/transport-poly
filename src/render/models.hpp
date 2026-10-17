@@ -12,18 +12,30 @@
 
 namespace tp::gfx {
 
-enum class ModelId : u16 {
-    TreeConifer0,
-    TreeConifer1,
-    TreeConifer2,
-    TreeConiferSnow,
-    TreeDeciduous0,
-    TreeDeciduous1,
-    TreeDeciduous2,
-    Count
-};
+// Models are identified by a small integer; ranges are reserved per family.
+using ModelId = u16;
 
-inline constexpr usize kModelCount = static_cast<usize>(ModelId::Count);
+namespace models {
+inline constexpr ModelId kTreeConifer0 = 0;
+inline constexpr ModelId kTreeConifer1 = 1;
+inline constexpr ModelId kTreeConifer2 = 2;
+inline constexpr ModelId kTreeConiferSnow = 3;
+inline constexpr ModelId kTreeDeciduous0 = 4;
+inline constexpr ModelId kTreeDeciduous1 = 5;
+inline constexpr ModelId kTreeDeciduous2 = 6;
+
+inline constexpr ModelId kBuildingBase = 16;
+inline constexpr ModelId kBuildingVariants = 3;
+inline constexpr ModelId kMaxBuildingTypes = 32;
+
+inline constexpr ModelId kCount = kBuildingBase + kMaxBuildingTypes * kBuildingVariants + 64;
+
+constexpr ModelId building(u16 type, u8 variant) {
+    return static_cast<ModelId>(kBuildingBase + type * kBuildingVariants + variant % kBuildingVariants);
+}
+} // namespace models
+
+inline constexpr usize kModelCount = models::kCount;
 
 // Per-instance data: a 3x4 affine transform (row major) and a tint colour.
 struct ModelInstance {
@@ -37,6 +49,9 @@ static_assert(sizeof(ModelInstance) == 52);
 ModelInstance makeInstance(const glm::vec3& pos, float yaw, float scale, u32 tint = rgba(255, 255, 255));
 ModelInstance makeInstance(const glm::mat4& transform, u32 tint = rgba(255, 255, 255));
 
+// Builds the mesh of a town building type / variant (footprint centred on the origin, entrance +Z).
+void buildBuildingModel(MeshBuilder& mb, u16 type, u8 variant);
+
 class ModelLibrary {
 public:
     struct Range {
@@ -45,7 +60,7 @@ public:
     };
 
     void build();
-    Range range(ModelId id) const { return ranges_[static_cast<usize>(id)]; }
+    Range range(ModelId id) const { return id < kModelCount ? ranges_[id] : Range{}; }
 
     // Draws `count` instances of a model whose instance data starts at `byteOffset` in `instanceBuffer`.
     void drawInstanced(ModelId id, GLuint instanceBuffer, usize byteOffset, GLsizei count) const;
@@ -60,7 +75,7 @@ private:
 class InstanceBatch {
 public:
     void clear();
-    void add(ModelId id, const ModelInstance& inst) { perModel_[static_cast<usize>(id)].push_back(inst); }
+    void add(ModelId id, const ModelInstance& inst) { perModel_[id].push_back(inst); }
     usize size() const;
     // Uploads all instances; must be called before draw() each frame.
     void upload();
@@ -72,6 +87,21 @@ private:
     std::vector<ModelInstance> staging_;
     Buffer buffer_;
     usize capacity_ = 0;
+};
+
+// Static instances grouped by model in a single GPU buffer (used per chunk).
+struct StaticInstances {
+    struct Batch {
+        ModelId model;
+        u32 offset;
+        u32 count;
+    };
+    Buffer buffer;
+    std::vector<Batch> batches;
+    usize total = 0;
+
+    void upload(std::vector<std::pair<ModelId, ModelInstance>>& items);
+    void draw(const ModelLibrary& lib) const;
 };
 
 } // namespace tp::gfx

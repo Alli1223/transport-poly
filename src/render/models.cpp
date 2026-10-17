@@ -1,5 +1,8 @@
 #include "render/models.hpp"
 
+#include "sim/buildings.hpp"
+
+#include <algorithm>
 #include <cmath>
 
 namespace tp::gfx {
@@ -49,23 +52,31 @@ void buildDeciduous(MeshBuilder& mb, int variant) {
 void ModelLibrary::build() {
     std::vector<Vertex> all;
     const auto add = [&](ModelId id, const MeshBuilder& mb) {
-        ranges_[static_cast<usize>(id)] = {static_cast<GLint>(all.size()), static_cast<GLsizei>(mb.vertices.size())};
+        ranges_[id] = {static_cast<GLint>(all.size()), static_cast<GLsizei>(mb.vertices.size())};
         all.insert(all.end(), mb.vertices.begin(), mb.vertices.end());
     };
     for (int v = 0; v < 3; ++v) {
         MeshBuilder mb;
         buildConifer(mb, v, false);
-        add(static_cast<ModelId>(static_cast<int>(ModelId::TreeConifer0) + v), mb);
+        add(static_cast<ModelId>(models::kTreeConifer0 + v), mb);
     }
     {
         MeshBuilder mb;
         buildConifer(mb, 1, true);
-        add(ModelId::TreeConiferSnow, mb);
+        add(models::kTreeConiferSnow, mb);
     }
     for (int v = 0; v < 3; ++v) {
         MeshBuilder mb;
         buildDeciduous(mb, v);
-        add(static_cast<ModelId>(static_cast<int>(ModelId::TreeDeciduous0) + v), mb);
+        add(static_cast<ModelId>(models::kTreeDeciduous0 + v), mb);
+    }
+    const auto types = buildingTypes();
+    for (u16 t = 0; t < types.size() && t < models::kMaxBuildingTypes; ++t) {
+        for (u8 v = 0; v < models::kBuildingVariants; ++v) {
+            MeshBuilder mb;
+            buildBuildingModel(mb, t, static_cast<u8>(v % std::max<u8>(1, types[t].variants)));
+            add(models::building(t, v), mb);
+        }
     }
 
     vao_ = makeVertexArray();
@@ -115,12 +126,8 @@ void InstanceBatch::upload() {
     if (!buffer_) buffer_ = makeBuffer();
     glBindBuffer(GL_ARRAY_BUFFER, buffer_.get());
     const usize bytes = staging_.size() * sizeof(ModelInstance);
-    if (bytes > capacity_) {
-        capacity_ = bytes * 2;
-        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(capacity_), nullptr, GL_STREAM_DRAW);
-    } else {
-        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(capacity_), nullptr, GL_STREAM_DRAW); // orphan
-    }
+    if (bytes > capacity_) capacity_ = bytes * 2;
+    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(capacity_), nullptr, GL_STREAM_DRAW); // orphan
     glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(bytes), staging_.data());
 }
 
@@ -131,6 +138,30 @@ void InstanceBatch::draw(const ModelLibrary& lib) const {
         lib.drawInstanced(static_cast<ModelId>(i), buffer_.get(), offsets_[i] * sizeof(ModelInstance),
                           static_cast<GLsizei>(perModel_[i].size()));
     }
+}
+
+void StaticInstances::upload(std::vector<std::pair<ModelId, ModelInstance>>& items) {
+    batches.clear();
+    total = items.size();
+    if (items.empty()) return;
+    std::stable_sort(items.begin(), items.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::vector<ModelInstance> data;
+    data.reserve(items.size());
+    for (usize i = 0; i < items.size(); ++i) {
+        if (batches.empty() || batches.back().model != items[i].first)
+            batches.push_back({items[i].first, static_cast<u32>(i), 0});
+        ++batches.back().count;
+        data.push_back(items[i].second);
+    }
+    if (!buffer) buffer = makeBuffer();
+    glBindBuffer(GL_ARRAY_BUFFER, buffer.get());
+    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(data.size() * sizeof(ModelInstance)), data.data(),
+                 GL_STATIC_DRAW);
+}
+
+void StaticInstances::draw(const ModelLibrary& lib) const {
+    for (const Batch& b : batches)
+        lib.drawInstanced(b.model, buffer.get(), b.offset * sizeof(ModelInstance), static_cast<GLsizei>(b.count));
 }
 
 } // namespace tp::gfx

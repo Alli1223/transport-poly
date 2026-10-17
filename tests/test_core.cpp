@@ -199,7 +199,7 @@ TEST_CASE("calendar: civil conversions and weekdays") {
     }
     GameClock clock;
     CHECK(clock.weekday() == Weekday::Monday);
-    clock.tick = 5 * kTicksPerDay + 8 * kTicksPerHour + 30;
+    clock.tick = 5 * kTicksPerDay + 8 * kTicksPerHour + 30 * kTicksPerMinute;
     CHECK(clock.weekday() == Weekday::Saturday);
     CHECK_EQ(clock.minuteOfDay(), 8 * 60 + 30);
     CHECK_EQ(formatTimeOfDay(clock.minuteOfDay()), std::string("08:30"));

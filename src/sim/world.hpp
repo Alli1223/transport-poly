@@ -4,13 +4,20 @@
 #include "core/calendar.hpp"
 #include "core/pool.hpp"
 #include "core/rng.hpp"
+#include "sim/buildings.hpp"
 #include "sim/company.hpp"
 #include "sim/ids.hpp"
 #include "sim/map.hpp"
+#include "sim/person.hpp"
+#include "sim/town.hpp"
 
 #include <deque>
+#include <functional>
 #include <optional>
+#include <queue>
+#include <set>
 #include <string>
+#include <vector>
 
 namespace tp {
 
@@ -55,9 +62,17 @@ public:
     Rng rng;
     Map map;
     Pool<Company, CompanyId> companies;
+    Pool<Town, TownId> towns;
+    Pool<Building, BuildingId> buildings;
+    Pool<Person, PersonId> people;
+    std::set<u64> processedTownCells; // town cells already founded or known to be empty
+    u32 nextSerial = 0;               // serial numbers for buildings / people
     std::deque<NewsItem> news;
 
-    // Advances the simulation by one tick (one in-game minute).
+    // Derived (not saved): pending person events ordered by (tick, id).
+    std::priority_queue<PersonEvent, std::vector<PersonEvent>, std::greater<PersonEvent>> personEvents;
+
+    // Advances the simulation by one tick (15 in-game seconds).
     void tick();
 
     // Activates a chunk and spawns its content. Returns false if it was already active.
@@ -72,7 +87,8 @@ public:
     void serialize(Ar& ar) {
         ar(settings);
         if constexpr (Ar::kReading) map = Map(settings.seed);
-        ar(clock, rng, map, companies, news);
+        ar(clock, rng, map, companies, towns, buildings, people, processedTownCells, nextSerial, news);
+        if constexpr (Ar::kReading) people::rebuildEvents(*this);
     }
 
 private:

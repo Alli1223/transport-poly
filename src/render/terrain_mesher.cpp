@@ -1,6 +1,8 @@
 #include "render/terrain_mesher.hpp"
 
 #include "core/hash.hpp"
+#include "sim/road.hpp"
+#include "sim/world.hpp"
 
 #include <glm/gtc/constants.hpp>
 
@@ -30,6 +32,14 @@ constexpr u32 kRock = rgba(138, 132, 126);
 constexpr u32 kSand = rgba(226, 210, 152);
 constexpr u32 kSnow = rgba(238, 243, 250);
 constexpr u32 kSeabed = rgba(178, 168, 122);
+constexpr u32 kGarden = rgba(96, 156, 70);
+constexpr u32 kPlaza = rgba(170, 164, 150);
+constexpr u32 kPavement = rgba(176, 172, 162);
+constexpr u32 kAsphalt = rgba(80, 82, 88);
+constexpr u32 kMarking = rgba(236, 234, 220);
+constexpr u32 kFoundation = rgba(150, 134, 112);
+constexpr u32 kUrbanRoad = rgba(112, 112, 114);
+constexpr u32 kUrbanBuilding = rgba(160, 152, 140);
 
 u32 groundColor(const Tile& t) {
     switch (t.ground) {
@@ -50,10 +60,79 @@ float seabedY(i64 raw) {
 
 float jitter(u32 h) { return 0.93f + static_cast<float>(h & 0xFF) / 255.0f * 0.12f; }
 
+// Ground under a building: gardens for homes, paving for everything else.
+u32 buildingGround(const Tile& t, const World* world) {
+    if (!world) return kGarden;
+    const Building* b = world->buildings.tryGet(BuildingId(t.index));
+    if (!b) return kGarden;
+    return b->info().category == BuildingCategory::Residential ? kGarden : kPlaza;
+}
+
+// Describes how the top of a structure tile is shaped.
+struct TopSurface {
+    Surface surface = Surface::Flat;
+    TileCorners corners;
+    u8 level = 0; // flat / foundation level
+    float y(float u, float v) const {
+        if (surface == Surface::Ramp) return tileSurfaceLevel(corners, u, v) * kHeightStep;
+        return static_cast<float>(level) * kHeightStep;
+    }
+};
+
+void quadOnSurface(MeshBuilder& mb, const TopSurface& s, float x0, float z0, float u0, float v0, float u1, float v1,
+                   float lift, u32 color) {
+    const auto p = [&](float u, float v) { return glm::vec3(x0 + u, s.y(u, v) + lift, z0 + v); };
+    mb.triangleUp(p(u0, v0), p(u1, v1), p(u1, v0), color);
+    mb.triangleUp(p(u0, v0), p(u0, v1), p(u1, v1), color);
+}
+
+void addRoad(MeshBuilder& mb, const TopSurface& s, float x0, float z0, u8 pieces) {
+    constexpr float p0 = 0.1f, p1 = 0.9f;   // pavement extent
+    constexpr float a0 = 0.22f, a1 = 0.78f; // asphalt extent
+    const bool n = pieces & dirBit(Dir::N), e = pieces & dirBit(Dir::E);
+    const bool so = pieces & dirBit(Dir::S), w = pieces & dirBit(Dir::W);
+    quadOnSurface(mb, s, x0, z0, p0, p0, p1, p1, 0.015f, kPavement);
+    if (n) quadOnSurface(mb, s, x0, z0, p0, 0.0f, p1, p0, 0.015f, kPavement);
+    if (so) quadOnSurface(mb, s, x0, z0, p0, p1, p1, 1.0f, 0.015f, kPavement);
+    if (w) quadOnSurface(mb, s, x0, z0, 0.0f, p0, p0, p1, 0.015f, kPavement);
+    if (e) quadOnSurface(mb, s, x0, z0, p1, p0, 1.0f, p1, 0.015f, kPavement);
+    quadOnSurface(mb, s, x0, z0, a0, a0, a1, a1, 0.025f, kAsphalt);
+    if (n) quadOnSurface(mb, s, x0, z0, a0, 0.0f, a1, a0, 0.025f, kAsphalt);
+    if (so) quadOnSurface(mb, s, x0, z0, a0, a1, a1, 1.0f, 0.025f, kAsphalt);
+    if (w) quadOnSurface(mb, s, x0, z0, 0.0f, a0, a0, a1, 0.025f, kAsphalt);
+    if (e) quadOnSurface(mb, s, x0, z0, a1, a0, 1.0f, a1, 0.025f, kAsphalt);
+    // Dashed centre line on straight roads.
+    constexpr float m0 = 0.488f, m1 = 0.512f;
+    if (pieces == (dirBit(Dir::N) | dirBit(Dir::S))) {
+        quadOnSurface(mb, s, x0, z0, m0, 0.08f, m1, 0.33f, 0.03f, kMarking);
+        quadOnSurface(mb, s, x0, z0, m0, 0.58f, m1, 0.83f, 0.03f, kMarking);
+    } else if (pieces == (dirBit(Dir::E) | dirBit(Dir::W))) {
+        quadOnSurface(mb, s, x0, z0, 0.08f, m0, 0.33f, m1, 0.03f, kMarking);
+        quadOnSurface(mb, s, x0, z0, 0.58f, m0, 0.83f, m1, 0.03f, kMarking);
+    }
+}
+
+// Raised flat foundation: top quad plus side walls down to the terrain.
+void addFoundation(MeshBuilder& mb, const TileCorners& c, float x0, float z0, float topY, u32 topColor) {
+    const glm::vec3 nw(x0, c.h[0] * kHeightStep, z0), ne(x0 + 1, c.h[1] * kHeightStep, z0);
+    const glm::vec3 se(x0 + 1, c.h[2] * kHeightStep, z0 + 1), sw(x0, c.h[3] * kHeightStep, z0 + 1);
+    const auto top = [&](glm::vec3 p) { return glm::vec3(p.x, topY, p.z); };
+    mb.triangleUp(top(nw), top(se), top(ne), topColor);
+    mb.triangleUp(top(nw), top(sw), top(se), topColor);
+    const auto side = [&](glm::vec3 a, glm::vec3 b, glm::vec3 dir) {
+        if (a.y >= topY - 1e-4f && b.y >= topY - 1e-4f) return;
+        mb.quadFacing(a, b, top(b), top(a), kFoundation, dir);
+    };
+    side(nw, ne, {0, 0, -1});
+    side(ne, se, {1, 0, 0});
+    side(se, sw, {0, 0, 1});
+    side(sw, nw, {-1, 0, 0});
+}
+
 } // namespace
 
 ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen, const WaterLookup& waterOutside,
-                                 int lod) {
+                                 int lod, const World* world) {
     ChunkGeometry out;
     const TilePos origin = chunkOrigin(chunk.pos);
     const u64 seed = gen.seed();
@@ -91,6 +170,7 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
         }
     }
     out.minY -= 2.5f; // skirts
+    out.maxY += kHeightStep;
     const auto cy = [&](i32 i, i32 j) { return cornerY[static_cast<usize>(j * gridN + i)]; };
     const float fs = static_cast<float>(step);
 
@@ -113,20 +193,42 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
             if (tile.type == TileType::Water) {
                 const float depth = std::min((nw.y + ne.y + se.y + sw.y) * 0.25f, 0.0f);
                 base = shade(base, std::max(0.45f, 1.0f + depth * 0.18f));
+            } else if (tile.type == TileType::Building) {
+                base = lod == 0 ? buildingGround(tile, world) : kUrbanBuilding;
+            } else if (tile.type == TileType::Road && lod > 0) {
+                base = kUrbanRoad;
             }
             cellColor[static_cast<usize>(j * cells + i)] = base;
-            const u32 h = hashCoords(seed, wp.x, wp.y, 0x7E44);
-            const u32 c0 = shade(base, jitter(h));
-            const u32 c1 = shade(base, jitter(h >> 8));
-            const TileCorners coarse{{chunk.height(lx, ly), chunk.height(lx + step, ly),
-                                      chunk.height(lx + step, ly + step), chunk.height(lx, ly + step)}};
-            if (!tileSplitNESW(coarse)) {
-                ground.triangleUp(nw, se, ne, c0);
-                ground.triangleUp(nw, sw, se, c1);
-            } else {
-                ground.triangleUp(nw, sw, ne, c0);
-                ground.triangleUp(ne, sw, se, c1);
+
+            // Structures on slopes stand on a flat foundation instead of the terrain.
+            TopSurface top;
+            bool structure = false;
+            if (lod == 0 && (tile.type == TileType::Road || tile.type == TileType::Building)) {
+                structure = true;
+                top.corners = chunk.corners(lx, ly);
+                const Slope slope = computeSlope(top.corners);
+                top.surface = tile.type == TileType::Road ? roadSurface(slope, roadPieces(tile)) : buildingSurface(slope);
+                if (top.surface == Surface::Invalid) top.surface = Surface::Foundation;
+                top.level = flatSurfaceLevel(slope, top.surface);
             }
+
+            if (structure && top.surface == Surface::Foundation) {
+                addFoundation(ground, top.corners, x0, z0, static_cast<float>(top.level) * kHeightStep, base);
+            } else {
+                const u32 h = hashCoords(seed, wp.x, wp.y, 0x7E44);
+                const u32 c0 = shade(base, jitter(h));
+                const u32 c1 = shade(base, jitter(h >> 8));
+                const TileCorners coarse{{chunk.height(lx, ly), chunk.height(lx + step, ly),
+                                          chunk.height(lx + step, ly + step), chunk.height(lx, ly + step)}};
+                if (!tileSplitNESW(coarse)) {
+                    ground.triangleUp(nw, se, ne, c0);
+                    ground.triangleUp(nw, sw, se, c1);
+                } else {
+                    ground.triangleUp(nw, sw, ne, c0);
+                    ground.triangleUp(ne, sw, se, c1);
+                }
+            }
+            if (structure && tile.type == TileType::Road) addRoad(ground, top, x0, z0, roadPieces(tile));
 
             if (tile.type == TileType::Water) {
                 const u32 wc = rgba(255, 255, 255);

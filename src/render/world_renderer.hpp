@@ -1,5 +1,6 @@
 #pragma once
-// Draws the world: sky, terrain chunks (streamed around the camera), trees, water and overlays.
+// Draws the world: sky, terrain chunks (streamed around the camera), roads, buildings, trees,
+// water and overlays.
 
 #include "core/types.hpp"
 #include "render/camera.hpp"
@@ -8,11 +9,10 @@
 #include "render/models.hpp"
 #include "render/shader.hpp"
 #include "render/terrain_mesher.hpp"
-#include "sim/map.hpp"
+#include "sim/world.hpp"
 
 #include <glm/glm.hpp>
 
-#include <array>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -32,6 +32,7 @@ struct RenderStats {
     int chunksCached = 0;
     int meshesBuilt = 0;
     usize treesDrawn = 0;
+    usize buildingsDrawn = 0;
     usize trianglesDrawn = 0;
 };
 
@@ -58,13 +59,14 @@ struct OverlayQuad {
 class WorldRenderer {
 public:
     bool init();
-    void render(const Map& map, const Camera& camera, double minuteOfDay, double timeSeconds,
+    void render(const World& world, const Camera& camera, double minuteOfDay, double timeSeconds,
                 const std::vector<OverlayQuad>& overlays);
 
     RenderSettings settings;
     const RenderStats& stats() const { return stats_; }
     const SkyState& sky() const { return sky_; }
     void invalidateAll() { meshes_.clear(); }
+    const ModelLibrary& models() const { return models_; }
 
 private:
     struct ChunkMesh {
@@ -74,10 +76,8 @@ private:
         bool active = false;
         GpuMesh ground;
         GpuMesh water;
-        Buffer treeBuffer;
-        std::array<u32, kModelCount> treeOffset{};
-        std::array<u32, kModelCount> treeCount{};
-        usize treeTotal = 0;
+        StaticInstances trees;
+        StaticInstances buildings;
         float minY = -4.0f;
         float maxY = 30.0f;
         u64 lastUsedFrame = 0;
@@ -97,10 +97,15 @@ private:
         glm::vec4 shadowParams;
     };
 
-    void buildChunkMesh(const Map& map, ChunkPos pos, int lod, ChunkMesh& mesh);
+    struct DrawLists {
+        std::vector<const ChunkMesh*> terrain;
+        std::vector<const ChunkMesh*> trees;
+        std::vector<const ChunkMesh*> buildings;
+    };
+
+    void buildChunkMesh(const World& world, ChunkPos pos, int lod, ChunkMesh& mesh);
     void ensureShadowTarget();
-    void drawChunks(const std::vector<const ChunkMesh*>& chunks, const std::vector<const ChunkMesh*>& treeChunks,
-                    const glm::dvec3& origin, bool shadowPass);
+    void drawChunks(const DrawLists& lists, const glm::dvec3& origin, bool shadowPass);
 
     std::optional<Shader> terrainShader_, modelShader_, waterShader_, skyShader_;
     std::optional<Shader> shadowStaticShader_, shadowModelShader_, overlayShader_;

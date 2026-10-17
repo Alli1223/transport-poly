@@ -36,6 +36,8 @@ private:
     void drawToolbar();
     void drawDebugUi();
     void drawToasts(double now);
+    void drawTownLabels();
+    std::optional<glm::vec2> worldToScreen(const glm::dvec3& p) const;
     void processFeedback(double now);
     bool parseArgs(int argc, char** argv);
     void captureScreenshot(const std::string& path);
@@ -76,6 +78,7 @@ private:
     double startPitchDeg_ = -1.0;
     bool pendingScreenshot_ = false;
     bool gotoWater_ = false;
+    double gotoTownDistance_ = 0.0; // > 0: jump to the biggest town at this zoom (automation)
 };
 
 } // namespace tp

@@ -1,8 +1,11 @@
 #include "render/world_renderer.hpp"
 
+#include "core/hash.hpp"
 #include "core/log.hpp"
 #include "render/shaders.hpp"
+#include "sim/road.hpp"
 
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -47,9 +50,33 @@ bool tileIsWater(const Map& map, TilePos t) {
 }
 
 ModelId treeModel(const TreePlacement& t) {
-    if (t.snowy) return ModelId::TreeConiferSnow;
-    const int base = static_cast<int>(t.type == TreeType::Conifer ? ModelId::TreeConifer0 : ModelId::TreeDeciduous0);
+    if (t.snowy) return models::kTreeConiferSnow;
+    const ModelId base = t.type == TreeType::Conifer ? models::kTreeConifer0 : models::kTreeDeciduous0;
     return static_cast<ModelId>(base + t.variant % 3);
+}
+
+float facingYaw(Dir d) {
+    switch (d) {
+    case Dir::S: return 0.0f;
+    case Dir::E: return glm::half_pi<float>();
+    case Dir::N: return glm::pi<float>();
+    case Dir::W: return -glm::half_pi<float>();
+    }
+    return 0.0f;
+}
+
+u32 buildingTint(const Building& b) {
+    static constexpr u32 kHomes[] = {rgba(232, 222, 196), rgba(240, 238, 232), rgba(184, 104, 80), rgba(214, 192, 144),
+                                     rgba(236, 222, 156), rgba(198, 214, 228), rgba(228, 194, 188), rgba(206, 204, 198)};
+    static constexpr u32 kCommercial[] = {rgba(214, 212, 206), rgba(222, 210, 186), rgba(236, 234, 228),
+                                          rgba(200, 196, 188)};
+    static constexpr u32 kIndustrial[] = {rgba(166, 98, 74), rgba(172, 172, 166), rgba(152, 164, 178)};
+    const u32 h = mix32(b.serial * 2654435761u);
+    switch (b.info().category) {
+    case BuildingCategory::Residential: return kHomes[h % std::size(kHomes)];
+    case BuildingCategory::Industrial: return kIndustrial[h % std::size(kIndustrial)];
+    default: return kCommercial[h % std::size(kCommercial)];
+    }
 }
 
 } // namespace
@@ -133,15 +160,17 @@ void WorldRenderer::ensureShadowTarget() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
-void WorldRenderer::buildChunkMesh(const Map& map, ChunkPos pos, int lod, ChunkMesh& mesh) {
-    const Chunk* source = map.chunk(pos);
+void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, ChunkMesh& mesh) {
+    const Map& map = world.map;
+    const Chunk* active = map.chunk(pos);
+    const Chunk* source = active;
     Chunk generated;
     if (!source) {
         map.generator().generateChunk(pos, generated);
         source = &generated;
     }
-    const ChunkGeometry geo =
-        buildChunkGeometry(*source, map.generator(), [&](TilePos t) { return tileIsWater(map, t); }, lod);
+    const ChunkGeometry geo = buildChunkGeometry(
+        *source, map.generator(), [&](TilePos t) { return tileIsWater(map, t); }, lod, &world);
     mesh.pos = pos;
     mesh.lod = lod;
     mesh.ground.upload(geo.ground);
@@ -149,38 +178,45 @@ void WorldRenderer::buildChunkMesh(const Map& map, ChunkPos pos, int lod, ChunkM
     mesh.minY = geo.minY;
     mesh.maxY = geo.maxY;
 
-    std::array<std::vector<ModelInstance>, kModelCount> perModel;
-    for (const TreePlacement& t : geo.trees)
-        perModel[static_cast<usize>(treeModel(t))].push_back(makeInstance(t.pos, t.yaw, t.scale));
-    std::vector<ModelInstance> all;
-    all.reserve(geo.trees.size());
-    for (usize i = 0; i < kModelCount; ++i) {
-        mesh.treeOffset[i] = static_cast<u32>(all.size());
-        mesh.treeCount[i] = static_cast<u32>(perModel[i].size());
-        all.insert(all.end(), perModel[i].begin(), perModel[i].end());
+    std::vector<std::pair<ModelId, ModelInstance>> items;
+    items.reserve(geo.trees.size());
+    for (const TreePlacement& t : geo.trees) items.emplace_back(treeModel(t), makeInstance(t.pos, t.yaw, t.scale));
+    mesh.trees.upload(items);
+
+    items.clear();
+    if (active) {
+        const TilePos o = chunkOrigin(pos);
+        for (i32 ly = 0; ly < kChunkSize; ++ly) {
+            for (i32 lx = 0; lx < kChunkSize; ++lx) {
+                const Tile& t = active->tile(lx, ly);
+                if (t.type != TileType::Building || t.extra != 0) continue;
+                const Building* b = world.buildings.tryGet(BuildingId(t.index));
+                if (!b) continue;
+                const u8 size = b->info().size;
+                // Surface level of the footprint (flat or on a foundation).
+                const Slope s = map.slope(b->pos);
+                const float y = static_cast<float>(flatSurfaceLevel(s, buildingSurface(s))) * kHeightStep;
+                const glm::vec3 p(static_cast<float>(b->pos.x - o.x) + size * 0.5f, y,
+                                  static_cast<float>(b->pos.y - o.y) + size * 0.5f);
+                items.emplace_back(models::building(b->type, b->variant),
+                                   makeInstance(p, facingYaw(b->facing), 1.0f, buildingTint(*b)));
+                mesh.maxY = std::max(mesh.maxY, y + 4.6f);
+            }
+        }
     }
-    mesh.treeTotal = all.size();
-    if (!all.empty()) {
-        if (!mesh.treeBuffer) mesh.treeBuffer = makeBuffer();
-        glBindBuffer(GL_ARRAY_BUFFER, mesh.treeBuffer.get());
-        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(all.size() * sizeof(ModelInstance)), all.data(),
-                     GL_STATIC_DRAW);
-    }
-    const Chunk* active = map.chunk(pos);
+    mesh.buildings.upload(items);
     mesh.revision = active ? active->revision + 1 : 0;
     mesh.active = active != nullptr;
 }
 
-void WorldRenderer::drawChunks(const std::vector<const ChunkMesh*>& chunks,
-                               const std::vector<const ChunkMesh*>& treeChunks, const glm::dvec3& origin,
-                               bool shadowPass) {
+void WorldRenderer::drawChunks(const DrawLists& lists, const glm::dvec3& origin, bool shadowPass) {
     const auto offsetOf = [&](const ChunkMesh* c) {
         const TilePos o = chunkOrigin(c->pos);
         return glm::vec3(static_cast<float>(o.x - origin.x), 0.0f, static_cast<float>(o.y - origin.z));
     };
     const Shader& ts = shadowPass ? *shadowStaticShader_ : *terrainShader_;
     ts.use();
-    for (const ChunkMesh* c : chunks) {
+    for (const ChunkMesh* c : lists.terrain) {
         ts.set("uOffset", offsetOf(c));
         if (!shadowPass) ts.set("uExplored", c->active ? 1.0f : 0.0f);
         c->ground.draw();
@@ -188,20 +224,23 @@ void WorldRenderer::drawChunks(const std::vector<const ChunkMesh*>& chunks,
     }
     const Shader& ms = shadowPass ? *shadowModelShader_ : *modelShader_;
     ms.use();
-    for (const ChunkMesh* c : treeChunks) {
-        if (c->treeTotal == 0) continue;
+    for (const ChunkMesh* c : lists.trees) {
+        if (c->trees.total == 0) continue;
         ms.set("uOffset", offsetOf(c));
-        for (usize i = 0; i < kModelCount; ++i) {
-            if (c->treeCount[i] == 0) continue;
-            models_.drawInstanced(static_cast<ModelId>(i), c->treeBuffer.get(), c->treeOffset[i] * sizeof(ModelInstance),
-                                  static_cast<GLsizei>(c->treeCount[i]));
-        }
-        if (!shadowPass) stats_.treesDrawn += c->treeTotal;
+        c->trees.draw(models_);
+        if (!shadowPass) stats_.treesDrawn += c->trees.total;
+    }
+    for (const ChunkMesh* c : lists.buildings) {
+        if (c->buildings.total == 0) continue;
+        ms.set("uOffset", offsetOf(c));
+        c->buildings.draw(models_);
+        if (!shadowPass) stats_.buildingsDrawn += c->buildings.total;
     }
 }
 
-void WorldRenderer::render(const Map& map, const Camera& cam, double minuteOfDay, double timeSeconds,
+void WorldRenderer::render(const World& world, const Camera& cam, double minuteOfDay, double timeSeconds,
                            const std::vector<OverlayQuad>& overlays) {
+    const Map& map = world.map;
     ++frame_;
     stats_ = {};
     const glm::dvec3 origin(std::floor(cam.target.x), 0.0, std::floor(cam.target.z));
@@ -214,6 +253,7 @@ void WorldRenderer::render(const Map& map, const Camera& cam, double minuteOfDay
     const double viewRadius = std::min<double>(settings.maxViewDistance, cam.distance * 2.6 + 120.0);
     const double shadowRadius = std::min(viewRadius, cam.distance * 1.1 + 24.0);
     const double treeRadius = std::min(viewRadius, 200.0);
+    const double buildingRadius = std::min(viewRadius, 420.0);
     const Frustum frustum = extractFrustum(viewProj);
     struct Candidate {
         ChunkPos pos;
@@ -237,7 +277,7 @@ void WorldRenderer::render(const Map& map, const Camera& cam, double minuteOfDay
     std::sort(candidates.begin(), candidates.end(),
               [](const Candidate& a, const Candidate& b) { return a.dist2 < b.dist2; });
 
-    std::vector<const ChunkMesh*> visible, casters, treeChunks, treeCasters;
+    DrawLists main, shadow;
     int builds = 0;
     for (const Candidate& cand : candidates) {
         const TilePos o = chunkOrigin(cand.pos);
@@ -261,7 +301,7 @@ void WorldRenderer::render(const Map& map, const Camera& cam, double minuteOfDay
         if ((it == meshes_.end() || it->second.revision != wanted || it->second.lod != lod) &&
             builds < settings.meshBuildsPerFrame) {
             ChunkMesh& mesh = meshes_[cand.pos.key()];
-            buildChunkMesh(map, cand.pos, lod, mesh);
+            buildChunkMesh(world, cand.pos, lod, mesh);
             ++builds;
             it = meshes_.find(cand.pos.key());
         }
@@ -269,17 +309,20 @@ void WorldRenderer::render(const Map& map, const Camera& cam, double minuteOfDay
         ChunkMesh& mesh = it->second;
         mesh.lastUsedFrame = frame_;
         const bool trees = cand.dist2 < treeRadius * treeRadius;
+        const bool buildings = cand.dist2 < buildingRadius * buildingRadius;
         if (inFrustum) {
-            visible.push_back(&mesh);
-            if (trees) treeChunks.push_back(&mesh);
+            main.terrain.push_back(&mesh);
+            if (trees) main.trees.push_back(&mesh);
+            if (buildings) main.buildings.push_back(&mesh);
         }
         if (caster) {
-            casters.push_back(&mesh);
-            if (trees) treeCasters.push_back(&mesh);
+            shadow.terrain.push_back(&mesh);
+            if (trees) shadow.trees.push_back(&mesh);
+            shadow.buildings.push_back(&mesh);
         }
     }
     stats_.meshesBuilt = builds;
-    stats_.chunksVisible = static_cast<int>(visible.size());
+    stats_.chunksVisible = static_cast<int>(main.terrain.size());
     if (frame_ % 60 == 0) {
         std::erase_if(meshes_, [&](const auto& kv) { return kv.second.lastUsedFrame + 180 < frame_; });
     }
@@ -290,19 +333,18 @@ void WorldRenderer::render(const Map& map, const Camera& cam, double minuteOfDay
                           static_cast<float>(cam.target.z - origin.z));
     const bool shadows = settings.shadows && sky_.sunStrength > 0.01f;
     glm::mat4 lightViewProj(1.0f);
-    float shadowTexel = 1.0f / static_cast<float>(shadowSize_);
+    const float shadowTexel = 1.0f / static_cast<float>(shadowSize_);
     if (shadows) {
         const float radius = std::ceil(static_cast<float>(shadowRadius) / 8.0f) * 8.0f;
         const glm::vec3 up = std::abs(sky_.sunDir.y) > 0.99f ? glm::vec3(0, 0, 1) : glm::vec3(0, 1, 0);
         const glm::mat4 lightView = glm::lookAt(focus + sky_.sunDir * 300.0f, focus, up);
         glm::mat4 lightProj = glm::ortho(-radius, radius, -radius, radius, 1.0f, 700.0f);
         // Snap to shadow texels to avoid shimmering while the camera moves.
-        glm::vec4 o = lightProj * lightView * glm::vec4(0, 0, 0, 1);
+        glm::vec4 so = lightProj * lightView * glm::vec4(0, 0, 0, 1);
         const float half = static_cast<float>(shadowSize_) * 0.5f;
-        o *= half;
-        const glm::vec2 snapped(std::round(o.x), std::round(o.y));
-        lightProj[3][0] += (snapped.x - o.x) / half;
-        lightProj[3][1] += (snapped.y - o.y) / half;
+        so *= half;
+        lightProj[3][0] += (std::round(so.x) - so.x) / half;
+        lightProj[3][1] += (std::round(so.y) - so.y) / half;
         lightViewProj = lightProj * lightView;
     }
 
@@ -334,7 +376,7 @@ void WorldRenderer::render(const Map& map, const Camera& cam, double minuteOfDay
         glDisable(GL_CULL_FACE);
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(1.5f, 3.0f);
-        drawChunks(casters, treeCasters, origin, true);
+        drawChunks(shadow, origin, true);
         glDisable(GL_POLYGON_OFFSET_FILL);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
@@ -361,7 +403,7 @@ void WorldRenderer::render(const Map& map, const Camera& cam, double minuteOfDay
     glActiveTexture(GL_TEXTURE0);
 
     if (settings.wireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    drawChunks(visible, treeChunks, origin, false);
+    drawChunks(main, origin, false);
     if (settings.wireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
     // Water (translucent)
@@ -369,7 +411,7 @@ void WorldRenderer::render(const Map& map, const Camera& cam, double minuteOfDay
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);
     waterShader_->use();
-    for (const ChunkMesh* c : visible) {
+    for (const ChunkMesh* c : main.terrain) {
         if (c->water.empty()) continue;
         const TilePos o = chunkOrigin(c->pos);
         waterShader_->set("uOffset",

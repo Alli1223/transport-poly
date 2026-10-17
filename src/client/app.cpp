@@ -85,6 +85,8 @@ bool App::parseArgs(int argc, char** argv) {
                 if (n >= 2) startCamera_ = glm::dvec4(x, z, d, yaw);
                 if (n >= 5) startPitchDeg_ = pitch;
             }
+        } else if (arg == "--goto-town") {
+            if (const char* v = next()) gotoTownDistance_ = std::max(6.0, std::atof(v));
         } else if (arg == "--goto-water") {
             gotoWater_ = true;
         } else if (arg == "--no-debug") {
@@ -130,6 +132,11 @@ bool App::init() {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
     glfwWindowHint(GLFW_SAMPLES, 4);
     glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+    if (autoScreenshot_) {
+        // Automated runs must not steal keyboard focus from whatever the user is doing.
+        glfwWindowHint(GLFW_FOCUSED, GLFW_FALSE);
+        glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
+    }
 
     window_ = glfwCreateWindow(1600, 900, "transport-poly", nullptr, nullptr);
     if (!window_) return false;
@@ -194,6 +201,13 @@ void App::shutdown() {
 }
 
 void App::updateCamera(double dt) {
+    if (autoScreenshot_) {
+        // Ignore all input during automated screenshots.
+        hover_ = {};
+        camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
+        camera_.update(dt);
+        return;
+    }
     const ImGuiIO& io = ImGui::GetIO();
     double mx = 0.0, my = 0.0;
     glfwGetCursorPos(window_, &mx, &my);
@@ -253,7 +267,7 @@ void App::updateExploration(double now) {
     std::erase_if(explorePending_, [&](const auto& kv) {
         return map.isActive(ChunkPos::fromKey(kv.first)) || now - kv.second > 3.0;
     });
-    const double radius = std::clamp(camera_.distance * 1.1, 64.0, 200.0);
+    const double radius = std::clamp(camera_.distance * 1.5, 128.0, 260.0);
     const double cx = camera_.target.x, cz = camera_.target.z;
     struct Want {
         ChunkPos pos;
@@ -286,6 +300,7 @@ void App::updateExploration(double now) {
 }
 
 void App::handleTools() {
+    if (autoScreenshot_) return;
     if (tool_ == Tool::None || !hover_.hit || ImGui::GetIO().WantCaptureMouse) return;
     if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
     switch (tool_) {
@@ -322,6 +337,39 @@ void App::drawToasts(double now) {
         ImGui::TextColored(t.error ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f) : ImVec4(1.0f, 0.9f, 0.5f, 1.0f), "%s",
                            t.text.c_str());
     ImGui::End();
+}
+
+std::optional<glm::vec2> App::worldToScreen(const glm::dvec3& p) const {
+    const glm::dvec3 origin = camera_.target;
+    const glm::dvec4 clip = camera_.viewProjectionD(origin) * glm::dvec4(p - origin, 1.0);
+    if (clip.w <= 0.01) return std::nullopt;
+    const glm::dvec3 ndc = glm::dvec3(clip) / clip.w;
+    if (ndc.z > 1.0 || ndc.x < -1.2 || ndc.x > 1.2 || ndc.y < -1.2 || ndc.y > 1.2) return std::nullopt;
+    const ImGuiIO& io = ImGui::GetIO();
+    return glm::vec2(static_cast<float>((ndc.x + 1.0) * 0.5 * io.DisplaySize.x),
+                     static_cast<float>((1.0 - ndc.y) * 0.5 * io.DisplaySize.y));
+}
+
+void App::drawTownLabels() {
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    const double maxDist = camera_.distance * 3.0 + 150.0;
+    for (const auto [id, t] : world().towns) {
+        const double dx = t.centre.x + 0.5 - camera_.target.x;
+        const double dz = t.centre.y + 0.5 - camera_.target.z;
+        if (dx * dx + dz * dz > maxDist * maxDist) continue;
+        const double y = world().map.cornerHeight(t.centre.x, t.centre.y) * gfx::kHeightStep + 2.5;
+        const auto sp = worldToScreen({t.centre.x + 0.5, y, t.centre.y + 0.5});
+        if (!sp) continue;
+        const std::string label = std::format("{}  {}", t.name, t.population);
+        const float scale = t.cls == TownClass::City ? 1.25f : (t.cls == TownClass::Town ? 1.1f : 1.0f);
+        ImFont* font = ImGui::GetFont();
+        const float size = ImGui::GetFontSize() * scale;
+        const ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0.0f, label.c_str());
+        const ImVec2 pos(sp->x - ts.x * 0.5f, sp->y - ts.y * 0.5f);
+        dl->AddRectFilled(ImVec2(pos.x - 6, pos.y - 3), ImVec2(pos.x + ts.x + 6, pos.y + ts.y + 3),
+                          IM_COL32(20, 24, 30, 150), 4.0f);
+        dl->AddText(font, size, pos, IM_COL32(255, 255, 255, 235), label.c_str());
+    }
 }
 
 void App::drawHud() {
@@ -389,7 +437,8 @@ void App::drawDebugUi() {
     ImGui::Text("%.1f FPS (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
     ImGui::Text("Camera %.1f, %.1f  dist %.0f", camera_.target.x, camera_.target.z, camera_.distance);
     ImGui::Text("Chunks: %d visible, %d cached, %d built", st.chunksVisible, st.chunksCached, st.meshesBuilt);
-    ImGui::Text("Triangles: %zu  Trees: %zu", st.trianglesDrawn, st.treesDrawn);
+    ImGui::Text("Triangles: %zu  Trees: %zu  Buildings: %zu", st.trianglesDrawn, st.treesDrawn, st.buildingsDrawn);
+    ImGui::Text("Towns %zu  people %zu  buildings %zu", w.towns.size(), w.people.size(), w.buildings.size());
     ImGui::Text("Tick %lld  explored chunks %zu", static_cast<long long>(w.clock.tick), w.map.activeChunks().size());
     ImGui::Text("State hash %016llx", static_cast<unsigned long long>(w.stateHash()));
     ImGui::Separator();
@@ -406,7 +455,16 @@ void App::drawDebugUi() {
         const TileCorners c = w.map.corners(hover_.tile);
         ImGui::Text("Tile (%d, %d)  corners %d %d %d %d", hover_.tile.x, hover_.tile.y, c.h[0], c.h[1], c.h[2], c.h[3]);
         if (const Tile* t = w.map.tile(hover_.tile)) {
-            ImGui::Text("type %d ground %d trees %d", static_cast<int>(t->type), static_cast<int>(t->ground), t->trees);
+            ImGui::Text("type %d ground %d trees %d road %x", static_cast<int>(t->type), static_cast<int>(t->ground),
+                        t->trees, t->road);
+            if (t->type == TileType::Building) {
+                if (const Building* b = w.buildings.tryGet(BuildingId(t->index))) {
+                    const Town* town = w.towns.tryGet(b->town);
+                    ImGui::Text("%s (%s)", b->info().name.data(), town ? town->name.c_str() : "?");
+                    ImGui::Text("residents %d  workers %d/%d  customers %d", b->residents, b->workers, b->info().jobs,
+                                b->customers);
+                }
+            }
         } else {
             ImGui::TextUnformatted("Unexplored");
         }
@@ -455,6 +513,18 @@ int App::run(int argc, char** argv) {
         if (ImGui::IsKeyPressed(ImGuiKey_F12)) pendingScreenshot_ = true;
         if (!ImGui::GetIO().WantCaptureKeyboard && ImGui::IsKeyPressed(ImGuiKey_Space))
             session_->setSpeed(session_->speed() == 0 ? 1 : 0);
+        if (gotoTownDistance_ > 0.0 && frameCount == 90) {
+            // Jump to the most populous town found so far (used for automated screenshots).
+            const Town* best = nullptr;
+            for (const auto [id, t] : world().towns)
+                if (!best || t.population > best->population) best = &t;
+            if (best) {
+                camera_.targetGoal = glm::dvec3(best->centre.x + 0.5, 0.0, best->centre.y + 0.5);
+                camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
+                camera_.distanceGoal = gotoTownDistance_;
+                camera_.snapToGoals();
+            }
+        }
         updateCamera(dt);
         updateExploration(now);
         handleTools();
@@ -481,9 +551,10 @@ int App::run(int argc, char** argv) {
         drawToolbar();
         drawDebugUi();
         drawToasts(now);
-        const double minute = fixedTimeOfDay_ ? *fixedTimeOfDay_
-                                              : world().clock.minuteOfDay() + session_->tickFraction();
-        renderer_.render(world().map, camera_, minute, timeSeconds_, overlays);
+        const double minute =
+            fixedTimeOfDay_ ? *fixedTimeOfDay_ : world().clock.exactMinuteOfDay(session_->tickFraction());
+        drawTownLabels();
+        renderer_.render(world(), camera_, minute, timeSeconds_, overlays);
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         ++frameCount;

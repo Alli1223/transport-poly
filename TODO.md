@@ -57,8 +57,8 @@ relies on every peer computing exactly the same game state.
 - [x] 3.10 Shadow mapping (directional, PCF)
 - [~] 3.11 Day / night cycle bound to the game clock, lit windows and street lights at night (sky + sun follow the clock; lit windows later)
 - [x] 3.12 Mouse picking: ray vs heightfield, tile / corner hit info
-- [~] 3.13 Procedural low poly model library (houses, apartments, offices, shops, factories, trees, stations, depots, vehicles, people) (trees so far)
-- [~] 3.14 Instanced renderers for trees, buildings, vehicles, people (trees so far)
+- [~] 3.13 Procedural low poly model library (houses, apartments, offices, shops, factories, trees, stations, depots, vehicles, people) (trees + 15 building types)
+- [~] 3.14 Instanced renderers for trees, buildings, vehicles, people (trees + buildings)
 - [ ] 3.15 Selection highlight + ghost previews for build tools
 - [x] 3.16 Screenshot key
 
@@ -73,24 +73,24 @@ relies on every peer computing exactly the same game state.
 - [x] 4.8 Exploration: clients request chunk activation as the camera moves; server rate-limits
 
 ## M5 — Towns, buildings & people
-- [ ] 5.1 Deterministic town sites per region, size classes (village / town / city)
-- [ ] 5.2 Town founding: name, centre, initial road layout (grid / organic)
-- [ ] 5.3 Building catalogue: houses, terraces, apartments, offices, retail, workshops/factories with capacities (residents / jobs / shoppers)
-- [ ] 5.4 Building placement along roads with zoning by distance from the centre
-- [ ] 5.5 People: individual residents per home (home, work place, shop)
-- [ ] 5.6 Job market: assign work places (same town first, then nearby towns), unemployment
-- [ ] 5.7 Shopping: assign a retail building in the nearest city
-- [ ] 5.8 Weekly schedule: 5 work days, 2 shopping days; departure times; dwell times
-- [ ] 5.9 Trip planner: walk / public transport / private car (abstract) mode choice
-- [ ] 5.10 Event driven people simulation (priority queue by tick) for scalability
-- [ ] 5.11 Town growth (roads + buildings) driven by population, jobs and transport service
+- [x] 5.1 Deterministic town sites per region, size classes (village / town / city)
+- [x] 5.2 Town founding: name, centre, initial road layout (grid / organic)
+- [x] 5.3 Building catalogue: houses, terraces, apartments, offices, retail, workshops/factories with capacities (residents / jobs / shoppers)
+- [x] 5.4 Building placement along roads with zoning by distance from the centre
+- [x] 5.5 People: individual residents per home (home, work place, shop)
+- [x] 5.6 Job market: assign work places (same town first, then nearby towns), unemployment
+- [x] 5.7 Shopping: assign a retail building in the nearest city
+- [x] 5.8 Weekly schedule: 5 work days, 2 shopping days; departure times; dwell times
+- [~] 5.9 Trip planner: walk / public transport / private car (abstract) mode choice (walk / car / lift; transit with stations)
+- [x] 5.10 Event driven people simulation (priority queue by tick) for scalability
+- [~] 5.11 Town growth (roads + buildings) driven by population, jobs and transport service (daily growth by class and demand; service bonus with stations)
 - [ ] 5.12 New towns spawn over time in explored land
 - [ ] 5.13 Town ratings per company & local authority restrictions
-- [ ] 5.14 Town statistics (population, passengers last month, served %)
+- [~] 5.14 Town statistics (population, passengers last month, served %) (monthly trip stats per mode)
 
 ## M6 — Infrastructure
-- [ ] 6.1 Roads: road bits per tile, build / remove along a drag line, slopes, costs, town roads
-- [ ] 6.2 Road rendering (straight, curves, junctions, slopes, dead ends)
+- [~] 6.1 Roads: road bits per tile, build / remove along a drag line, slopes, costs, town roads (pieces, slopes, foundations, town roads; company build command next)
+- [x] 6.2 Road rendering (straight, curves, junctions, slopes, dead ends)
 - [ ] 6.3 Rails: 6 track bits per tile (incl. diagonals), drag building, slopes
 - [ ] 6.4 Rail rendering (ballast, sleepers, rails; diagonals)
 - [ ] 6.5 Level crossings (road + rail)
