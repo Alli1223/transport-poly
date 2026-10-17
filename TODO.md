@@ -22,16 +22,16 @@ relies on every peer computing exactly the same game state.
 - [x] 0.8 README with build instructions; docs/ARCHITECTURE.md
 
 ## M1 — Core library
-- [ ] 1.1 Integer aliases, assertions (`TP_ASSERT`), utility helpers
-- [ ] 1.2 Logging (console + file, levels, std::format based)
-- [ ] 1.3 Deterministic RNG (SplitMix64 seeding, PCG32 streams, unbiased bounded ints)
-- [ ] 1.4 Integer hashing (noise lattice hashing, FNV-1a state checksums)
-- [ ] 1.5 Fixed-point number type (16.16) and integer maths helpers (isqrt, clamp, lerp)
-- [ ] 1.6 Binary serialisation (little-endian writer/reader, varints, strings, bounds checked) with a symmetrical archive visitor
-- [ ] 1.7 Strong ID types and object pools with stable ids and deterministic iteration
-- [ ] 1.8 Game calendar: ticks → minute / hour / day / weekday / month / year, date formatting
-- [ ] 1.9 Money type (int64) and formatting
-- [ ] 1.10 Name generator (syllable based town / station / company names)
+- [x] 1.1 Integer aliases, assertions (`TP_ASSERT`), utility helpers
+- [x] 1.2 Logging (console + file, levels, std::format based)
+- [x] 1.3 Deterministic RNG (SplitMix64 seeding, PCG32 streams, unbiased bounded ints)
+- [x] 1.4 Integer hashing (noise lattice hashing, FNV-1a state checksums)
+- [x] 1.5 Fixed-point number type (16.16) and integer maths helpers (isqrt, clamp, lerp)
+- [x] 1.6 Binary serialisation (little-endian writer/reader, varints, strings, bounds checked) with a symmetrical archive visitor
+- [x] 1.7 Strong ID types and object pools with stable ids and deterministic iteration
+- [x] 1.8 Game calendar: ticks → minute / hour / day / weekday / month / year, date formatting
+- [x] 1.9 Money type (int64) and formatting
+- [x] 1.10 Name generator (syllable based town / station / company names)
 
 ## M2 — Infinite world & terrain
 - [ ] 2.1 Tile / chunk coordinate types, floor-div helpers, directions & neighbours
