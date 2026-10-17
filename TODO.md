@@ -34,14 +34,14 @@ relies on every peer computing exactly the same game state.
 - [x] 1.10 Name generator (syllable based town / station / company names)
 
 ## M2 — Infinite world & terrain
-- [ ] 2.1 Tile / chunk coordinate types, floor-div helpers, directions & neighbours
-- [ ] 2.2 Deterministic integer value noise + fractal sum with bounded slope (guarantees OpenTTD-like corner height rules everywhere, across chunk borders)
-- [ ] 2.3 Terrain generator: continents & sea, plains, hills, mountains; ground types (grass, sand, rock, snow); forests
+- [x] 2.1 Tile / chunk coordinate types, floor-div helpers, directions & neighbours
+- [x] 2.2 Deterministic integer value noise + fractal sum with bounded slope (guarantees OpenTTD-like corner height rules everywhere, across chunk borders)
+- [x] 2.3 Terrain generator: continents & sea, plains, hills, mountains; ground types (grass, sand, rock, snow); forests
 - [ ] 2.4 Rivers & lakes (deterministic, crossing chunk borders)
-- [ ] 2.5 Chunk storage: corner heights, ground, trees, road / tram / rail layers, structures, owner
-- [ ] 2.6 Active chunk map; activation = deterministic generation (pure function of seed + coordinate)
-- [ ] 2.7 Tile slope classification (flat, inclined, steep) and foundations
-- [ ] 2.8 Terraform: raise / lower corners with neighbour propagation, cost, restrictions
+- [x] 2.5 Chunk storage: corner heights, ground, trees, road / tram / rail layers, structures, owner
+- [x] 2.6 Active chunk map; activation = deterministic generation (pure function of seed + coordinate)
+- [x] 2.7 Tile slope classification (flat, inclined, steep) and foundations
+- [~] 2.8 Terraform: raise / lower corners with neighbour propagation, cost, restrictions (planner done; command + cost in M4)
 - [ ] 2.9 Tree planting / removal, clearing cost
 
 ## M3 — Rendering foundation
