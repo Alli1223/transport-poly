@@ -10,6 +10,7 @@
 #include "core/calendar.hpp"
 #include "core/log.hpp"
 #include "core/png.hpp"
+#include "net/net_client.hpp"
 #include "core/math.hpp"
 #include "core/version.hpp"
 #include "render/gl.hpp"
@@ -119,8 +120,10 @@ void App::onScroll(double dy) { scrollAccum_ += dy; }
 void App::onFramebufferSize(int width, int height) { camera_.setViewport(width, height); }
 
 bool App::parseArgs(int argc, char** argv) {
+    if (argc > 0 && argv[0]) exeDir_ = std::filesystem::path(argv[0]).parent_path().string();
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
+        if (arg != "--no-debug" && arg != "--screenshot" && arg != "--frames" && arg != "--time") directStart_ = true;
         const auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : nullptr; };
         if (arg == "--screenshot") {
             if (const char* v = next()) autoScreenshot_ = v;
@@ -146,6 +149,8 @@ bool App::parseArgs(int argc, char** argv) {
             followFirst_ = true;
         } else if (arg == "--demo-network") {
             demoNetwork_ = true;
+        } else if (arg == "--join") {
+            if (const char* v = next()) joinAddress_ = v;
         } else if (arg == "--no-debug") {
             showDebug_ = false;
         } else {
@@ -217,8 +222,21 @@ bool App::init() {
     glfwGetWindowContentScale(window_, &xs, &ys);
     uiScale_ = std::max(1.0f, xs);
     ImGui::StyleColorsDark();
-    ImGui::GetStyle().ScaleAllSizes(uiScale_);
-    io.FontGlobalScale = uiScale_;
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 6.0f;
+    style.FrameRounding = 4.0f;
+    style.GrabRounding = 4.0f;
+    style.ScaleAllSizes(uiScale_);
+    // Prefer the bundled Roboto font, fall back to the built-in one.
+    bool fontLoaded = false;
+    for (const std::filesystem::path dir : {std::filesystem::path(exeDir_) / "fonts", std::filesystem::path("fonts")}) {
+        const std::filesystem::path font = dir / "Roboto-Medium.ttf";
+        std::error_code ec;
+        if (!fontLoaded && std::filesystem::exists(font, ec)) {
+            fontLoaded = io.Fonts->AddFontFromFileTTF(font.string().c_str(), 16.0f * uiScale_) != nullptr;
+        }
+    }
+    if (!fontLoaded) io.FontGlobalScale = uiScale_;
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
 
@@ -229,7 +247,17 @@ bool App::init() {
     int fbw = 0, fbh = 0;
     glfwGetFramebufferSize(window_, &fbw, &fbh);
     camera_.setViewport(fbw, fbh);
-    newGame(seed_);
+    if (!joinAddress_.empty()) {
+        std::string host = joinAddress_;
+        u16 port = net::kDefaultPort;
+        if (const auto colon = host.rfind(':'); colon != std::string::npos) {
+            port = static_cast<u16>(std::atoi(host.substr(colon + 1).c_str()));
+            host = host.substr(0, colon);
+        }
+        startSession(std::make_unique<net::NetClientSession>(host, port, "Player"));
+    } else if (directStart_) {
+        newGame(seed_);
+    }
     return true;
 }
 
@@ -237,17 +265,12 @@ void App::newGame(u64 seed) {
     seed_ = seed;
     WorldSettings settings;
     settings.seed = seed;
-    session_ = std::make_unique<LocalSession>(settings);
-    renderer_.invalidateAll();
-    explorePending_.clear();
-    const TilePos start = findLandNear(world().map.generator(), {0, 0});
-    camera_.targetGoal =
-        glm::dvec3(start.x + 0.5, gfx::terrainHeightAt(world().map, start.x + 0.5, start.y + 0.5), start.y + 0.5);
-    camera_.snapToGoals();
+    startSession(std::make_unique<LocalSession>(settings));
 }
 
 void App::shutdown() {
     session_.reset();
+    preview_.reset();
     if (ImGui::GetCurrentContext()) {
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplGlfw_Shutdown();
@@ -458,7 +481,7 @@ void App::drawHud() {
         if (i) ImGui::SameLine();
         const bool active = session_->speed() == speeds[i];
         if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton(labels[i])) session_->setSpeed(speeds[i]);
+        if (ImGui::SmallButton(labels[i])) session_->setSpeed(speeds[i]); // network clients ignore this
         if (active) ImGui::PopStyleColor();
     }
     ImGui::End();
@@ -539,57 +562,80 @@ int App::run(int argc, char** argv) {
         last = now;
         timeSeconds_ += dt;
 
-        session_->update(dt);
-        processFeedback(now);
+        if (session_) {
+            session_->update(dt);
+            if (session_->ready()) processFeedback(now);
+        }
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-
-        if (ImGui::IsKeyPressed(ImGuiKey_F3)) showDebug_ = !showDebug_;
         if (ImGui::IsKeyPressed(ImGuiKey_F12)) pendingScreenshot_ = true;
-        if (!ImGui::GetIO().WantCaptureKeyboard && ImGui::IsKeyPressed(ImGuiKey_Space))
-            session_->setSpeed(session_->speed() == 0 ? 1 : 0);
-        if (gotoTownDistance_ > 0.0 && frameCount == 90) {
-            // Jump to the most populous town found so far (used for automated screenshots).
-            const Town* best = nullptr;
-            for (const auto [id, t] : world().towns)
-                if (!best || t.population > best->population) best = &t;
-            if (best) {
-                camera_.targetGoal = glm::dvec3(best->centre.x + 0.5, 0.0, best->centre.y + 0.5);
-                camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
-                camera_.distanceGoal = gotoTownDistance_;
-                camera_.snapToGoals();
-            }
-        }
-        if (demoNetwork_ && frameCount == 100) {
-            if (auto* local = dynamic_cast<LocalSession*>(session_.get()))
-                buildDemoNetwork(local->world(), local->localCompany());
-        }
-        if (followFirst_ && frameCount == 160) {
-            for (const auto [id, v] : world().vehicles) {
-                if (v.state == VehicleState::InDepot) continue;
-                followVehicle_ = id;
-                selVehicle_ = id;
-                break;
-            }
-        }
-        updateCamera(dt);
-        updateExploration(now);
 
-        std::vector<gfx::OverlayQuad> overlays;
-        if (hover_.hit && tool_ == Tool::None) addTileOverlay(overlays, hover_.tile, gfx::rgba(255, 255, 255, 70), 0.04);
-        handleTools(overlays);
+        if (screen_ == Screen::MainMenu || !session_) {
+            updatePreview(dt);
+            drawMainMenu();
+            if (preview_) renderer_.render(preview_->world(), camera_, 15.5 * 60.0, timeSeconds_, preview_->tickFraction(), {});
+        } else if (!session_->ready()) {
+            glViewport(0, 0, camera_.viewportWidth(), camera_.viewportHeight());
+            glClearColor(0.12f, 0.14f, 0.18f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            drawConnecting();
+        } else {
+            if (!cameraPlaced_) placeCameraAtStart();
+            if (preview_) {
+                preview_.reset();
+                renderer_.invalidateAll();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_F3)) showDebug_ = !showDebug_;
+            if (!ImGui::GetIO().WantCaptureKeyboard && ImGui::IsKeyPressed(ImGuiKey_Space) && !session_->isMultiplayer())
+                session_->setSpeed(session_->speed() == 0 ? 1 : 0);
+            if (gotoTownDistance_ > 0.0 && frameCount == 90) {
+                // Jump to the most populous town found so far (used for automated screenshots).
+                const Town* best = nullptr;
+                for (const auto [id, t] : world().towns)
+                    if (!best || t.population > best->population) best = &t;
+                if (best) {
+                    camera_.targetGoal = glm::dvec3(best->centre.x + 0.5, 0.0, best->centre.y + 0.5);
+                    camera_.targetGoal.y =
+                        gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
+                    camera_.distanceGoal = gotoTownDistance_;
+                    camera_.snapToGoals();
+                }
+            }
+            if (demoNetwork_ && frameCount == 100) {
+                if (auto* local = dynamic_cast<LocalSession*>(session_.get()))
+                    buildDemoNetwork(local->world(), local->localCompany());
+            }
+            if (followFirst_ && frameCount == 160) {
+                for (const auto [id, v] : world().vehicles) {
+                    if (v.state == VehicleState::InDepot) continue;
+                    followVehicle_ = id;
+                    selVehicle_ = id;
+                    break;
+                }
+            }
+            updateCamera(dt);
+            updateExploration(now);
+            autosave();
 
-        drawHud();
-        drawToolbar();
-        drawWindows();
-        drawDebugUi();
-        drawToasts(now);
-        const double minute =
-            fixedTimeOfDay_ ? *fixedTimeOfDay_ : world().clock.exactMinuteOfDay(session_->tickFraction());
-        drawTownLabels();
-        renderer_.render(world(), camera_, minute, timeSeconds_, session_->tickFraction(), overlays);
+            std::vector<gfx::OverlayQuad> overlays;
+            if (hover_.hit && tool_ == Tool::None)
+                addTileOverlay(overlays, hover_.tile, gfx::rgba(255, 255, 255, 70), 0.04);
+            handleTools(overlays);
+
+            drawHud();
+            drawToolbar();
+            drawWindows();
+            drawDebugUi();
+            drawChat();
+            drawGameMenu();
+            drawToasts(now);
+            const double minute =
+                fixedTimeOfDay_ ? *fixedTimeOfDay_ : world().clock.exactMinuteOfDay(session_->tickFraction());
+            drawTownLabels();
+            renderer_.render(world(), camera_, minute, timeSeconds_, session_->tickFraction(), overlays);
+        }
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         ++frameCount;

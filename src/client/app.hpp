@@ -2,6 +2,7 @@
 
 #include "net/session.hpp"
 #include "render/camera.hpp"
+#include "sim/savegame.hpp"
 #include "render/picking.hpp"
 #include "render/world_renderer.hpp"
 
@@ -14,6 +15,9 @@
 struct GLFWwindow;
 
 namespace tp {
+
+enum class Screen { MainMenu, Playing };
+enum class MenuPage { Main, NewGame, Load, Host, Join };
 
 enum class Tool {
     None,
@@ -65,6 +69,17 @@ private:
     void addTileOverlay(std::vector<gfx::OverlayQuad>& overlays, TilePos t, u32 color, double lift = 0.04) const;
     VehicleId pickVehicle() const;
 
+    // app_menu.cpp
+    void drawMainMenu();
+    void drawGameMenu();
+    void drawConnecting();
+    void drawChat();
+    void startSession(std::unique_ptr<GameSession> session);
+    void returnToMainMenu();
+    void updatePreview(double dt);
+    void autosave();
+    void placeCameraAtStart();
+
     // app_windows.cpp
     void drawWindows();
     void drawDepotWindow();
@@ -78,6 +93,24 @@ private:
     void focusOn(TilePos t);
 
     GLFWwindow* window_ = nullptr;
+    Screen screen_ = Screen::MainMenu;
+    MenuPage menuPage_ = MenuPage::Main;
+    std::unique_ptr<GameSession> preview_; // background world on the main menu
+    std::vector<SaveInfo> saves_;
+    std::string menuError_;
+    std::string exeDir_;
+    char seedBuf_[32] = "";
+    char playerName_[48] = "Player";
+    char companyName_[64] = "";
+    char address_[128] = "127.0.0.1";
+    char saveName_[64] = "my-game";
+    char chatBuf_[256] = "";
+    int port_ = 3979;
+    bool showGameMenu_ = false;
+    bool showChat_ = false;
+    bool cameraPlaced_ = false;
+    std::deque<std::string> chatLines_;
+    i32 lastAutosaveMonth_ = -1;
     gfx::WorldRenderer renderer_;
     gfx::Camera camera_;
     std::unique_ptr<GameSession> session_;
@@ -129,6 +162,8 @@ private:
     double gotoTownDistance_ = 0.0; // > 0: jump to the biggest town at this zoom (automation)
     bool demoNetwork_ = false;      // automation: build a demo bus line in the biggest town
     bool followFirst_ = false;      // automation: follow the first vehicle
+    bool directStart_ = false;      // skip the main menu (command line options given)
+    std::string joinAddress_;       // --join host[:port]
 };
 
 } // namespace tp

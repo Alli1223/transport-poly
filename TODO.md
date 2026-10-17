@@ -129,7 +129,7 @@ relies on every peer computing exactly the same game state.
 
 ## M9 — Save / Load
 - [x] 9.1 Full world serialisation (versioned)
-- [ ] 9.2 Save / load UI, autosave every N months, quicksave
+- [~] 9.2 Save / load UI, autosave every N months, quicksave (save / load menus and monthly autosave; quicksave key later)
 - [x] 9.3 Round-trip determinism test (save → load → continue ⇒ same hash)
 
 ## M10 — Multiplayer
@@ -138,15 +138,15 @@ relies on every peer computing exactly the same game state.
 - [x] 10.3 Server: client management, company assignment, command validation & scheduling, frame broadcast
 - [x] 10.4 Client: map download, catch-up, frame-limited simulation, command submission
 - [x] 10.5 Sync checks (state hash) & desync handling
-- [~] 10.6 Chat & client list (protocol + server side; client UI next)
+- [~] 10.6 Chat & client list (chat window; client list window later)
 - [x] 10.7 Dedicated headless server executable (CLI args, console commands)
-- [ ] 10.8 Host a game from the client (listen server) and join by address
+- [x] 10.8 Host a game from the client (listen server) and join by address
 - [ ] 10.9 Pause / speed control rules in multiplayer
 - [x] 10.10 Integration test: server + 2 clients ⇒ identical hashes
 
 ## M11 — UI
-- [~] 11.1 Dear ImGui integration, theme, font (default ImGui theme for now)
-- [ ] 11.2 Main menu: new game (seed, settings), load, host, join, settings, quit
+- [~] 11.1 Dear ImGui integration, theme, font (Roboto font, rounded dark theme)
+- [~] 11.2 Main menu: new game (seed, settings), load, host, join, settings, quit (new / load / host / join / quit; settings later)
 - [x] 11.3 Main toolbar, time controls (pause, speeds), date / money display
 - [~] 11.4 Construction toolbars: road, tram, rail, signals, stations, depots, water, terraform, trees, demolish (landscaping, road, tram tools with previews and cost; rail / water later)
 - [x] 11.5 Depot window: buy vehicles (model list with stats)

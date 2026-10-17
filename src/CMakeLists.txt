@@ -27,6 +27,11 @@ if(TP_BUILD_CLIENT)
     file(GLOB_RECURSE TP_CLIENT_SOURCES CONFIGURE_DEPENDS client/*.cpp client/*.hpp)
     add_executable(transport-poly ${TP_CLIENT_SOURCES})
     target_link_libraries(transport-poly PRIVATE tp_render tp_net tp_imgui glfw)
+    # Ship the UI font next to the executable.
+    add_custom_command(TARGET transport-poly POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:transport-poly>/fonts
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TP_IMGUI_FONT_DIR}/Roboto-Medium.ttf
+                $<TARGET_FILE_DIR:transport-poly>/fonts/Roboto-Medium.ttf)
 endif()
 
 if(TP_BUILD_SERVER)
