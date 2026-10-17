@@ -16,7 +16,7 @@ namespace tp {
 struct Chunk;
 
 inline constexpr i32 kMaxHeight = 64;
-inline constexpr i32 kSnowLine = 26;
+inline constexpr i32 kSnowLine = 34;
 inline constexpr i32 kHeightOne = 1 << 16; // fixed point scale of raw heights
 
 class TerrainGenerator {

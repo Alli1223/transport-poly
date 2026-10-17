@@ -45,22 +45,22 @@ relies on every peer computing exactly the same game state.
 - [ ] 2.9 Tree planting / removal, clearing cost
 
 ## M3 — Rendering foundation
-- [ ] 3.1 Window + GL 3.3 core context (GLFW), vsync, DPI awareness, resize
-- [ ] 3.2 Shader program wrapper (embedded GLSL), per-frame uniform block
-- [ ] 3.3 Mesh / vertex buffer / instancing abstractions
-- [ ] 3.4 RTS camera: pan, orbit, zoom, tilt, smoothing, follows terrain height
-- [ ] 3.5 Camera-relative rendering for infinite coordinates (no float precision loss far from origin)
-- [ ] 3.6 Flat-shaded low poly terrain chunk mesher with vertex colours
-- [ ] 3.7 Chunk streaming around the camera (mesh cache, rebuild on change, frustum culling)
-- [ ] 3.8 Directional sun + hemispheric ambient lighting, distance fog, sky gradient
-- [ ] 3.9 Low poly animated water
-- [ ] 3.10 Shadow mapping (directional, PCF)
-- [ ] 3.11 Day / night cycle bound to the game clock, lit windows and street lights at night
-- [ ] 3.12 Mouse picking: ray vs heightfield, tile / corner hit info
-- [ ] 3.13 Procedural low poly model library (houses, apartments, offices, shops, factories, trees, stations, depots, vehicles, people)
-- [ ] 3.14 Instanced renderers for trees, buildings, vehicles, people
+- [x] 3.1 Window + GL 3.3 core context (GLFW), vsync, DPI awareness, resize
+- [x] 3.2 Shader program wrapper (embedded GLSL), per-frame uniform block
+- [x] 3.3 Mesh / vertex buffer / instancing abstractions
+- [x] 3.4 RTS camera: pan, orbit, zoom, tilt, smoothing, follows terrain height
+- [x] 3.5 Camera-relative rendering for infinite coordinates (no float precision loss far from origin)
+- [x] 3.6 Flat-shaded low poly terrain chunk mesher with vertex colours
+- [x] 3.7 Chunk streaming around the camera (mesh cache, rebuild on change, frustum culling)
+- [x] 3.8 Directional sun + hemispheric ambient lighting, distance fog, sky gradient
+- [x] 3.9 Low poly animated water
+- [x] 3.10 Shadow mapping (directional, PCF)
+- [~] 3.11 Day / night cycle bound to the game clock, lit windows and street lights at night (sky + sun follow the clock; lit windows later)
+- [x] 3.12 Mouse picking: ray vs heightfield, tile / corner hit info
+- [~] 3.13 Procedural low poly model library (houses, apartments, offices, shops, factories, trees, stations, depots, vehicles, people) (trees so far)
+- [~] 3.14 Instanced renderers for trees, buildings, vehicles, people (trees so far)
 - [ ] 3.15 Selection highlight + ghost previews for build tools
-- [ ] 3.16 Screenshot key
+- [x] 3.16 Screenshot key
 
 ## M4 — Game state, commands, companies
 - [ ] 4.1 `World` game state container and fixed tick loop (30 ticks/s × game speed)
@@ -162,7 +162,7 @@ relies on every peer computing exactly the same game state.
 - [ ] 11.15 Citizen inspector (follow an individual person's day)
 
 ## M12 — Polish & release
-- [ ] 12.1 Performance pass (profiling, multithreaded meshing, LOD)
+- [~] 12.1 Performance pass (profiling, multithreaded meshing, LOD) (terrain LOD + skirts done)
 - [ ] 12.2 Sounds (optional)
 - [ ] 12.3 Packaging: CPack zip (Windows), tar.gz (Linux)
 - [ ] 12.4 AI competitors (optional)

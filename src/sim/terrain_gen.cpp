@@ -48,19 +48,20 @@ enum Salt : u32 {
     kTreeJitter,
 };
 
-// Piecewise linear flattening of the continent term with slopes <= 1: wide coastal plains.
+// Piecewise linear flattening of the continent term with slopes <= 1: coastal plains.
 constexpr i64 flatten(i64 h) {
     if (h <= 0) return h;
-    if (h <= 16 * kOne) return h / 4;
-    return 4 * kOne + (h - 16 * kOne);
+    if (h <= 8 * kOne) return h / 2;
+    if (h <= 40 * kOne) return 4 * kOne + ((h - 8 * kOne) * 2) / 5;
+    return 4 * kOne + (32 * kOne * 2) / 5 + (h - 40 * kOne);
 }
 
-// Slope budget (levels per tile, see terrain_gen.hpp):
+// Slope budget (levels per tile, value noise with smoothstep has max derivative 1.5/cell):
 //   continent  72*(0.6*1.5/1024 + 0.4*1.5/256)          = 0.232
-//   hills       8*1.5/64 + 8*1.5/512                     = 0.211
-//   mountains  18*(2*1.5/256 + 4*1.5/1024)               = 0.316
-//   detail    1.5*1.5/16 + 1.5*1.5/512                   = 0.145
-//   total                                                = 0.904 < 1
+//   hills      12*1.5/128 + 12*1.5/512                   = 0.176
+//   mountains  24*(2*1.5/256 + 4*1.5/1024)               = 0.422
+//   detail      1*1.5/16  +  1*1.5/512                   = 0.097
+//   total                                                = 0.927 < 1
 // The terrain test verifies the budget empirically over millions of samples.
 
 } // namespace
@@ -68,20 +69,20 @@ constexpr i64 flatten(i64 h) {
 i64 TerrainGenerator::rawHeight(i32 x, i32 y) const {
     const i64 c1 = valueNoise(seed_, kContinentLow, x, y, 10);
     const i64 c2 = valueNoise(seed_, kContinentHigh, x, y, 8);
-    const i64 continent = (72 * (6 * c1 + 4 * c2)) / 10 - 30 * kOne;
+    const i64 continent = (72 * (6 * c1 + 4 * c2)) / 10 - 28 * kOne;
 
     const i64 hillMask = valueNoise(seed_, kHillMask, x, y, 9);
-    const i64 hills = (8 * valueNoise(seed_, kHills, x, y, 6) * hillMask) >> 16;
+    const i64 hills = (12 * valueNoise(seed_, kHills, x, y, 7) * hillMask) >> 16;
 
-    const i64 mm = std::clamp<i64>((valueNoise(seed_, kMountainMask, x, y, 10) - (kOne * 55) / 100) * 4, 0, kOne);
+    const i64 mm = std::clamp<i64>((valueNoise(seed_, kMountainMask, x, y, 10) - (kOne * 50) / 100) * 4, 0, kOne);
     i64 mountains = 0;
     if (mm > 0) {
         const i64 n = valueNoise(seed_, kRidges, x, y, 8);
         const i64 ridge = kOne - (2 * n - kOne < 0 ? kOne - 2 * n : 2 * n - kOne);
-        mountains = (((18 * ridge) >> 8) * mm) >> 8; // fixed point levels, at most 18
+        mountains = (((24 * ridge) >> 8) * mm) >> 8; // fixed point levels, at most 24
     }
 
-    const i64 detail = (3 * valueNoise(seed_, kDetail, x, y, 4) * hillMask) >> 17;
+    const i64 detail = (valueNoise(seed_, kDetail, x, y, 4) * hillMask) >> 16;
 
     return flatten(continent) + hills + mountains + detail;
 }
@@ -118,7 +119,7 @@ Tile TerrainGenerator::generateTile(TilePos t, const i64 raw[4], const u8 h[4]) 
         tile.ground = Ground::Rock;
     } else if (nearSea) {
         tile.ground = Ground::Sand;
-    } else if (jitter % 23 == 0) {
+    } else if (jitter % 41 == 0) {
         tile.ground = Ground::Rough;
     } else {
         tile.ground = Ground::Grass;
