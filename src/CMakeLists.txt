@@ -41,6 +41,19 @@ if(TP_BUILD_SERVER)
     target_link_libraries(transport-poly-server PRIVATE tp_net)
 endif()
 
+# --- Visual Studio: solution folders, startup project and debugger directory ----
+set_target_properties(tp_core tp_sim tp_net PROPERTIES FOLDER "Libraries")
+if(TP_BUILD_CLIENT)
+    set_target_properties(tp_render PROPERTIES FOLDER "Libraries")
+    set_target_properties(transport-poly PROPERTIES FOLDER "Game"
+        VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:transport-poly>")
+    set_property(DIRECTORY ${PROJECT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT transport-poly)
+endif()
+if(TP_BUILD_SERVER)
+    set_target_properties(transport-poly-server PROPERTIES FOLDER "Game"
+        VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:transport-poly-server>")
+endif()
+
 # --- Installation (used by CPack) ----------------------------------------------
 # Everything goes into one directory: the client finds its font next to the executable.
 if(WIN32)

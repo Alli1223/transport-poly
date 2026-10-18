@@ -34,8 +34,10 @@ ctest --preset windows-msvc-release
 build\windows-msvc\bin\RelWithDebInfo\transport-poly.exe
 ```
 
-Or generate a Visual Studio solution with `cmake --preset windows-vs2026` and
-open `build/windows-vs2026/transport_poly.sln`.
+Or work in Visual Studio 2026: run `scripts\open-vs.bat` once. It generates the
+projects with the `windows-vs2026` preset and opens `transport-poly.slnx` (the game is
+the startup project, so F5 runs it). After that just open `transport-poly.slnx`;
+CMake regenerates the projects by itself when a `CMakeLists.txt` changes.
 
 ### Linux
 
