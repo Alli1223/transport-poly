@@ -33,8 +33,16 @@ enum class Tool {
     RemoveTram,
     TramStop,
     TramDepot,
+    RailTrack,
+    RemoveRail,
+    Signal,
+    RailStation,
+    RailDepot,
     PickOrder, // click a station to append it to the selected vehicle's orders
 };
+
+// Toolbar categories; the tools of the open group are shown above the main toolbar.
+enum class ToolGroup { None, Land, Road, Tram, Rail };
 
 class App {
 public:
@@ -118,6 +126,7 @@ private:
     gfx::Ray mouseRay_;
     bool mouseOverUi_ = false;
     Tool tool_ = Tool::None;
+    ToolGroup toolGroup_ = ToolGroup::None;
     std::optional<TilePos> dragStart_;
 
     // Open windows / selection.

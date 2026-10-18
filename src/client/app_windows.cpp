@@ -74,8 +74,12 @@ void App::drawDepotWindow() {
     }
     bool open = true;
     const Town* town = w.towns.tryGet(d->town);
-    const std::string title = std::format("{} depot - {}###depot", d->kind == DepotKind::Tram ? "Tram" : "Bus",
-                                          town ? town->name : std::string("countryside"));
+    const char* kind = d->kind == DepotKind::Tram ? "Tram" : d->kind == DepotKind::Rail ? "Train" : "Bus";
+    const std::string title =
+        std::format("{} depot - {}###depot", kind, town ? town->name : std::string("countryside"));
+    const bool rail = d->kind == DepotKind::Rail;
+    const i32 year = w.clock.date().year;
+    const auto models = vehicleModels();
     ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(20, 200), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(title.c_str(), &open)) {
@@ -95,14 +99,51 @@ void App::drawDepotWindow() {
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Sell")) session_->submit(CmdSellVehicle{id});
             }
+            if (rail) {
+                // Consist: the engine followed by its carriages; carriages can be detached.
+                ImGui::Indent();
+                for (usize k = 0; k < v.cars.size(); ++k) {
+                    const VehicleModel& cm = vehicleModel(v.cars[k]);
+                    ImGui::PushID(static_cast<int>(k));
+                    if (k > 0) ImGui::SameLine();
+                    ImGui::TextColored(k == 0 ? ImVec4(1.0f, 0.85f, 0.5f, 1.0f) : ImVec4(0.8f, 0.85f, 0.9f, 1.0f), "[%s]",
+                                       cm.name.data());
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%d seats, %d km/h", cm.capacity, cm.maxSpeedKmh);
+                    if (mine && k > 0 && v.stopped) {
+                        ImGui::SameLine(0, 2);
+                        if (ImGui::SmallButton("x")) session_->submit(CmdRemoveCarriage{id, static_cast<u16>(k)});
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::Text("%u seats", v.capacity());
+                if (mine && v.stopped) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Add carriage")) ImGui::OpenPopup("addcar");
+                    if (ImGui::BeginPopup("addcar")) {
+                        for (u16 i = 0; i < models.size(); ++i) {
+                            const VehicleModel& m = models[i];
+                            if (m.type != VehicleType::Rail || m.powered || m.introYear > year) continue;
+                            const std::string item = std::format("{}  ({} seats, {} km/h)  {}", m.name, m.capacity,
+                                                                 m.maxSpeedKmh, formatMoney(m.price));
+                            if (ImGui::Selectable(item.c_str())) session_->submit(CmdAddCarriage{id, i});
+                        }
+                        ImGui::EndPopup();
+                    }
+                } else if (mine) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(stop the train to change carriages)");
+                }
+                ImGui::Unindent();
+            }
             ImGui::PopID();
         }
         if (inside == 0) ImGui::TextDisabled("No vehicles inside");
         if (mine) {
-            ImGui::SeparatorText("Buy a new vehicle");
-            const VehicleType want = d->kind == DepotKind::Tram ? VehicleType::Tram : VehicleType::Road;
-            const i32 year = w.clock.date().year;
-            const auto models = vehicleModels();
+            ImGui::SeparatorText(rail ? "Buy a new engine" : "Buy a new vehicle");
+            const VehicleType want = d->kind == DepotKind::Tram   ? VehicleType::Tram
+                                     : d->kind == DepotKind::Rail ? VehicleType::Rail
+                                                                  : VehicleType::Road;
             if (ImGui::BeginTable("models", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
                 ImGui::TableSetupColumn("Model");
                 ImGui::TableSetupColumn("Seats");
@@ -112,7 +153,7 @@ void App::drawDepotWindow() {
                 ImGui::TableHeadersRow();
                 for (u16 i = 0; i < models.size(); ++i) {
                     const VehicleModel& m = models[i];
-                    if (m.type != want || m.introYear > year) continue;
+                    if (m.type != want || m.introYear > year || (rail && !m.powered)) continue;
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
                     ImGui::TextUnformatted(m.name.data());
@@ -120,7 +161,10 @@ void App::drawDepotWindow() {
                         ImGui::SetTooltip("Running cost %s / year\nIntroduced %d, life %d years",
                                           formatMoney(m.runningCost).c_str(), m.introYear, m.lifeYears);
                     ImGui::TableNextColumn();
-                    ImGui::Text("%d", m.capacity);
+                    if (m.capacity > 0)
+                        ImGui::Text("%d", m.capacity);
+                    else
+                        ImGui::TextDisabled("-");
                     ImGui::TableNextColumn();
                     ImGui::Text("%d km/h", m.maxSpeedKmh);
                     ImGui::TableNextColumn();
@@ -132,6 +176,7 @@ void App::drawDepotWindow() {
                 }
                 ImGui::EndTable();
             }
+            if (rail) ImGui::TextDisabled("Carriages are added to a stopped train inside the depot.");
         }
     }
     ImGui::End();

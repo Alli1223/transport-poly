@@ -98,7 +98,7 @@ relies on every peer computing exactly the same game state.
 - [x] 6.7 Tram tracks (on roads and tram-only)
 - [ ] 6.8 Bridges and tunnels for road / rail
 - [ ] 6.9 Canals and water tiles editing
-- [~] 6.10 Stations: bus stop, tram stop, rail station (platform length / count), dock; names; joining adjacent tiles; catchment radius (bus / tram stops with joining, names, catchment; rail + docks later)
+- [~] 6.10 Stations: bus stop, tram stop, rail station (platform length / count), dock; names; joining adjacent tiles; catchment radius (bus / tram stops and rail platforms with joining, names, catchment; docks later)
 - [~] 6.11 Depots: road, tram, rail, ship (road, tram, rail depots; ship later)
 - [x] 6.12 Demolish tool with cost; ownership checks
 - [ ] 6.13 Infrastructure maintenance costs
@@ -148,8 +148,8 @@ relies on every peer computing exactly the same game state.
 - [~] 11.1 Dear ImGui integration, theme, font (Roboto font, rounded dark theme)
 - [~] 11.2 Main menu: new game (seed, settings), load, host, join, settings, quit (new / load / host / join / quit; settings later)
 - [x] 11.3 Main toolbar, time controls (pause, speeds), date / money display
-- [~] 11.4 Construction toolbars: road, tram, rail, signals, stations, depots, water, terraform, trees, demolish (landscaping, road, tram tools with previews and cost; rail / water later)
-- [x] 11.5 Depot window: buy vehicles (model list with stats)
+- [~] 11.4 Construction toolbars: road, tram, rail, signals, stations, depots, water, terraform, trees, demolish (grouped toolbar: landscaping, road, tram and rail tools incl. signals, platforms and train depots with previews and cost; water later)
+- [x] 11.5 Depot window: buy vehicles (model list with stats); train consists with carriages
 - [x] 11.6 Vehicle window: status, orders editor, details, follow camera
 - [~] 11.7 Vehicle list per company, filters (basic list)
 - [x] 11.8 Station window (waiting passengers by destination, ratings)

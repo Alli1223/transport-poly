@@ -7,6 +7,7 @@
 #include "core/math.hpp"
 #include "render/terrain_mesher.hpp"
 #include "render/vehicle_pose.hpp"
+#include "sim/rail.hpp"
 #include "sim/road.hpp"
 
 #include <algorithm>
@@ -19,12 +20,18 @@ namespace {
 
 bool isDragTool(Tool t) {
     return t == Tool::Road || t == Tool::RemoveRoad || t == Tool::TramTrack || t == Tool::RemoveTram ||
-           t == Tool::Clear || t == Tool::Trees;
+           t == Tool::Clear || t == Tool::Trees || t == Tool::RailTrack || t == Tool::RemoveRail ||
+           t == Tool::RailStation;
 }
 
+// Tools dragged along a straight line.
 bool isRoadLikeTool(Tool t) {
-    return t == Tool::Road || t == Tool::RemoveRoad || t == Tool::TramTrack || t == Tool::RemoveTram;
+    return t == Tool::Road || t == Tool::RemoveRoad || t == Tool::TramTrack || t == Tool::RemoveTram ||
+           t == Tool::RailStation;
 }
+
+// Tools dragged along a planned rail line (straight, then diagonal).
+bool isRailLineTool(Tool t) { return t == Tool::RailTrack || t == Tool::RemoveRail; }
 
 TilePos straighten(TilePos a, TilePos b) {
     return std::abs(b.x - a.x) >= std::abs(b.y - a.y) ? TilePos{b.x, a.y} : TilePos{a.x, b.y};
@@ -50,6 +57,9 @@ std::optional<CommandPayload> App::dragCommand(TilePos a, TilePos b) const {
     case Tool::RemoveTram: return CmdRemoveRoad{a, straighten(a, b), true};
     case Tool::Clear: return CmdClearArea{a, b};
     case Tool::Trees: return CmdPlantTrees{a, b};
+    case Tool::RailTrack: return CmdBuildRail{a, b};
+    case Tool::RemoveRail: return CmdRemoveRail{a, b};
+    case Tool::RailStation: return CmdBuildRailStation{a, straighten(a, b)};
     default: return std::nullopt;
     }
 }
@@ -135,15 +145,23 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
         const TilePos b = isRoadLikeTool(tool_) ? straighten(a, hover_.tile) : hover_.tile;
         const auto cmd = dragCommand(a, hover_.tile);
         if (!cmd) return;
-        const CommandResult r = (dragStart_ || !isRoadLikeTool(tool_)) ? test(*cmd) : CommandResult::success();
+        // Line tools only make sense once dragged (a single click removes all track of a tile).
+        const bool line = isRoadLikeTool(tool_) || isRailLineTool(tool_);
+        const bool needsDrag = line && tool_ != Tool::RailStation && tool_ != Tool::RemoveRail;
+        const CommandResult r = (dragStart_ || !line || tool_ == Tool::RailStation) ? test(*cmd) : CommandResult::success();
         const u32 color = r.ok ? kOk : kBad;
-        const i32 x0 = std::min(a.x, b.x), x1 = std::max(a.x, b.x), y0 = std::min(a.y, b.y), y1 = std::max(a.y, b.y);
-        if ((x1 - x0 + 1) * (y1 - y0 + 1) <= 4096)
-            for (i32 y = y0; y <= y1; ++y)
-                for (i32 x = x0; x <= x1; ++x) addTileOverlay(overlays, {x, y}, color);
-        if (dragStart_) showResult(r);
+        if (isRailLineTool(tool_)) {
+            addTileOverlay(overlays, a, color);
+            for (const RailStep& st : planRailLine(a, b)) addTileOverlay(overlays, st.tile, color);
+        } else {
+            const i32 x0 = std::min(a.x, b.x), x1 = std::max(a.x, b.x), y0 = std::min(a.y, b.y), y1 = std::max(a.y, b.y);
+            if ((x1 - x0 + 1) * (y1 - y0 + 1) <= 4096)
+                for (i32 y = y0; y <= y1; ++y)
+                    for (i32 x = x0; x <= x1; ++x) addTileOverlay(overlays, {x, y}, color);
+        }
+        if (dragStart_ || tool_ == Tool::RailStation) showResult(r);
         if (dragStart_ && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-            if (!(isRoadLikeTool(tool_) && a == b)) session_->submit(*cmd);
+            if (!(needsDrag && a == b)) session_->submit(*cmd);
             dragStart_.reset();
         }
         return;
@@ -180,6 +198,23 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
                     break;
                 }
         cmd = CmdBuildRoadDepot{hover_.tile, facing, tram};
+        break;
+    }
+    case Tool::Signal: cmd = CmdCycleSignal{hover_.tile}; break;
+    case Tool::RailDepot: {
+        // Face track on the side of the tile the cursor is closest to, or any adjacent track.
+        Dir facing = hover_.edge;
+        const auto railAt = [&](Dir d) {
+            const Tile* n = w.map.tile(neighbour(hover_.tile, d));
+            return n && n->type == TileType::Rail && (n->rail & tracksAtEdge(opposite(d)));
+        };
+        if (!railAt(facing))
+            for (const Dir d : kDirs)
+                if (railAt(d)) {
+                    facing = d;
+                    break;
+                }
+        cmd = CmdBuildRailDepot{hover_.tile, facing};
         break;
     }
     case Tool::PickOrder: {
@@ -221,15 +256,15 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
 
 void App::drawToolbar() {
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 8.0f),
-                            ImGuiCond_Always, ImVec2(0.5f, 1.0f));
-    ImGui::SetNextWindowBgAlpha(0.8f);
-    ImGui::Begin("##tools", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
-    const auto button = [&](const char* label, Tool t, const char* tip) {
-        const bool active = tool_ == t;
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+                                   ImGuiWindowFlags_NoNav;
+    const auto pushActive = [](bool active) {
         if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        return active;
+    };
+    const auto button = [&](const char* label, Tool t, const char* tip) {
+        const bool active = pushActive(tool_ == t);
         if (ImGui::Button(label)) {
             tool_ = active ? Tool::None : t;
             dragStart_.reset();
@@ -238,28 +273,70 @@ void App::drawToolbar() {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
         ImGui::SameLine();
     };
-    const auto separator = [] {
-        ImGui::TextDisabled("|");
+
+    // Main row: tool groups and windows.
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 8.0f),
+                            ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.8f);
+    ImGui::Begin("##tools", nullptr, flags);
+    const auto group = [&](const char* label, ToolGroup g, const char* tip) {
+        const bool active = pushActive(toolGroup_ == g);
+        if (ImGui::Button(label)) {
+            toolGroup_ = active ? ToolGroup::None : g;
+            tool_ = Tool::None;
+            dragStart_.reset();
+        }
+        if (active) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
         ImGui::SameLine();
     };
-    button("Raise", Tool::Raise, "Raise a terrain corner");
-    button("Lower", Tool::Lower, "Lower a terrain corner");
-    button("Bulldoze", Tool::Clear, "Drag to demolish an area");
-    button("Trees", Tool::Trees, "Drag to plant trees");
-    separator();
-    button("Road", Tool::Road, "Drag to build a straight road");
-    button("X Road", Tool::RemoveRoad, "Drag to remove road");
-    button("Bus stop", Tool::BusStop, "Build a drive-through bus stop on a straight road");
-    button("Bus depot", Tool::RoadDepot, "Build a bus depot next to a road");
-    separator();
-    button("Tram track", Tool::TramTrack, "Drag to lay tram track (on roads or on its own)");
-    button("X Tram", Tool::RemoveTram, "Drag to remove tram track");
-    button("Tram stop", Tool::TramStop, "Build a tram stop on straight track");
-    button("Tram depot", Tool::TramDepot, "Build a tram depot next to tram track");
-    separator();
+    group("Landscape", ToolGroup::Land, "Terraform, demolish and plant trees");
+    group("Roads", ToolGroup::Road, "Roads, bus stops and bus depots");
+    group("Trams", ToolGroup::Tram, "Tram track, stops and depots");
+    group("Railways", ToolGroup::Rail, "Railway track, signals, stations and train depots");
+    ImGui::TextDisabled("|");
+    ImGui::SameLine();
     if (ImGui::Button("Vehicles")) showVehicleList_ = !showVehicleList_;
     ImGui::SameLine();
     if (ImGui::Button("Finances")) showFinances_ = !showFinances_;
+    const float mainHeight = ImGui::GetWindowHeight();
+    ImGui::End();
+
+    if (toolGroup_ == ToolGroup::None) return;
+    ImGui::SetNextWindowPos(
+        ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 14.0f - mainHeight),
+        ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.8f);
+    ImGui::Begin("##subtools", nullptr, flags);
+    switch (toolGroup_) {
+    case ToolGroup::Land:
+        button("Raise", Tool::Raise, "Raise a terrain corner");
+        button("Lower", Tool::Lower, "Lower a terrain corner");
+        button("Bulldoze", Tool::Clear, "Drag to demolish an area");
+        button("Trees", Tool::Trees, "Drag to plant trees");
+        break;
+    case ToolGroup::Road:
+        button("Road", Tool::Road, "Drag to build a straight road");
+        button("Remove road", Tool::RemoveRoad, "Drag to remove road");
+        button("Bus stop", Tool::BusStop, "Build a drive-through bus stop on a straight road");
+        button("Bus depot", Tool::RoadDepot, "Build a bus depot next to a road");
+        break;
+    case ToolGroup::Tram:
+        button("Tram track", Tool::TramTrack, "Drag to lay tram track (on roads or on its own)");
+        button("Remove track", Tool::RemoveTram, "Drag to remove tram track");
+        button("Tram stop", Tool::TramStop, "Build a tram stop on straight track");
+        button("Tram depot", Tool::TramDepot, "Build a tram depot next to tram track");
+        break;
+    case ToolGroup::Rail:
+        button("Track", Tool::RailTrack, "Drag to lay railway track: straight, then diagonal towards the cursor");
+        button("Remove track", Tool::RemoveRail, "Drag to remove track, or click a tile to clear all of its track");
+        button("Signal", Tool::Signal,
+               "Click straight track to add a signal; click again to cycle two-way / one-way / reversed / none");
+        button("Station", Tool::RailStation, "Drag along flat ground or straight track to build platforms");
+        button("Train depot", Tool::RailDepot, "Build a train depot facing the track");
+        break;
+    case ToolGroup::None: break;
+    }
     ImGui::End();
 }
 
