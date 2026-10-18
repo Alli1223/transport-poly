@@ -120,6 +120,12 @@ struct Vehicle {
     std::deque<TrackSeg> ahead;  // pieces reserved in front of the head, in driving order
     i32 retryTicks = 0;
 
+    // Ships only: sailing from the centre of `tile` towards the neighbour in direction `heading`
+    // (eight way, see water_path.hpp) while `moving`; `path` then holds the headings that follow.
+    u8 heading = 0;
+    u8 prevHeading = 0;
+    bool moving = false;
+
     Money profitThisYear = 0;
     Money profitLastYear = 0;
     Money value = 0;
@@ -148,6 +154,7 @@ struct Vehicle {
            speed, stopAtMiddle, blockedTicks, path, pathIndex, tilesSincePlan, orders, orderIndex, passengers,
            loadingUntil, cars, trail, ahead, retryTicks, profitThisYear, profitLastYear, value, builtTick,
            passengersThisYear);
+        if (ar.version == 0 || ar.version >= 2) ar(heading, prevHeading, moving);
     }
 };
 
@@ -188,6 +195,16 @@ i32 consistLength(const Vehicle& v); // in progress units
 i32 maxSpeed(const Vehicle& v);      // units per tick
 
 } // namespace trains
+
+namespace ships {
+
+void tick(World& w, VehicleId id);
+// Tries to leave the shipyard; returns true once the ship is on the water.
+bool leaveDepot(World& w, VehicleId id);
+// The water tile ships moor at in front of a dock tile.
+TilePos berth(const World& w, TilePos dock);
+
+} // namespace ships
 
 namespace vehicles {
 

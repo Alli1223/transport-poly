@@ -361,6 +361,8 @@ void tickAll(World& w) {
             if (!v.stopped && !v.orders.empty()) {
                 if (v.info().type == VehicleType::Rail)
                     trains::leaveDepot(w, id);
+                else if (v.info().type == VehicleType::Ship)
+                    ships::leaveDepot(w, id);
                 else
                     leaveDepot(w, id);
             }
@@ -375,6 +377,8 @@ void tickAll(World& w) {
             }
             if (v.info().type == VehicleType::Rail)
                 trains::tick(w, id);
+            else if (v.info().type == VehicleType::Ship)
+                ships::tick(w, id);
             else
                 drive(w, id);
             break;

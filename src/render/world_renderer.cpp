@@ -247,12 +247,21 @@ void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, Ch
                     items.emplace_back(models::kPlatformCanopy,
                                        makeInstance({lx + 0.5f, y, ly + 0.5f}, yaw, 1.0f,
                                                     companyTint(world, st ? st->owner : CompanyId{})));
+                } else if (t.type == TileType::Station && static_cast<StopKind>(t.extra) == StopKind::Dock) {
+                    const Station* st = world.stations.tryGet(StationId(t.index));
+                    const Slope s = map.slope(wp);
+                    const float y = static_cast<float>(flatSurfaceLevel(s, buildingSurface(s))) * kHeightStep;
+                    items.emplace_back(models::kDock,
+                                       makeInstance({lx + 0.5f, y, ly + 0.5f}, facingYaw(static_cast<Dir>(t.extra2 & 3)),
+                                                    1.0f, companyTint(world, st ? st->owner : CompanyId{})));
                 } else if (t.type == TileType::Depot) {
                     const Depot* d = world.depots.tryGet(DepotId(t.index));
                     if (!d) continue;
-                    const float y = static_cast<float>(map.corners(wp).min()) * kHeightStep;
+                    const Slope s = map.slope(wp);
+                    const float y = static_cast<float>(flatSurfaceLevel(s, buildingSurface(s))) * kHeightStep;
                     const ModelId model = d->kind == DepotKind::Tram   ? models::kTramDepot
                                           : d->kind == DepotKind::Rail ? models::kRailDepot
+                                          : d->kind == DepotKind::Ship ? models::kShipDepot
                                                                        : models::kRoadDepot;
                     items.emplace_back(model, makeInstance({lx + 0.5f, y, ly + 0.5f}, facingYaw(d->facing), 1.0f,
                                                            companyTint(world, d->owner)));

@@ -38,11 +38,13 @@ enum class Tool {
     Signal,
     RailStation,
     RailDepot,
+    Dock,
+    ShipDepot,
     PickOrder, // click a station to append it to the selected vehicle's orders
 };
 
 // Toolbar categories; the tools of the open group are shown above the main toolbar.
-enum class ToolGroup { None, Land, Road, Tram, Rail };
+enum class ToolGroup { None, Land, Road, Tram, Rail, Water };
 
 class App {
 public:
@@ -171,6 +173,7 @@ private:
     double gotoTownDistance_ = 0.0; // > 0: jump to the biggest town at this zoom (automation)
     bool demoNetwork_ = false;      // automation: build a demo bus line in the biggest town
     bool demoRail_ = false;         // automation: build a demo railway next to the biggest town
+    bool demoShips_ = false;        // automation: build a demo ferry line on the nearest coast
     bool followFirst_ = false;      // automation: follow the first vehicle
     bool directStart_ = false;      // skip the main menu (command line options given)
     std::string joinAddress_;       // --join host[:port]

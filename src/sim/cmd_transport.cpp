@@ -100,6 +100,7 @@ CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, co
                 tile->rail = 0;
             }
             tile->extra = 0;
+            tile->extra2 = 0;
             tile->index = 0;
             if (tramPieces(*tile) == 0) tile->owner = kOwnerNone;
             w.map.touch(t);
@@ -120,7 +121,9 @@ CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, co
         if (exec) {
             tile->type = TileType::Clear;
             tile->road = 0;
+            tile->rail = 0;
             tile->extra = 0;
+            tile->extra2 = 0;
             tile->index = 0;
             tile->owner = kOwnerNone;
             w.map.touch(t);

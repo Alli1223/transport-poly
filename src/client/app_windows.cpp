@@ -74,9 +74,11 @@ void App::drawDepotWindow() {
     }
     bool open = true;
     const Town* town = w.towns.tryGet(d->town);
-    const char* kind = d->kind == DepotKind::Tram ? "Tram" : d->kind == DepotKind::Rail ? "Train" : "Bus";
-    const std::string title =
-        std::format("{} depot - {}###depot", kind, town ? town->name : std::string("countryside"));
+    const char* kind = d->kind == DepotKind::Tram   ? "Tram depot"
+                       : d->kind == DepotKind::Rail ? "Train depot"
+                       : d->kind == DepotKind::Ship ? "Shipyard"
+                                                    : "Bus depot";
+    const std::string title = std::format("{} - {}###depot", kind, town ? town->name : std::string("countryside"));
     const bool rail = d->kind == DepotKind::Rail;
     const i32 year = w.clock.date().year;
     const auto models = vehicleModels();
@@ -143,6 +145,7 @@ void App::drawDepotWindow() {
             ImGui::SeparatorText(rail ? "Buy a new engine" : "Buy a new vehicle");
             const VehicleType want = d->kind == DepotKind::Tram   ? VehicleType::Tram
                                      : d->kind == DepotKind::Rail ? VehicleType::Rail
+                                     : d->kind == DepotKind::Ship ? VehicleType::Ship
                                                                   : VehicleType::Road;
             if (ImGui::BeginTable("models", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
                 ImGui::TableSetupColumn("Model");

@@ -319,6 +319,8 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 base = lod == 0 ? kPlaza : kUrbanBuilding;
             } else if (tile.type == TileType::Rail && lod > 0) {
                 base = kBallast;
+            } else if (tile.type == TileType::Station && static_cast<StopKind>(tile.extra) == StopKind::Dock) {
+                base = lod == 0 ? kPlaza : kUrbanBuilding;
             }
             cellColor[static_cast<usize>(j * cells + i)] = base;
 
@@ -332,7 +334,8 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
             const bool railStation =
                 tile.type == TileType::Station && static_cast<StopKind>(tile.extra) == StopKind::Rail;
             const bool rail = tile.type == TileType::Rail;
-            if (lod == 0 && (roadLike || rail || railStation || tile.type == TileType::Building ||
+            const bool dock = tile.type == TileType::Station && static_cast<StopKind>(tile.extra) == StopKind::Dock;
+            if (lod == 0 && (roadLike || rail || railStation || dock || tile.type == TileType::Building ||
                              tile.type == TileType::Depot)) {
                 structure = true;
                 top.corners = chunk.corners(lx, ly);

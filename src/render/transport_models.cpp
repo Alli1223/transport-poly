@@ -218,6 +218,122 @@ void platformCanopy(MeshBuilder& mb) {
     }
 }
 
+// Ships: the model origin sits on the water line, the hull points along +X.
+constexpr u32 kDeck = rgba(176, 140, 96);
+constexpr u32 kHullBottom = rgba(120, 40, 36);
+constexpr u32 kPaint = rgba(240, 240, 234);
+
+void hull(MeshBuilder& mb, float hl, float hw, float y0, float y1, u32 sides) {
+    const float bow = hw * 1.7f;
+    const float bw = hw * 0.75f; // narrower at the keel
+    const glm::vec3 sl(-hl, y1, -hw), sr(-hl, y1, hw), ml(hl - bow, y1, -hw), mr(hl - bow, y1, hw), tip(hl, y1 + 0.02f, 0);
+    const glm::vec3 slb(-hl + 0.02f, y0, -bw), srb(-hl + 0.02f, y0, bw), mlb(hl - bow, y0, -bw), mrb(hl - bow, y0, bw);
+    const glm::vec3 tipb(hl - 0.05f, y0, 0);
+    mb.quadFacing(slb, mlb, ml, sl, sides, {0, 0, -1});
+    mb.quadFacing(srb, mrb, mr, sr, sides, {0, 0, 1});
+    mb.quadFacing(mlb, tipb, tip, ml, sides, {1, 0, -1});
+    mb.quadFacing(mrb, tipb, tip, mr, sides, {1, 0, 1});
+    mb.quadFacing(slb, srb, sr, sl, sides, {-1, 0, 0});
+    mb.quadFacing(sl, sr, mr, ml, kDeck, {0, 1, 0});
+    mb.triangleUp(ml, mr, tip, kDeck);
+    // Boot topping: a dark band just above the water line.
+    mb.quadFacing({-hl + 0.012f, y0 + 0.035f, -hw * 0.9f - kInset}, {hl - bow, y0 + 0.035f, -hw * 0.9f - kInset},
+                  {hl - bow, y0 + 0.055f, -hw * 0.93f - kInset}, {-hl + 0.012f, y0 + 0.055f, -hw * 0.93f - kInset},
+                  kHullBottom, {0, 0, -1});
+    mb.quadFacing({-hl + 0.012f, y0 + 0.035f, hw * 0.9f + kInset}, {hl - bow, y0 + 0.035f, hw * 0.9f + kInset},
+                  {hl - bow, y0 + 0.055f, hw * 0.93f + kInset}, {-hl + 0.012f, y0 + 0.055f, hw * 0.93f + kInset},
+                  kHullBottom, {0, 0, 1});
+}
+
+void harbourLaunch(MeshBuilder& mb) {
+    const float hl = 0.36f, hw = 0.1f;
+    hull(mb, hl, hw, -0.05f, 0.06f, kLivery);
+    mb.box({-0.16f, 0.06f, -0.075f}, {0.1f, 0.15f, 0.075f}, kPaint);
+    windowBand(mb, -0.14f, 0.08f, 0.09f, 0.13f, 0.075f);
+    mb.box({-0.18f, 0.15f, -0.085f}, {0.12f, 0.165f, 0.085f}, kLiveryDark);
+    mb.box({-0.3f, 0.06f, -0.09f}, {-0.29f, 0.12f, 0.09f}, kPaint); // stern rail
+    mb.box({0.02f, 0.165f, -0.006f}, {0.032f, 0.28f, 0.006f}, rgba(60, 60, 64)); // mast
+}
+
+void coastalFerry(MeshBuilder& mb) {
+    const float hl = 0.62f, hw = 0.17f;
+    hull(mb, hl, hw, -0.06f, 0.07f, kLivery);
+    // Two decks of cabins and a bridge.
+    mb.box({-0.5f, 0.07f, -0.15f}, {0.3f, 0.18f, 0.15f}, kPaint);
+    windowBand(mb, -0.47f, 0.27f, 0.11f, 0.155f, 0.15f);
+    mb.box({-0.38f, 0.18f, -0.13f}, {0.2f, 0.27f, 0.13f}, kPaint);
+    windowBand(mb, -0.35f, 0.17f, 0.21f, 0.25f, 0.13f);
+    mb.box({0.06f, 0.27f, -0.11f}, {0.2f, 0.33f, 0.11f}, kPaint); // bridge
+    mb.quadFacing({0.2f + kInset, 0.285f, -0.1f}, {0.2f + kInset, 0.285f, 0.1f}, {0.2f + kInset, 0.32f, 0.1f},
+                  {0.2f + kInset, 0.32f, -0.1f}, kGlass, {1, 0, 0});
+    mb.box({-0.4f, 0.27f, -0.14f}, {0.22f, 0.28f, 0.14f}, kRoofGrey);
+    // Funnel in company colours with a black top.
+    mb.prism({-0.18f, 0.28f, 0.0f}, 0.055f, 0.13f, 8, kLivery, true);
+    mb.prism({-0.18f, 0.41f, 0.0f}, 0.056f, 0.03f, 8, rgba(30, 30, 32), true);
+    // Lifeboats.
+    for (const float z : {-0.145f, 0.145f})
+        for (const float x : {-0.3f, -0.05f})
+            mb.box({x - 0.06f, 0.2f, z - 0.02f}, {x + 0.06f, 0.24f, z + 0.02f}, rgba(236, 120, 40));
+}
+
+void hydrofoil(MeshBuilder& mb) {
+    const float hl = 0.48f, hw = 0.12f;
+    constexpr u32 kStrut = rgba(50, 52, 56);
+    // Hull lifted clear of the water on foils.
+    hull(mb, hl, hw, 0.04f, 0.13f, kPaint);
+    for (const float x : {-0.3f, 0.28f}) {
+        mb.box({x - 0.015f, -0.04f, -0.13f}, {x + 0.015f, 0.05f, -0.11f}, kStrut);
+        mb.box({x - 0.015f, -0.04f, 0.11f}, {x + 0.015f, 0.05f, 0.13f}, kStrut);
+        mb.box({x - 0.04f, -0.045f, -0.16f}, {x + 0.04f, -0.035f, 0.16f}, kStrut);
+    }
+    mb.box({-hl + 0.02f, 0.08f, -hw - kInset}, {hl - 0.2f, 0.1f, hw + kInset}, kLivery); // stripe
+    mb.box({-0.36f, 0.13f, -0.1f}, {0.2f, 0.22f, 0.1f}, kPaint);
+    mb.triangle({0.2f, 0.13f, -0.1f}, {0.2f, 0.22f, -0.1f}, {0.3f, 0.13f, -0.1f}, kPaint);
+    mb.triangle({0.2f, 0.13f, 0.1f}, {0.3f, 0.13f, 0.1f}, {0.2f, 0.22f, 0.1f}, kPaint);
+    mb.quadFacing({0.2f, 0.22f, -0.1f}, {0.3f, 0.13f, -0.1f}, {0.3f, 0.13f, 0.1f}, {0.2f, 0.22f, 0.1f}, kGlass,
+                  {1, 1, 0});
+    windowBand(mb, -0.33f, 0.17f, 0.155f, 0.2f, 0.1f);
+    mb.box({-0.34f, 0.22f, -0.08f}, {0.16f, 0.23f, 0.08f}, kLiveryDark);
+}
+
+void dockPier(MeshBuilder& mb) {
+    // Faces +Z (towards the water): a ticket hut on the shore and a timber pier over the berth.
+    constexpr u32 kWood = rgba(132, 98, 66);
+    constexpr u32 kPost = rgba(84, 64, 46);
+    mb.box({-0.34f, 0.0f, -0.42f}, {0.02f, 0.2f, -0.12f}, kPaint);
+    mb.box({-0.37f, 0.2f, -0.45f}, {0.05f, 0.23f, -0.09f}, kLivery);
+    mb.quadFacing({-0.2f, 0.0f, -0.12f + kInset}, {-0.1f, 0.0f, -0.12f + kInset}, {-0.1f, 0.15f, -0.12f + kInset},
+                  {-0.2f, 0.15f, -0.12f + kInset}, rgba(70, 56, 46), {0, 0, 1});
+    // The pier ends just past the shore so moored ships fit in the berth beyond it.
+    mb.box({-0.18f, -0.03f, -0.1f}, {0.22f, 0.02f, 0.62f}, kWood);
+    for (const float z : {0.15f, 0.4f, 0.6f})
+        for (const float x : {-0.16f, 0.2f}) mb.box({x - 0.02f, -0.9f, z - 0.02f}, {x + 0.02f, 0.0f, z + 0.02f}, kPost);
+    for (const float z : {0.3f, 0.52f}) mb.box({0.17f, 0.02f, z - 0.015f}, {0.2f, 0.06f, z + 0.015f}, rgba(40, 40, 44));
+    mb.box({-0.17f, 0.02f, 0.59f}, {0.21f, 0.06f, 0.61f}, kPaint); // end rail
+    mb.box({0.3f, 0.0f, -0.3f}, {0.32f, 0.3f, -0.28f}, rgba(60, 60, 64)); // lamp post
+    mb.box({0.28f, 0.3f, -0.32f}, {0.34f, 0.33f, -0.26f}, kLight);
+}
+
+void shipyard(MeshBuilder& mb) {
+    // Faces +Z: an open-ended boat shed over a slipway running down into the water.
+    constexpr u32 kShed = rgba(120, 128, 136);
+    constexpr u32 kConcrete = rgba(160, 156, 148);
+    const float x0 = -0.4f, x1 = 0.4f, z0 = -0.45f, z1 = 0.62f, h = 0.42f;
+    mb.box({x0, 0.0f, z0}, {x0 + 0.04f, h, z1}, kShed);
+    mb.box({x1 - 0.04f, 0.0f, z0}, {x1, h, z1}, kShed);
+    mb.box({x0, 0.0f, z0}, {x1, h, z0 + 0.04f}, kShed);
+    const glm::mat4 saved = mb.transform;
+    mb.transform = saved * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0, 1, 0));
+    mb.gableRoofX({-z1, 0, x0}, {-z0, 0, x1}, h, 0.2f, kLiveryDark, kShed, 0.03f);
+    mb.transform = saved;
+    mb.box({x0 - 0.005f, h - 0.06f, z1 - 0.02f}, {x1 + 0.005f, h - 0.02f, z1 + 0.005f}, kLivery);
+    // Slipway from the shed floor down below the water line.
+    mb.quadFacing({x0 + 0.08f, 0.01f, z0 + 0.1f}, {x1 - 0.08f, 0.01f, z0 + 0.1f}, {x1 - 0.08f, 0.01f, 0.4f},
+                  {x0 + 0.08f, 0.01f, 0.4f}, kConcrete, {0, 1, 0});
+    mb.quadFacing({x0 + 0.08f, 0.01f, 0.4f}, {x1 - 0.08f, 0.01f, 0.4f}, {x1 - 0.08f, -0.6f, 1.05f},
+                  {x0 + 0.08f, -0.6f, 1.05f}, kConcrete, {0, 1, 0.6f});
+}
+
 void person(MeshBuilder& mb) {
     mb.box({-0.018f, 0.0f, -0.012f}, {0.018f, 0.07f, 0.012f}, tintable(1.0f));
     mb.box({-0.014f, 0.07f, -0.012f}, {0.014f, 0.098f, 0.012f}, rgba(226, 190, 160));
@@ -247,6 +363,11 @@ void buildTransportModels(MeshBuilder& out, ModelId id) {
     case models::train(3): railcar(out, 0.72f, true, false); break;
     case models::train(8): railcar(out, 0.6f, false, true); break;
     case models::train(9): railcar(out, 0.66f, false, false); break;
+    case models::ship(0): harbourLaunch(out); break;
+    case models::ship(1): coastalFerry(out); break;
+    case models::ship(2): hydrofoil(out); break;
+    case models::kDock: dockPier(out); break;
+    case models::kShipDepot: shipyard(out); break;
     default: break;
     }
 }

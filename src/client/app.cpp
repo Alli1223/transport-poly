@@ -16,6 +16,7 @@
 #include "render/gl.hpp"
 #include "render/vehicle_pose.hpp"
 #include "sim/road.hpp"
+#include "sim/water_path.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -171,6 +172,67 @@ std::optional<TilePos> buildDemoRailway(World& w, CompanyId company) {
     return std::nullopt;
 }
 
+// Builds two docks on a coast near `centre`, a shipyard and a ferry between them. Returns the
+// first dock's tile (used for automated screenshots / smoke tests).
+std::optional<TilePos> buildDemoFerry(World& w, CompanyId company, TilePos centre) {
+    const auto cmd = [&](CommandPayload p) {
+        Command c;
+        c.company = company;
+        c.payload = std::move(p);
+        return c;
+    };
+    const auto run = [&](CommandPayload p) { return executeCommand(w, cmd(std::move(p))); };
+    struct Site {
+        TilePos tile;
+        Dir facing;
+    };
+    std::vector<Site> sites;
+    for (i32 dy = -60; dy <= 60; ++dy) {
+        for (i32 dx = -60; dx <= 60; ++dx) {
+            const TilePos p{centre.x + dx, centre.y + dy};
+            for (const Dir d : kDirs)
+                if (testCommand(w, cmd(CmdBuildDock{p, d})).ok) {
+                    sites.push_back({p, d});
+                    break;
+                }
+        }
+    }
+    const auto dist = [&](TilePos p) { return std::abs(p.x - centre.x) + std::abs(p.y - centre.y); };
+    std::ranges::sort(sites, {}, [&](const Site& s) { return dist(s.tile); });
+    for (usize i = 0; i < sites.size() && i < 40; ++i) {
+        const Site a = sites[i];
+        for (const Site& b : sites) {
+            const i32 d = std::abs(b.tile.x - a.tile.x) + std::abs(b.tile.y - a.tile.y);
+            if (d < 14 || d > 50) continue;
+            const TilePos goals[] = {neighbour(b.tile, b.facing)};
+            const auto path = findWaterPath(w, neighbour(a.tile, a.facing), goals, 20'000);
+            if (!path || path->size() < 10) continue;
+            if (!run(CmdBuildDock{a.tile, a.facing}).ok || !run(CmdBuildDock{b.tile, b.facing}).ok) return std::nullopt;
+            // A shipyard next to the first dock.
+            CommandResult yard;
+            for (const Site& s : sites) {
+                if (std::abs(s.tile.x - a.tile.x) + std::abs(s.tile.y - a.tile.y) > 6 || s.tile == a.tile) continue;
+                yard = run(CmdBuildShipDepot{s.tile, s.facing});
+                if (yard.ok) break;
+            }
+            if (!yard.ok) return a.tile;
+            u16 model = 0;
+            for (u16 m = 0; m < vehicleModels().size(); ++m)
+                if (vehicleModel(m).type == VehicleType::Ship && vehicleModel(m).introYear <= w.clock.date().year) model = m;
+            const CommandResult buy = run(CmdBuyVehicle{DepotId(yard.createdId), model});
+            if (!buy.ok) return a.tile;
+            const VehicleId ship(buy.createdId);
+            Order oa, ob;
+            oa.station = StationId(w.map.tile(a.tile)->index);
+            ob.station = StationId(w.map.tile(b.tile)->index);
+            run(CmdSetOrders{ship, {ob, oa}});
+            run(CmdStartStopVehicle{ship});
+            return a.tile;
+        }
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 void App::onScroll(double dy) { scrollAccum_ += dy; }
@@ -209,6 +271,8 @@ bool App::parseArgs(int argc, char** argv) {
             demoNetwork_ = true;
         } else if (arg == "--demo-rail") {
             demoRail_ = true;
+        } else if (arg == "--demo-ships") {
+            demoShips_ = true;
         } else if (arg == "--join") {
             if (const char* v = next()) joinAddress_ = v;
         } else if (arg == "--no-debug") {
@@ -682,11 +746,31 @@ int App::run(int argc, char** argv) {
                     }
                 }
             }
-            if (followFirst_ && frameCount == 160) {
+            if (demoShips_ && frameCount >= 160 && frameCount % 20 == 0) {
+                // Retried for a while: the coast around the camera is explored over several frames.
+                if (auto* local = dynamic_cast<LocalSession*>(session_.get())) {
+                    const TilePos centre{static_cast<i32>(std::floor(camera_.target.x)),
+                                         static_cast<i32>(std::floor(camera_.target.z))};
+                    if (const auto at = buildDemoFerry(local->world(), local->localCompany(), centre)) {
+                        demoShips_ = false;
+                        camera_.targetGoal = glm::dvec3(at->x + 0.5, 0.0, at->y + 0.5);
+                        camera_.targetGoal.y =
+                            gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
+                        camera_.distanceGoal = 14.0;
+                        camera_.snapToGoals();
+                    } else if (frameCount >= 600) {
+                        demoShips_ = false;
+                        log::warn("No site found for the demo ferry");
+                    }
+                }
+            }
+            if (followFirst_ && frameCount >= 160) {
+                // Follow the first vehicle out on the network as soon as there is one.
                 for (const auto [id, v] : world().vehicles) {
                     if (v.state == VehicleState::InDepot) continue;
                     followVehicle_ = id;
                     selVehicle_ = id;
+                    followFirst_ = false;
                     break;
                 }
             }

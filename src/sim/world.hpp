@@ -26,7 +26,8 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 1;
+inline constexpr u32 kSaveVersion = 2;
+inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
     u64 seed = 1;

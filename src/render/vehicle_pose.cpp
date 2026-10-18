@@ -3,6 +3,7 @@
 #include "render/terrain_mesher.hpp"
 #include "sim/rail.hpp"
 #include "sim/road.hpp"
+#include "sim/water_path.hpp"
 
 #include <glm/gtc/constants.hpp>
 
@@ -158,7 +159,47 @@ void trainCarPoses(const World& w, const Vehicle& v, double tickFraction, std::v
     }
 }
 
+namespace {
+
+float headingYaw(u8 h) {
+    return static_cast<float>(std::atan2(-static_cast<double>(kHeadingDY[h & 7]), static_cast<double>(kHeadingDX[h & 7])));
+}
+
+float lerpAngle(float a, float b, float t) {
+    float d = std::fmod(b - a, glm::two_pi<float>());
+    if (d > glm::pi<float>()) d -= glm::two_pi<float>();
+    if (d < -glm::pi<float>()) d += glm::two_pi<float>();
+    return a + d * t;
+}
+
+// Ships glide between tile centres, turning smoothly through each centre.
+VehiclePose shipPose(const Vehicle& v, double tickFraction) {
+    VehiclePose pose;
+    const double len = headingLength(v.heading);
+    double prog = v.progress;
+    if (v.moving && v.state == VehicleState::Driving && !v.stopped) prog += v.speed * tickFraction;
+    const double f = v.moving ? std::clamp(prog / len, 0.0, 1.0) : 0.0;
+    pose.pos = {v.tile.x + 0.5 + kHeadingDX[v.heading & 7] * f, kWaterLevel, v.tile.y + 0.5 + kHeadingDY[v.heading & 7] * f};
+    const float cur = headingYaw(v.heading);
+    if (!v.moving) {
+        pose.yaw = cur;
+        return pose;
+    }
+    const float prev = headingYaw(v.prevHeading);
+    const float next = v.pathIndex < v.path.size() ? headingYaw(v.path[v.pathIndex]) : cur;
+    const float ff = static_cast<float>(f);
+    pose.yaw = ff < 0.5f ? lerpAngle(lerpAngle(prev, cur, 0.5f), cur, ff * 2.0f)
+                         : lerpAngle(cur, lerpAngle(cur, next, 0.5f), (ff - 0.5f) * 2.0f);
+    return pose;
+}
+
+} // namespace
+
 std::optional<VehiclePose> vehiclePose(const World& w, const Vehicle& v, double tickFraction) {
+    if (v.info().type == VehicleType::Ship) {
+        if (v.state == VehicleState::InDepot) return std::nullopt;
+        return shipPose(v, tickFraction);
+    }
     if (v.info().type == VehicleType::Rail) {
         std::vector<CarPose> poses;
         trainCarPoses(w, v, tickFraction, poses);

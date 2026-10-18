@@ -9,6 +9,7 @@
 #include "render/vehicle_pose.hpp"
 #include "sim/rail.hpp"
 #include "sim/road.hpp"
+#include "sim/water_path.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -217,6 +218,23 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
         cmd = CmdBuildRailDepot{hover_.tile, facing};
         break;
     }
+    case Tool::Dock:
+    case Tool::ShipDepot: {
+        // Face the water on the side of the tile the cursor is closest to, or any adjacent water.
+        Dir facing = hover_.edge;
+        const auto waterAt = [&](Dir d) { return isWaterTile(w, neighbour(hover_.tile, d)); };
+        if (!waterAt(facing))
+            for (const Dir d : kDirs)
+                if (waterAt(d)) {
+                    facing = d;
+                    break;
+                }
+        if (tool_ == Tool::Dock)
+            cmd = CmdBuildDock{hover_.tile, facing};
+        else
+            cmd = CmdBuildShipDepot{hover_.tile, facing};
+        break;
+    }
     case Tool::PickOrder: {
         const Tile* t = w.map.tile(hover_.tile);
         Vehicle* v = w.vehicles.tryGet(selVehicle_);
@@ -294,6 +312,7 @@ void App::drawToolbar() {
     group("Roads", ToolGroup::Road, "Roads, bus stops and bus depots");
     group("Trams", ToolGroup::Tram, "Tram track, stops and depots");
     group("Railways", ToolGroup::Rail, "Railway track, signals, stations and train depots");
+    group("Waterways", ToolGroup::Water, "Docks and shipyards");
     ImGui::TextDisabled("|");
     ImGui::SameLine();
     if (ImGui::Button("Vehicles")) showVehicleList_ = !showVehicleList_;
@@ -334,6 +353,10 @@ void App::drawToolbar() {
                "Click straight track to add a signal; click again to cycle two-way / one-way / reversed / none");
         button("Station", Tool::RailStation, "Drag along flat ground or straight track to build platforms");
         button("Train depot", Tool::RailDepot, "Build a train depot facing the track");
+        break;
+    case ToolGroup::Water:
+        button("Dock", Tool::Dock, "Build a dock on the shore; ships moor at the water tile in front of it");
+        button("Shipyard", Tool::ShipDepot, "Build a shipyard (ship depot) on the shore, facing the water");
         break;
     case ToolGroup::None: break;
     }

@@ -71,13 +71,15 @@ void ModelLibrary::build() {
         add(static_cast<ModelId>(models::kTreeDeciduous0 + v), mb);
     }
     for (const ModelId id : {models::kBusStop, models::kRoadDepot, models::kTramDepot, models::kPerson,
-                             models::kRailDepot, models::kSignal, models::kPlatformCanopy}) {
+                             models::kRailDepot, models::kSignal, models::kPlatformCanopy, models::kDock,
+                             models::kShipDepot}) {
         MeshBuilder mb;
         buildTransportModels(mb, id);
         add(id, mb);
     }
     for (int v = 0; v < 8; ++v) {
-        for (const ModelId id : {models::bus(v), models::tram(v), models::train(v), models::train(v + 8)}) {
+        for (const ModelId id :
+             {models::bus(v), models::tram(v), models::train(v), models::train(v + 8), models::ship(v)}) {
             MeshBuilder mb;
             buildTransportModels(mb, id);
             if (!mb.vertices.empty()) add(id, mb);

@@ -98,13 +98,13 @@ relies on every peer computing exactly the same game state.
 - [x] 6.7 Tram tracks (on roads and tram-only)
 - [ ] 6.8 Bridges and tunnels for road / rail
 - [ ] 6.9 Canals and water tiles editing
-- [~] 6.10 Stations: bus stop, tram stop, rail station (platform length / count), dock; names; joining adjacent tiles; catchment radius (bus / tram stops and rail platforms with joining, names, catchment; docks later)
-- [~] 6.11 Depots: road, tram, rail, ship (road, tram, rail depots; ship later)
+- [x] 6.10 Stations: bus stop, tram stop, rail station (platform length / count), dock; names; joining adjacent tiles; catchment radius
+- [x] 6.11 Depots: road, tram, rail, ship (shipyards on the shore)
 - [x] 6.12 Demolish tool with cost; ownership checks
 - [ ] 6.13 Infrastructure maintenance costs
 
 ## M7 — Vehicles
-- [~] 7.1 Vehicle model catalogue (buses, trams, locomotives, multiple units, carriages, ferries) with stats & intro dates (buses + trams so far)
+- [x] 7.1 Vehicle model catalogue (buses, trams, locomotives, multiple units, carriages, ferries) with stats & intro dates
 - [~] 7.2 Buy / sell / clone vehicles in depots; start / stop; send to depot (buy / sell / start-stop / send to depot; clone later)
 - [~] 7.3 Orders: go to station (stop / non-stop), go via, full load, unload, depot service; shared orders; skip order (station + depot orders, full load, no loading, skip; shared orders later)
 - [x] 7.4 Road pathfinder (A* over the road graph with deterministic tie breaking)
@@ -112,7 +112,7 @@ relies on every peer computing exactly the same game state.
 - [x] 7.6 Tram movement (tram network, articulated trams)
 - [~] 7.7 Rail pathfinder and train movement: consists, acceleration / braking, curve speed limits, slopes (consists, acceleration, braking to reservation end, slopes; curve limits later)
 - [x] 7.8 Signal logic, path reservation, collision prevention
-- [ ] 7.9 Ship pathfinder over water tiles and ship movement
+- [x] 7.9 Ship pathfinder over water tiles and ship movement
 - [x] 7.10 Loading / unloading at stations, dwell time
 - [ ] 7.11 Vehicle ageing, reliability, breakdowns, servicing at depots
 - [x] 7.12 Vehicle profit tracking (this year / last year), running costs
@@ -148,7 +148,7 @@ relies on every peer computing exactly the same game state.
 - [~] 11.1 Dear ImGui integration, theme, font (Roboto font, rounded dark theme)
 - [~] 11.2 Main menu: new game (seed, settings), load, host, join, settings, quit (new / load / host / join / quit; settings later)
 - [x] 11.3 Main toolbar, time controls (pause, speeds), date / money display
-- [~] 11.4 Construction toolbars: road, tram, rail, signals, stations, depots, water, terraform, trees, demolish (grouped toolbar: landscaping, road, tram and rail tools incl. signals, platforms and train depots with previews and cost; water later)
+- [~] 11.4 Construction toolbars: road, tram, rail, signals, stations, depots, water, terraform, trees, demolish (grouped toolbar: landscaping, road, tram, rail and water tools incl. signals, platforms, docks and depots with previews and cost)
 - [x] 11.5 Depot window: buy vehicles (model list with stats); train consists with carriages
 - [x] 11.6 Vehicle window: status, orders editor, details, follow camera
 - [~] 11.7 Vehicle list per company, filters (basic list)

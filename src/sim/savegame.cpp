@@ -41,9 +41,9 @@ Header readHeader(ByteReader& in) {
     Reader r(in, kSaveVersion);
     r(h);
     if (h.magic != kMagic) throw SerializeError("not a transport-poly save game");
-    if (h.version != kSaveVersion) throw SerializeError("save game version " + std::to_string(h.version) +
-                                                        " is not supported (expected " +
-                                                        std::to_string(kSaveVersion) + ")");
+    if (h.version < kMinSaveVersion || h.version > kSaveVersion)
+        throw SerializeError("save game version " + std::to_string(h.version) + " is not supported (expected " +
+                             std::to_string(kMinSaveVersion) + " to " + std::to_string(kSaveVersion) + ")");
     return h;
 }
 

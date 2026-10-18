@@ -236,11 +236,30 @@ struct CmdRemoveCarriage {
     }
 };
 
+struct CmdBuildDock {
+    TilePos tile;
+    Dir facing = Dir::S; // towards the water
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(tile, facing);
+    }
+};
+
+struct CmdBuildShipDepot {
+    TilePos tile;
+    Dir facing = Dir::S; // towards the water
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(tile, facing);
+    }
+};
+
 using CommandPayload =
     std::variant<CmdActivateChunks, CmdCreateCompany, CmdSetLoan, CmdTerraform, CmdClearArea, CmdPlantTrees, CmdBuildRoad,
                  CmdRemoveRoad, CmdBuildRoadStop, CmdBuildRoadDepot, CmdBuyVehicle, CmdSellVehicle, CmdStartStopVehicle,
                  CmdSendToDepot, CmdSetOrders, CmdSkipOrder, CmdBuildRail, CmdRemoveRail, CmdCycleSignal,
-                 CmdBuildRailStation, CmdBuildRailDepot, CmdAddCarriage, CmdRemoveCarriage>;
+                 CmdBuildRailStation, CmdBuildRailDepot, CmdAddCarriage, CmdRemoveCarriage, CmdBuildDock,
+                 CmdBuildShipDepot>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

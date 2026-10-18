@@ -23,6 +23,7 @@ inline constexpr ModelId kTreeConiferSnow = 3;
 inline constexpr ModelId kTreeDeciduous0 = 4;
 inline constexpr ModelId kTreeDeciduous1 = 5;
 inline constexpr ModelId kTreeDeciduous2 = 6;
+inline constexpr ModelId kShipDepot = 7;
 inline constexpr ModelId kBusStop = 8;
 inline constexpr ModelId kRoadDepot = 9;
 inline constexpr ModelId kTramDepot = 10;
@@ -30,6 +31,7 @@ inline constexpr ModelId kPerson = 11;
 inline constexpr ModelId kRailDepot = 12;
 inline constexpr ModelId kSignal = 13;
 inline constexpr ModelId kPlatformCanopy = 14;
+inline constexpr ModelId kDock = 15;
 
 inline constexpr ModelId kBuildingBase = 16;
 inline constexpr ModelId kBuildingVariants = 3;
