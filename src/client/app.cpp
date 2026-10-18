@@ -189,6 +189,53 @@ std::optional<TilePos> buildDemoRailway(World& w, CompanyId company) {
 
 // Builds two docks on a coast near `centre`, a shipyard and a ferry between them. Returns the
 // first dock's tile (used for automated screenshots / smoke tests).
+// Lays a chain of curved free-form track across the land near `centre`, the way the track
+// tool does. Returns the start of the line (used for automated screenshots / smoke tests).
+std::optional<TPoint> buildDemoTrack(World& w, CompanyId company, TilePos centre) {
+    const auto run = [&](CommandPayload p) {
+        Command c;
+        c.company = company;
+        c.payload = std::move(p);
+        return executeCommand(w, c);
+    };
+    // Offsets (tiles) of the successive ends relative to the start: a lazy S through the hills.
+    static constexpr double kPath[][2] = {{14, 0}, {28, 5}, {40, 14}, {50, 16}, {62, 10}};
+    for (i32 r = 0; r < 40; r += 4) {
+        for (i32 i = 0; i < 8; ++i) {
+            const double a = i * 6.2831853 / 8.0;
+            const TPoint start{static_cast<i32>((centre.x - 30 + std::cos(a) * r) * kTrackUnits),
+                               static_cast<i32>((centre.y - 8 + std::sin(a) * r) * kTrackUnits)};
+            TrackAnchor from;
+            from.pos = start;
+            TrackAnchor to;
+            to.pos = {start.x + static_cast<i32>(kPath[0][0] * kTrackUnits), start.z + static_cast<i32>(kPath[0][1] * kTrackUnits)};
+            if (!run(CmdBuildTrack{from, to}).ok) continue;
+            TPoint prev = from.pos;
+            TPoint end = to.pos;
+            for (usize k = 1; k < std::size(kPath); ++k) {
+                TrackAnchor next;
+                next.pos = end;
+                next.into = normalised(static_cast<i64>(end.x) - prev.x, static_cast<i64>(end.z) - prev.z);
+                // Use the actual end direction of the track just built.
+                if (const TrackNodeId n = track::nodeNear(w, end, 32); n.valid()) {
+                    const TrackNode& node = w.trackNodes[n];
+                    next.into = node.count(0) == 0 ? node.side(0) : node.side(1);
+                }
+                TrackAnchor target;
+                target.pos = {start.x + static_cast<i32>(kPath[k][0] * kTrackUnits), start.z + static_cast<i32>(kPath[k][1] * kTrackUnits)};
+                if (const CommandResult r = run(CmdBuildTrack{next, target}); !r.ok) {
+                    log::info("Demo track stops after {} pieces: {}", k, r.error);
+                    break;
+                }
+                prev = end;
+                end = target.pos;
+            }
+            return start;
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<TilePos> buildDemoFerry(World& w, CompanyId company, TilePos centre) {
     const auto cmd = [&](CommandPayload p) {
         Command c;
@@ -291,6 +338,8 @@ bool App::parseArgs(int argc, char** argv) {
             demoNetwork_ = true;
         } else if (arg == "--demo-rail") {
             demoRail_ = true;
+        } else if (arg == "--demo-track") {
+            demoTrack_ = true;
         } else if (arg == "--demo-ships") {
             demoShips_ = true;
         } else if (arg == "--join") {
@@ -948,6 +997,21 @@ int App::run(int argc, char** argv) {
                         camera_.snapToGoals();
                     } else {
                         log::warn("No site found for the demo railway");
+                    }
+                }
+            }
+            if (demoTrack_ && frameCount >= 160 && frameCount % 20 == 0) {
+                if (auto* local = dynamic_cast<LocalSession*>(session_.get())) {
+                    const TilePos centre{static_cast<i32>(std::floor(camera_.target.x)),
+                                         static_cast<i32>(std::floor(camera_.target.z))};
+                    if (const auto at = buildDemoTrack(local->world(), local->localCompany(), centre)) {
+                        demoTrack_ = false;
+                        camera_.targetGoal = glm::dvec3(at->x / double(kTrackUnits) + 30.0, 0.0, at->z / double(kTrackUnits) + 8.0);
+                        camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
+                        camera_.snapToGoals();
+                    } else if (frameCount >= 600) {
+                        demoTrack_ = false;
+                        log::warn("No site found for the demo track");
                     }
                 }
             }

@@ -70,6 +70,19 @@ CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, co
         return CommandResult::success(cost);
     }
     case TileType::Water: return CommandResult::failure("Can't clear water");
+    case TileType::Track: {
+        if (tile->owner != ownerByte(company) && tile->owner != kOwnerNone)
+            return CommandResult::failure("Owned by another company");
+        const auto it = w.trackTiles.find(ChunkPos{t.x, t.y}.key());
+        if (it == w.trackTiles.end()) return CommandResult::failure("Nothing to clear");
+        const std::vector<TrackEdgeId> edges = it->second;
+        Money cost = 0;
+        for (const TrackEdgeId e : edges)
+            cost += static_cast<Money>(w.trackEdges[e].length) * prices::kTrackPerTile / kTrackUnits / 5;
+        if (exec)
+            for (const TrackEdgeId e : edges) track::remove(w, e);
+        return CommandResult::success(cost);
+    }
     case TileType::Road: {
         if (tile->rail && tile->owner != ownerByte(company))
             return CommandResult::failure("Railway owned by another company");

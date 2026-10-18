@@ -421,6 +421,7 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     const glm::mat4 proj = cam.projectionMatrix();
     const glm::mat4 viewProj = proj * view;
     sky_ = computeSky(minuteOfDay);
+    track_.sync(world);
 
     // --- Determine visible chunks, building meshes nearest first -------------------------
     const double viewRadius = std::min<double>(settings.maxViewDistance, cam.distance * 2.6 + 120.0);
@@ -552,6 +553,8 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(1.5f, 3.0f);
         drawChunks(shadow, origin, true);
+        shadowStaticShader_->use();
+        track_.draw(*shadowStaticShader_, origin, cam.target, shadowRadius, true);
         shadowModelShader_->use();
         shadowModelShader_->set("uOffset", glm::vec3(0.0f));
         dynamic_.draw(models_);
@@ -582,6 +585,8 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
 
     if (settings.wireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     drawChunks(main, origin, false);
+    terrainShader_->use();
+    stats_.trianglesDrawn += track_.draw(*terrainShader_, origin, cam.target, viewRadius, false);
     modelShader_->use();
     modelShader_->set("uOffset", glm::vec3(0.0f));
     dynamic_.draw(models_);

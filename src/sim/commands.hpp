@@ -8,6 +8,7 @@
 #include "sim/company.hpp"
 #include "sim/coords.hpp"
 #include "sim/ids.hpp"
+#include "sim/track.hpp"
 #include "sim/vehicle.hpp"
 
 #include <string>
@@ -68,6 +69,24 @@ struct CmdTerraformBrush {
     template <class Ar>
     void serialize(Ar& ar) {
         ar(corner, radius, mode, target);
+    }
+};
+
+// Free-form track between two anchors (see track.hpp). The terrain is shaped to the track.
+struct CmdBuildTrack {
+    TrackAnchor from;
+    TrackAnchor to;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(from, to);
+    }
+};
+
+struct CmdRemoveTrack {
+    TrackEdgeId edge;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(edge);
     }
 };
 
@@ -321,7 +340,7 @@ using CommandPayload =
                  CmdSendToDepot, CmdSetOrders, CmdSkipOrder, CmdBuildRail, CmdRemoveRail, CmdCycleSignal,
                  CmdBuildRailStation, CmdBuildRailDepot, CmdAddCarriage, CmdRemoveCarriage, CmdBuildDock,
                  CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater, CmdBuildSpan, CmdRemoveSpan,
-                 CmdUpdateCompany, CmdTerraformBrush>;
+                 CmdUpdateCompany, CmdTerraformBrush, CmdBuildTrack, CmdRemoveTrack>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

@@ -24,8 +24,7 @@ namespace {
 
 bool isDragTool(Tool t) {
     return t == Tool::Road || t == Tool::RemoveRoad || t == Tool::TramTrack || t == Tool::RemoveTram ||
-           t == Tool::Clear || t == Tool::Trees || t == Tool::RailTrack || t == Tool::RemoveRail ||
-           t == Tool::RailStation || t == Tool::Canal || t == Tool::ReclaimWater ||
+           t == Tool::Clear || t == Tool::Trees || t == Tool::RailStation || t == Tool::Canal || t == Tool::ReclaimWater ||
            t == Tool::RoadBridge || t == Tool::RailBridge || t == Tool::RoadTunnel || t == Tool::RailTunnel;
 }
 
@@ -37,7 +36,7 @@ bool isRoadLikeTool(Tool t) {
 }
 
 // Tools dragged along a planned rail line (straight, then diagonal).
-bool isRailLineTool(Tool t) { return t == Tool::RailTrack || t == Tool::RemoveRail; }
+bool isRailLineTool(Tool) { return false; }
 
 TilePos straighten(TilePos a, TilePos b) {
     return std::abs(b.x - a.x) >= std::abs(b.y - a.y) ? TilePos{b.x, a.y} : TilePos{a.x, b.y};
@@ -138,14 +137,27 @@ void App::handleClick() {
 void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
     if (autoScreenshot_) return;
     const bool esc = ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !ImGui::GetIO().WantTextInput;
-    if ((esc && tool_ != Tool::None) || (!mouseOverUi_ && ImGui::IsMouseClicked(ImGuiMouseButton_Right) &&
-                                         tool_ != Tool::None && !dragStart_)) {
+    const bool rightClick = !mouseOverUi_ && ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+    if (tool_ != Tool::RailTrack) trackStart_.reset();
+    if (trackStart_ && (esc || rightClick)) {
+        // First stop laying the current track, then leave the tool.
+        trackStart_.reset();
+        if (esc) escConsumed_ = true;
+    } else if ((esc && tool_ != Tool::None) || (rightClick && tool_ != Tool::None && !dragStart_)) {
         tool_ = Tool::None;
         dragStart_.reset();
         if (esc) escConsumed_ = true;
     }
     if (tool_ == Tool::None) {
         handleClick();
+        return;
+    }
+    if (tool_ == Tool::RailTrack) {
+        handleTrackTool(overlays);
+        return;
+    }
+    if (tool_ == Tool::RemoveRail) {
+        handleRemoveTrackTool(overlays);
         return;
     }
     World& w = world();
@@ -404,9 +416,10 @@ constexpr ToolInfo kTools[] = {
     {Tool::TramStop, ToolGroup::Tram, ui::Icon::BusStop, "Tram stop", "Build a tram stop on straight track", false},
     {Tool::TramDepot, ToolGroup::Tram, ui::Icon::Depot, "Depot", "Build a tram depot next to tram track", false},
     {Tool::RailTrack, ToolGroup::Rail, ui::Icon::Track, "Track",
-     "Drag to lay railway track: straight first, then diagonally towards the cursor", false},
-    {Tool::RemoveRail, ToolGroup::Rail, ui::Icon::Track, "Remove",
-     "Drag to remove track, or click a tile to clear all of its track", true},
+     "Click to start, click again to lay curved track; it carries on from there. Start on a track end to "
+     "continue it, finish on one to join up",
+     false},
+    {Tool::RemoveRail, ToolGroup::Rail, ui::Icon::Track, "Remove", "Click a piece of track to remove it", true},
     {Tool::Signal, ToolGroup::Rail, ui::Icon::Signal, "Path signal",
      "Reserves a route through junctions. Click to cycle two-way, one-way, reversed and none", false},
     {Tool::BlockSignal, ToolGroup::Rail, ui::Icon::Signal, "Block signal",

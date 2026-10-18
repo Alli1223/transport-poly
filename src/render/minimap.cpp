@@ -57,6 +57,7 @@ u32 tileColour(const World& w, const Tile& t) {
         const Depot* d = w.depots.tryGet(DepotId(t.index));
         return companyColour(w, d ? d->owner : CompanyId{}, 0.7f);
     }
+    case TileType::Track: return kRail;
     }
     return kUnexplored;
 }

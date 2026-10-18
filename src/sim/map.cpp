@@ -84,7 +84,8 @@ void Map::touch(TilePos t) {
     if (!c) return;
     ++c->revision;
     const Tile& tile = c->tile(localCoord(t.x), localCoord(t.y));
-    if (tile.type != TileType::Clear && tile.type != TileType::Water) snapToLevels(t);
+    // Free-form track beds follow their own smooth profile and are not snapped.
+    if (tile.type != TileType::Clear && tile.type != TileType::Water && tile.type != TileType::Track) snapToLevels(t);
 }
 
 void Map::snapToLevels(TilePos t) {

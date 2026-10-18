@@ -13,6 +13,7 @@
 #include "sim/person.hpp"
 #include "sim/station.hpp"
 #include "sim/town.hpp"
+#include "sim/track.hpp"
 #include "sim/vehicle.hpp"
 
 #include <deque>
@@ -27,7 +28,7 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 12;
+inline constexpr u32 kSaveVersion = 13;
 inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
@@ -86,6 +87,8 @@ public:
     Pool<Station, StationId> stations;
     Pool<Depot, DepotId> depots;
     Pool<Vehicle, VehicleId> vehicles;
+    Pool<TrackNode, TrackNodeId> trackNodes;
+    Pool<TrackEdge, TrackEdgeId> trackEdges;
     std::set<u64> processedTownCells; // town cells already founded or known to be empty
     u32 nextSerial = 0;               // serial numbers for buildings / people
     std::deque<NewsItem> news;
@@ -101,6 +104,10 @@ public:
     std::unordered_map<u64, std::vector<StationId>> stationIndex;
     // Tile keys carrying rail signals or level crossing lights (for rendering).
     std::set<u64> signalTiles;
+    // Tile key -> free-form track edges whose bed covers the tile.
+    std::unordered_map<u64, std::vector<TrackEdgeId>> trackTiles;
+    // Bumped whenever track is built or removed (renderers rebuild their meshes).
+    u32 trackRevision = 0;
     // Tile key -> vehicles on the tile (rebuilt every tick).
     std::unordered_map<u64, std::vector<VehicleId>> vehicleTiles;
     RoutingTable routing;
@@ -124,6 +131,7 @@ public:
         ar(clock, rng, map, companies, towns, buildings, people, stations, depots, vehicles, processedTownCells,
            nextSerial, news);
         if (ar.version == 0 || ar.version >= 10) ar(economy);
+        if (ar.version == 0 || ar.version >= 13) ar(trackNodes, trackEdges);
         if constexpr (Ar::kReading) {
             for (auto [id, c] : companies)
                 if (!c.thisMonth.month) {
@@ -134,6 +142,7 @@ public:
             stations::rebuildIndex(*this);
             routing = RoutingTable{};
             rebuildSignalIndex();
+            track::rebuildDerived(*this);
         }
     }
 

@@ -6,6 +6,7 @@
 #include "render/camera.hpp"
 #include "render/gl_util.hpp"
 #include "render/mesh.hpp"
+#include "render/track_renderer.hpp"
 #include "render/models.hpp"
 #include "render/shader.hpp"
 #include "render/terrain_mesher.hpp"
@@ -67,7 +68,10 @@ public:
     RenderSettings settings;
     const RenderStats& stats() const { return stats_; }
     const SkyState& sky() const { return sky_; }
-    void invalidateAll() { meshes_.clear(); }
+    void invalidateAll() {
+        meshes_.clear();
+        track_.clear();
+    }
     const ModelLibrary& models() const { return models_; }
 
 private:
@@ -121,6 +125,7 @@ private:
     int shadowSize_ = 0;
     GpuMesh overlayMesh_;
     InstanceBatch dynamic_; // vehicles and other moving things, rebuilt every frame
+    TrackRenderer track_;
 
     std::unordered_map<u64, ChunkMesh> meshes_;
     u64 frame_ = 0;

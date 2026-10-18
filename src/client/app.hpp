@@ -93,6 +93,10 @@ private:
     void addTileOverlay(std::vector<gfx::OverlayQuad>& overlays, TilePos t, u32 color, double lift = 0.04) const;
     VehicleId pickVehicle() const;
 
+    // app_track.cpp
+    void handleTrackTool(std::vector<gfx::OverlayQuad>& overlays);
+    void handleRemoveTrackTool(std::vector<gfx::OverlayQuad>& overlays);
+
     // app_menu.cpp
     void drawMainMenu();
     void drawGameMenu();
@@ -164,6 +168,7 @@ private:
     double lastBrush_ = 0.0;   // when the brush last applied (held mouse repeats)
     u16 levelTarget_ = 0;      // fine height the Level brush flattens to
     std::optional<TilePos> dragStart_;
+    std::optional<TrackAnchor> trackStart_; // free-form track being laid (start of the next piece)
 
     // Open windows / selection.
     DepotId selDepot_;
@@ -235,6 +240,7 @@ private:
     bool demoNetwork_ = false;      // automation: build a demo bus line in the biggest town
     bool demoRail_ = false;         // automation: build a demo railway next to the biggest town
     bool demoShips_ = false;        // automation: build a demo ferry line on the nearest coast
+    bool demoTrack_ = false;        // automation: lay curved free-form track near the camera
     bool followFirst_ = false;      // automation: follow the first vehicle
     bool directStart_ = false;      // skip the main menu (command line options given)
     std::string joinAddress_;       // --join host[:port]
