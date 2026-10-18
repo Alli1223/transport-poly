@@ -467,3 +467,151 @@ TEST_CASE("track: one line may cross another on a bridge") {
     CHECK(over.ok);
     CHECK(structureLength(tw.w, TrackStructure::Bridge) > 6 * kTrackUnits);
 }
+
+namespace {
+
+// Station A in the west; a line east to a switch, then station B with two parallel platforms:
+// platform 1 straight on, platform 2 on a branch that curves out and back to run alongside.
+struct TwoPlatformLine {
+    TrackWorld tw;
+    StationId a, b;
+    DepotId depot;
+    std::vector<TrackEdgeId> platform1, platform2;
+
+    TwoPlatformLine() {
+        World& w = tw.w;
+        REQUIRE(tw.run(CmdBuildTrackStation{freeAnchor(at(8, 16)), at(14, 16)}).ok);
+        REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(w, at(14, 16), TDir{kDirOne, 0}), freeAnchor(at(22, 16))}).ok);
+        REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(w, at(22, 16), TDir{kDirOne, 0}), freeAnchor(at(30, 16))}).ok);
+        REQUIRE(tw.run(CmdBuildTrackStation{nodeAnchor(w, at(30, 16)), at(36, 16)}).ok);
+        const double t = 0.2126; // tan 12 degrees: two curves of equal chord angle end up parallel
+        const CommandResult branch = tw.run(CmdBuildTrack{nodeAnchor(w, at(22, 16), TDir{kDirOne, 0}), freeAnchor(at(29, 16 + 7 * t))});
+        if (!branch.ok) std::printf("branch refused: %s\n", branch.error.c_str());
+        REQUIRE(branch.ok);
+        REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(w, at(29, 16 + 7 * t), TDir{kDirOne, 0}), freeAnchor(at(36, 16 + 14 * t))}).ok);
+        const CommandResult p2 = tw.run(CmdBuildTrackStation{nodeAnchor(w, at(36, 16 + 14 * t)), at(42, 16 + 14 * t)});
+        if (!p2.ok) std::printf("platform 2 refused: %s\n", p2.error.c_str());
+        REQUIRE(p2.ok);
+        const CommandResult dep = tw.run(CmdBuildTrackDepot{track::nodeNear(w, at(8, 16), 40)});
+        REQUIRE(dep.ok);
+        depot = DepotId(dep.createdId);
+        a = stationAt(w, at(11, 16));
+        b = stationAt(w, at(33, 16));
+        REQUIRE(a.valid());
+        REQUIRE(b.valid());
+        REQUIRE(track::platformsOf(w, b).size() == 2u);
+        platform1 = track::platformChain(w, track::platformNear(w, b, at(33, 16)));
+        platform2 = track::platformChain(w, track::platformNear(w, b, at(39, 16 + 14 * t)));
+        REQUIRE(!platform1.empty());
+        REQUIRE(!platform2.empty());
+        CHECK(platform1 != platform2);
+    }
+
+    VehicleId train(std::vector<Order> orders) {
+        const CommandResult buy = tw.run(CmdBuyVehicle{depot, 7});
+        REQUIRE(buy.ok);
+        const VehicleId id(buy.createdId);
+        REQUIRE(tw.run(CmdAddCarriage{id, 11}).ok);
+        const CommandResult set = tw.run(CmdSetOrders{id, orders});
+        if (!set.ok) std::printf("orders refused: %s\n", set.error.c_str());
+        REQUIRE(set.ok);
+        REQUIRE(tw.run(CmdStartStopVehicle{id}).ok);
+        return id;
+    }
+
+    // Which platform of B the train is loading at: 1, 2 or 0 (elsewhere).
+    int loadingAt(VehicleId id) const {
+        const Vehicle& v = tw.w.vehicles[id];
+        if (v.state != VehicleState::Loading || v.runs.empty()) return 0;
+        const TrackEdgeId e = v.runs.front().edge;
+        if (std::ranges::find(platform1, e) != platform1.end()) return 1;
+        if (std::ranges::find(platform2, e) != platform2.end()) return 2;
+        return 0;
+    }
+};
+
+Order stopAt(StationId s) {
+    Order o;
+    o.station = s;
+    return o;
+}
+
+} // namespace
+
+TEST_CASE("track: an order can send a train to one platform in particular") {
+    TwoPlatformLine line;
+    Order toB = stopAt(line.b);
+    toB.flags = kOrderPlatform;
+    toB.platform = track::platformPoint(line.tw.w, line.platform2);
+    CHECK_EQ(track::platformNumber(line.tw.w, line.b, toB.platform), 2);
+    const VehicleId id = line.train({stopAt(line.a), toB});
+    int stops1 = 0, stops2 = 0;
+    i64 lastB = -1;
+    for (i64 t = 0; t < kTicksPerDay; ++t) {
+        line.tw.w.tick();
+        if (line.tw.w.stations[line.b].lastVisitTick != lastB) {
+            lastB = line.tw.w.stations[line.b].lastVisitTick;
+            const int at = line.loadingAt(id);
+            stops1 += at == 1;
+            stops2 += at == 2;
+        }
+    }
+    CHECK(!line.tw.w.vehicles[id].lost);
+    CHECK(stops2 >= 2);
+    CHECK_EQ(stops1, 0);
+
+    // The chosen platform survives a save and load.
+    World copy;
+    fromBytes(toBytes(line.tw.w, kSaveVersion), copy, kSaveVersion);
+    CHECK(copy.vehicles[id].orders == line.tw.w.vehicles[id].orders);
+
+    // A platform that is not part of the station is refused.
+    Order bad = toB;
+    bad.platform = at(60, 60);
+    CHECK(!line.tw.run(CmdSetOrders{id, {stopAt(line.a), bad}}).ok);
+}
+
+TEST_CASE("track: with any platform allowed a train takes a free one") {
+    TwoPlatformLine line;
+    // The first train waits for a full load at platform 1 (nobody comes), keeping it busy.
+    Order hold = stopAt(line.b);
+    hold.flags = kOrderFullLoad | kOrderPlatform;
+    hold.platform = track::platformPoint(line.tw.w, line.platform1);
+    const VehicleId first = line.train({stopAt(line.a), hold});
+    for (i64 t = 0; t < kTicksPerDay && line.loadingAt(first) != 1; ++t) line.tw.w.tick();
+    REQUIRE(line.loadingAt(first) == 1);
+    const VehicleId second = line.train({stopAt(line.a), stopAt(line.b)});
+    int seen = 0;
+    for (i64 t = 0; t < kTicksPerDay && seen == 0; ++t) {
+        line.tw.w.tick();
+        seen = line.loadingAt(second);
+    }
+    CHECK_EQ(seen, 2);
+}
+
+TEST_CASE("track: trains on free track pass through waypoints") {
+    TwoPlatformLine line;
+    Order via;
+    via.kind = OrderKind::Via;
+    via.waypoint = {26, 16};
+    const VehicleId id = line.train({stopAt(line.a), via, stopAt(line.b)});
+    i64 lastA = -1, lastB = -1, visitsA = 0, visitsB = 0;
+    for (i64 t = 0; t < kTicksPerDay; ++t) {
+        line.tw.w.tick();
+        if (line.tw.w.stations[line.a].lastVisitTick != lastA) {
+            lastA = line.tw.w.stations[line.a].lastVisitTick;
+            ++visitsA;
+        }
+        if (line.tw.w.stations[line.b].lastVisitTick != lastB) {
+            lastB = line.tw.w.stations[line.b].lastVisitTick;
+            ++visitsB;
+        }
+    }
+    CHECK(!line.tw.w.vehicles[id].lost);
+    CHECK(visitsA >= 3);
+    CHECK(visitsB >= 3);
+    // A waypoint needs track under it.
+    Order nowhere = via;
+    nowhere.waypoint = {26, 40};
+    CHECK(!line.tw.run(CmdSetOrders{id, {stopAt(line.a), nowhere}}).ok);
+}

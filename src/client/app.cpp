@@ -487,6 +487,8 @@ bool App::parseArgs(int argc, char** argv) {
             demoTrack_ = true;
         } else if (arg == "--preview-station") {
             previewStation_ = true;
+        } else if (arg == "--preview-orders") {
+            previewOrders_ = true;
         } else if (arg == "--demo-bridge") {
             demoStructure_ = TrackStructure::Bridge;
         } else if (arg == "--demo-tunnel") {
@@ -1166,6 +1168,19 @@ int App::run(int argc, char** argv) {
                         camera_.targetGoal = glm::dvec3(at->x / double(kTrackUnits) + 30.0, 0.0, at->z / double(kTrackUnits) + 8.0);
                         camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
                         camera_.snapToGoals();
+                        if (previewOrders_) {
+                            // Show the order picker pointing at the first station's platform.
+                            for (const auto [vid, v] : world().vehicles) {
+                                selVehicle_ = vid;
+                                break;
+                            }
+                            tool_ = Tool::PickOrder;
+                            previewHover_ = glm::dvec3(at->x / double(kTrackUnits) + 3.0, 0.0, at->z / double(kTrackUnits) + 0.3);
+                            camera_.targetGoal = glm::dvec3(previewHover_->x, 0.0, previewHover_->z);
+                            camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
+                            camera_.distanceGoal = 14.0;
+                            camera_.snapToGoals();
+                        }
                         if (previewStation_) {
                             // Show the station tool part way through placing a platform beside the line.
                             const TPoint p{at->x, at->z + 7 * kTrackUnits};

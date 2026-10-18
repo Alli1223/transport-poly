@@ -202,6 +202,7 @@ struct TrackPlan {
     // Resolved ends.
     TrackNodeId startNode, endNode; // existing nodes joined, if any
     u8 startSide = 0, endSide = 0;
+    bool levelStart = false, levelEnd = false; // level track ends on a gentle slope (for platforms)
     struct Piece {
         TPoint p0, p1, p2, p3;
         i32 h0 = 0, h1 = 0;
@@ -245,6 +246,16 @@ TrackSample pointOn(const TrackEdge& e, bool forward, i32 distance);
 // Whether a train may take an edge: free (or its own) and no switch sibling held by another.
 bool reservable(const World& w, TrackEdgeId e, VehicleId train);
 bool hasPlatform(const World& w, StationId s);
+// Free-form station platforms: the edges of one platform track (joined end to end), a station's
+// platforms in the order they were built, the platform edge nearest a point (within `radius`),
+// a point on a platform, and a platform's number (1-based, 0 when there is none near `p`).
+std::vector<TrackEdgeId> platformChain(const World& w, TrackEdgeId e);
+std::vector<std::vector<TrackEdgeId>> platformsOf(const World& w, StationId s);
+TrackEdgeId platformNear(const World& w, StationId s, TPoint p, i32 radius = 2 * kTrackUnits);
+TPoint platformPoint(const World& w, const std::vector<TrackEdgeId>& chain);
+int platformNumber(const World& w, StationId s, TPoint p);
+// Whether an edge runs over (or under) a tile.
+bool edgeCovers(const World& w, TrackEdgeId e, TilePos t);
 
 // What carries the rails `s` units along an edge (or a plan's spans).
 TrackStructure structureAt(const std::vector<TrackSpan>& spans, i32 s);

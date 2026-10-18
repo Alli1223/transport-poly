@@ -760,8 +760,12 @@ void App::drawVehicleWindow() {
             ImGui::PushID(static_cast<int>(i));
             const bool current = i == v->orderIndex % std::max<usize>(1, orders.size());
             const Station* st = o.kind == OrderKind::Station ? w.stations.tryGet(o.station) : nullptr;
-            const std::string name = o.kind == OrderKind::Station ? (st ? st->name : std::string("(removed)"))
+            std::string name = o.kind == OrderKind::Station ? (st ? st->name : std::string("(removed)"))
                 : o.kind == OrderKind::Via ? std::format("Via {}, {}", o.waypoint.x, o.waypoint.y) : "Service at depot";
+            if (st && (o.flags & kOrderPlatform)) {
+                const int number = track::platformNumber(w, o.station, o.platform);
+                name += number > 0 ? std::format(" - platform {}", number) : std::string(" - platform removed");
+            }
             const ImVec2 p = ImGui::GetCursorScreenPos();
             const float avail = ImGui::GetContentRegionAvail().x;
             const float h = 34.0f * s;
@@ -800,7 +804,7 @@ void App::drawVehicleWindow() {
                 if (o.kind == OrderKind::Station &&
                     ui::miniButton("##full", ui::Icon::People, (o.flags & kOrderFullLoad) ? ui::col::kTeal : ui::col::kTextMuted,
                                    "Wait for a full load")) {
-                    o.flags = (o.flags & kOrderFullLoad) ? 0 : kOrderFullLoad;
+                    o.flags = static_cast<u8>(((o.flags & kOrderFullLoad) ? 0 : kOrderFullLoad) | (o.flags & kOrderPlatform));
                     changed = true;
                 }
                 if (o.kind != OrderKind::Station) ImGui::Dummy(ImVec2(ImGui::GetFrameHeight() * 0.85f, 1));
@@ -823,7 +827,30 @@ void App::drawVehicleWindow() {
                 ImGui::SetNextItemWidth(-1.0f);
                 if (ImGui::Combo("##mode", &mode, "Stop normally\0Full load\0Unload all, no loading\0No loading\0Pass through\0")) {
                     constexpr u8 flags[] = {0, kOrderFullLoad, kOrderUnloadOnly, kOrderNoLoading, kOrderNonStop};
-                    o.flags = flags[mode]; changed = true;
+                    o.flags = static_cast<u8>(flags[mode] | (o.flags & kOrderPlatform)); changed = true;
+                }
+                // Trains on free-form track can be sent to one platform in particular.
+                if (const auto platforms = v->info().type == VehicleType::Rail ? track::platformsOf(w, o.station)
+                                                                              : std::vector<std::vector<TrackEdgeId>>{};
+                    platforms.size() > 1 || (o.flags & kOrderPlatform)) {
+                    std::string items = "Any free platform";
+                    items.push_back('\0');
+                    for (usize k = 0; k < platforms.size(); ++k) {
+                        items += std::format("Platform {}", k + 1);
+                        items.push_back('\0');
+                    }
+                    int chosen = (o.flags & kOrderPlatform) ? track::platformNumber(w, o.station, o.platform) : 0;
+                    ImGui::SetNextItemWidth(-1.0f);
+                    if (ImGui::Combo("##platform", &chosen, items.c_str())) {
+                        if (chosen == 0) {
+                            o.flags = static_cast<u8>(o.flags & ~kOrderPlatform);
+                            o.platform = {};
+                        } else {
+                            o.flags = static_cast<u8>(o.flags | kOrderPlatform);
+                            o.platform = track::platformPoint(w, platforms[static_cast<usize>(chosen - 1)]);
+                        }
+                        changed = true;
+                    }
                 }
                 ImGui::EndDisabled();
             }
@@ -842,7 +869,7 @@ void App::drawVehicleWindow() {
         if (mine) {
             const bool picking = tool_ == Tool::PickOrder;
             ImGui::Checkbox("Via waypoint (road / track / water tile)", &pickViaOrder_);
-            if (ui::button(picking ? "Click stations on the map - Esc when done" : "Add stop or depot",
+            if (ui::button(picking ? "Click a platform, station or depot - Esc when done" : "Add stop or depot",
                            picking ? ui::Icon::Target : ui::Icon::Plus, picking ? ui::Btn::Primary : ui::Btn::Secondary,
                            ImVec2(-1.0f, 0.0f)))
                 tool_ = picking ? Tool::None : Tool::PickOrder;

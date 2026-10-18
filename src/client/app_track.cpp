@@ -394,4 +394,67 @@ void App::handleSignalTool(std::vector<gfx::OverlayQuad>& overlays) {
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && r.ok) session_->submit(CmdTrackSignal{node});
 }
 
+// Order picking for trains on free-form track: a platform (that platform in particular), a
+// depot, or with "via" a waypoint on the track. False when the pointer is not on such track.
+bool App::pickTrackOrder(std::vector<gfx::OverlayQuad>& overlays) {
+    World& w = world();
+    const Vehicle* v = w.vehicles.tryGet(selVehicle_);
+    if (!v || v->info().type != VehicleType::Rail || !hover_.hit || mouseOverUi_) return false;
+    const TPoint cursor = toTrack(hover_.point);
+    const TrackEdgeId id = track::edgeNear(w, cursor, kPlatformHalfWidth + 16);
+    if (!id.valid()) return false;
+    const TrackEdge& e = w.trackEdges[id];
+    Order o;
+    std::string label;
+    std::vector<TrackEdgeId> highlight{id};
+    double halfWidth = 0.34;
+    if (pickViaOrder_) {
+        if (e.kind == TrackKind::Depot) return false;
+        // The tile under the nearest point of the track.
+        const TrackSample* best = &e.samples.front();
+        for (const TrackSample& sm : e.samples)
+            if (std::hypot(sm.p.x - cursor.x, sm.p.z - cursor.z) < std::hypot(best->p.x - cursor.x, best->p.z - cursor.z)) best = &sm;
+        o.kind = OrderKind::Via;
+        o.waypoint = track::edgeCovers(w, id, hover_.tile) ? hover_.tile : tileAt(best->p);
+        label = "Via this track (a waypoint)";
+    } else if (e.kind == TrackKind::Platform && w.stations.contains(e.station)) {
+        highlight = track::platformChain(w, id);
+        halfWidth = 0.93;
+        o.station = e.station;
+        o.flags = kOrderPlatform;
+        o.platform = track::platformPoint(w, highlight);
+        label = std::format("Stop at {}, platform {}", w.stations[e.station].name, track::platformNumber(w, e.station, o.platform));
+    } else if (e.kind == TrackKind::Depot && w.depots.contains(e.depot)) {
+        o.kind = OrderKind::Depot;
+        o.depot = e.depot;
+        label = "Go for service at this depot";
+    } else {
+        return false;
+    }
+    std::vector<Order> orders = v->orders;
+    orders.push_back(o);
+    Command c;
+    c.company = session_->localCompany();
+    c.payload = CmdSetOrders{selVehicle_, orders};
+    const CommandResult r = testCommand(w, c);
+    for (const TrackEdgeId h : highlight)
+        addRibbon(overlays, w.trackEdges[h].samples, halfWidth, r.ok ? gfx::rgba(120, 240, 140, 130) : gfx::rgba(250, 90, 80, 130));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * uiScale_, 7.0f * uiScale_));
+    if (ImGui::BeginTooltip()) {
+        if (r.ok) {
+            ui::iconText(o.kind == OrderKind::Depot ? ui::Icon::Depot : o.kind == OrderKind::Via ? ui::Icon::Target : ui::Icon::Station,
+                         ui::col::kGreen, label.c_str());
+            ui::FontScope f(ui::fonts().small);
+            ui::mutedText(o.kind == OrderKind::Station ? "Click to add it to the orders (or change the platform there later)"
+                                                       : "Click to add it to the orders");
+        } else {
+            ui::iconText(ui::Icon::Warning, ui::col::kRed, r.error.c_str(), ui::col::kRed);
+        }
+        ImGui::EndTooltip();
+    }
+    ImGui::PopStyleVar();
+    if (r.ok && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) session_->submit(CmdSetOrders{selVehicle_, orders});
+    return true;
+}
+
 } // namespace tp

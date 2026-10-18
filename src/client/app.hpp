@@ -97,6 +97,7 @@ private:
     void handleStationTool(std::vector<gfx::OverlayQuad>& overlays);
     void handleDepotTool(std::vector<gfx::OverlayQuad>& overlays);
     void handleSignalTool(std::vector<gfx::OverlayQuad>& overlays);
+    bool pickTrackOrder(std::vector<gfx::OverlayQuad>& overlays);
 
     // app_menu.cpp
     void drawMainMenu();
@@ -244,6 +245,7 @@ private:
     bool demoShips_ = false;        // automation: build a demo ferry line on the nearest coast
     bool demoTrack_ = false;        // automation: lay curved free-form track near the camera
     bool previewStation_ = false;   // automation: show the station tool placing a platform
+    bool previewOrders_ = false;    // automation: show the order picker over a platform
     std::optional<TrackStructure> demoStructure_; // automation: build a line needing a bridge or tunnel
     bool demoCrossing_ = false;     // automation: build a line across a road
     std::optional<glm::dvec3> previewHover_; // automation: scripted cursor position on the ground

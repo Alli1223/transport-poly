@@ -532,9 +532,13 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
     const auto heightFor = [&](i64 grade) { return grade * len / kGradeOne; }; // height change over the track
     i64 h0, h1, g0, g1;
     if (options.level) {
-        // Level from end to end, at the height of the ground (or of the track it joins).
-        if ((a.existing && a.grade != 0) || (b.existing && b.grade != 0))
+        // Level from end to end, at the height of the ground (or of the track it joins). A track
+        // end on a gentle slope is levelled to meet it; a steeper one is refused.
+        constexpr i64 kLevellable = 2 * kGradeOne / kTrackUnits; // 2 fine units per tile
+        if ((a.existing && std::abs(a.grade) > kLevellable) || (b.existing && std::abs(b.grade) > kLevellable))
             return fail("This track end is on a slope - put the station on level ground and join the track to it");
+        pl.levelStart = a.existing && a.grade != 0;
+        pl.levelEnd = b.existing && b.grade != 0;
         if (a.existing && b.existing && a.h != b.h) return fail("Stations need level track");
         if (a.existing) h0 = a.h;
         else if (b.existing) h0 = b.h;
@@ -858,6 +862,16 @@ std::vector<TrackEdgeId> build(World& w, CompanyId company, const TrackPlan& pl)
     const TrackKind kind = pl.options.kind;
     std::vector<TrackEdgeId> edges;
     if (!pl.ok || pl.pieces.empty()) return edges;
+    // Level the end of the track a platform joins: its edges ease out flat into the node.
+    for (const auto [level, nid] : {std::pair{pl.levelStart, pl.startNode}, std::pair{pl.levelEnd, pl.endNode}}) {
+        if (!level || !w.trackNodes.contains(nid)) continue;
+        w.trackNodes[nid].grade = 0;
+        for (const TrackEdgeId e : w.trackNodes[nid].edges)
+            if (e.valid()) {
+                computeSamples(w, w.trackEdges[e]);
+                w.trackEdges[e].serial = ++w.nextSerial; // redrawn
+            }
+    }
     const auto attach = [&](TrackNodeId nid, u8 side, TrackEdgeId e) {
         TrackNode& n = w.trackNodes[nid];
         const usize slot = n.edges[side * 2u].valid() ? side * 2u + 1 : side * 2u;
@@ -1066,6 +1080,80 @@ bool reservable(const World& w, TrackEdgeId id, VehicleId train) {
         return true;
     };
     return siblingFree(e.a, e.sideA) && siblingFree(e.b, e.sideB);
+}
+
+std::vector<TrackEdgeId> platformChain(const World& w, TrackEdgeId start) {
+    std::vector<TrackEdgeId> chain;
+    const TrackEdge* first = w.trackEdges.tryGet(start);
+    if (!first || first->kind != TrackKind::Platform) return chain;
+    chain.push_back(start);
+    for (usize i = 0; i < chain.size(); ++i) {
+        const TrackEdge& e = w.trackEdges[chain[i]];
+        // Straight on through each end node: the edges on that node's other side.
+        for (const auto [nid, side] : {std::pair{e.a, e.sideA}, std::pair{e.b, e.sideB}}) {
+            const TrackNode& n = w.trackNodes[nid];
+            for (u8 slot = 0; slot < 2; ++slot) {
+                const TrackEdgeId other = n.edges[(1u - side) * 2u + slot];
+                if (!other.valid() || std::ranges::find(chain, other) != chain.end()) continue;
+                const TrackEdge& o = w.trackEdges[other];
+                if (o.kind == TrackKind::Platform && o.station == first->station) chain.push_back(other);
+            }
+        }
+    }
+    std::ranges::sort(chain, [](TrackEdgeId x, TrackEdgeId y) { return x.value < y.value; });
+    return chain;
+}
+
+std::vector<std::vector<TrackEdgeId>> platformsOf(const World& w, StationId s) {
+    std::vector<std::vector<TrackEdgeId>> out;
+    std::vector<TrackEdgeId> seen;
+    for (const auto [id, e] : w.trackEdges) {
+        if (e.kind != TrackKind::Platform || e.station != s || std::ranges::find(seen, id) != seen.end()) continue;
+        std::vector<TrackEdgeId> chain = platformChain(w, id);
+        seen.insert(seen.end(), chain.begin(), chain.end());
+        out.push_back(std::move(chain));
+    }
+    const auto firstBuilt = [&](const std::vector<TrackEdgeId>& c) {
+        u32 serial = UINT32_MAX;
+        for (const TrackEdgeId e : c) serial = std::min(serial, w.trackEdges[e].serial);
+        return serial;
+    };
+    std::ranges::sort(out, [&](const auto& x, const auto& y) { return firstBuilt(x) < firstBuilt(y); });
+    return out;
+}
+
+TrackEdgeId platformNear(const World& w, StationId s, TPoint p, i32 radius) {
+    TrackEdgeId best;
+    i64 bestD = static_cast<i64>(radius) + 1;
+    for (const auto [id, e] : w.trackEdges) {
+        if (e.kind != TrackKind::Platform || e.station != s) continue;
+        const i64 d = nearest(e.samples, p).d;
+        if (d < bestD) {
+            bestD = d;
+            best = id;
+        }
+    }
+    return best;
+}
+
+TPoint platformPoint(const World& w, const std::vector<TrackEdgeId>& chain) {
+    if (chain.empty()) return {};
+    const TrackEdge& e = w.trackEdges[chain.front()];
+    return pointOn(e, true, e.length / 2).p;
+}
+
+int platformNumber(const World& w, StationId s, TPoint p) {
+    const TrackEdgeId near = platformNear(w, s, p);
+    if (!near.valid()) return 0;
+    const auto platforms = platformsOf(w, s);
+    for (usize i = 0; i < platforms.size(); ++i)
+        if (std::ranges::find(platforms[i], near) != platforms[i].end()) return static_cast<int>(i) + 1;
+    return 0;
+}
+
+bool edgeCovers(const World& w, TrackEdgeId e, TilePos t) {
+    const auto it = w.trackTiles.find(tileKey(t));
+    return it != w.trackTiles.end() && std::ranges::find(it->second, e) != it->second.end();
 }
 
 bool hasPlatform(const World& w, StationId s) {

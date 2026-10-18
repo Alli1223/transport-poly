@@ -48,6 +48,41 @@ u8 runStartSide(const World& w, EdgeRun r) {
     return r.forward ? e.sideA : e.sideB;
 }
 
+// Where an order sends a train: a chosen platform (its edges), any platform of the station, the
+// way into a depot, or track over a waypoint tile.
+struct Goal {
+    Order order;
+    std::vector<TrackEdgeId> platform;
+
+    bool operator()(const World& w, EdgeRun r) const {
+        switch (order.kind) {
+        case OrderKind::Station:
+            return platform.empty() ? isPlatformOf(w, r.edge, order.station) : std::ranges::find(platform, r.edge) != platform.end();
+        case OrderKind::Depot: return intoDepot(w, r, order.depot);
+        case OrderKind::Via:
+            return w.trackEdges[r.edge].kind != TrackKind::Depot && track::edgeCovers(w, r.edge, order.waypoint);
+        }
+        return false;
+    }
+};
+
+Goal goalFor(const World& w, const Order& o) {
+    Goal g{o, {}};
+    if (o.kind == OrderKind::Station && (o.flags & kOrderPlatform))
+        if (const TrackEdgeId e = track::platformNear(w, o.station, o.platform); e.valid()) g.platform = track::platformChain(w, e);
+    return g;
+}
+
+// Passing a waypoint or a non-stop station counts as visiting it: on to the next order.
+void passOrders(const World& w, Vehicle& v, EdgeRun r) {
+    for (usize guard = 0; guard < v.orders.size(); ++guard) {
+        const auto o = targetOrder(v);
+        if (!o || !o->passThrough() || !goalFor(w, *o)(w, r)) break;
+        v.orderIndex = static_cast<u8>((v.orderIndex + 1) % v.orders.size());
+        v.retryTicks = 0;
+    }
+}
+
 // One-way signals cannot be passed from behind.
 bool passable(const TrackNode& n, u8 leaveSide) { return n.signals != (1u << (1 - leaveSide)); }
 
@@ -74,8 +109,8 @@ i32 acceleration(const Vehicle& v) {
 // Speed limit for a curve of radius r (units): sharper curves are slower.
 i32 curveLimit(i32 r) { return speedUnits(30 + r * 12 / kTrackUnits); }
 
-template <class Goal>
-std::optional<std::vector<EdgeRun>> findPath(const World& w, EdgeRun from, Goal&& goal, DepotId allowDepot) {
+template <class GoalFn>
+std::optional<std::vector<EdgeRun>> findPath(const World& w, EdgeRun from, GoalFn&& goal, DepotId allowDepot, VehicleId train) {
     struct Item {
         i64 cost;
         u32 order;
@@ -89,6 +124,8 @@ std::optional<std::vector<EdgeRun>> findPath(const World& w, EdgeRun from, Goal&
         const TrackEdge& e = w.trackEdges[r.edge];
         // Never route through a depot other than the one we are heading for.
         if (e.kind == TrackKind::Depot && !(e.depot == allowDepot && r.forward)) return;
+        // Track another train holds counts as longer, so a free platform wins over a busy one.
+        if (e.reservedBy.valid() && e.reservedBy != train) cost += 16 * kTrackUnits;
         const auto [it, inserted] = parent.try_emplace(runKey(r), from, cost);
         if (!inserted) {
             if (it->second.second <= cost) return;
@@ -124,21 +161,31 @@ std::optional<std::vector<EdgeRun>> findPath(const World& w, EdgeRun from, Goal&
 
 Extend extend(World& w, VehicleId id) {
     Vehicle& v = w.vehicles[id];
-    const auto o = targetOrder(v);
+    passOrders(w, v, v.runs.front()); // standing on a waypoint already
+    std::optional<Order> o = targetOrder(v);
     if (!o) return Extend::NoOrders;
     const EdgeRun last = v.runsAhead.empty() ? v.runs.front() : v.runsAhead.back();
+    // Plan for the first order the reservation does not already reach: waypoints and non-stop
+    // stations reserved through are as good as passed.
+    if (!v.sendToDepot && !v.goingForService) {
+        usize k = v.orderIndex % v.orders.size();
+        for (usize guard = 0; guard + 1 < v.orders.size() && o->passThrough(); ++guard) {
+            const Goal g = goalFor(w, *o);
+            if (std::ranges::none_of(v.runsAhead, [&](EdgeRun r) { return g(w, r); })) break;
+            k = (k + 1) % v.orders.size();
+            o = v.orders[k];
+        }
+    }
+    const Goal goal = goalFor(w, *o);
     // Already reserved to the far end of the target platform, or into the depot.
-    if (o->kind == OrderKind::Station && isPlatformOf(w, last.edge, o->station)) {
+    if (o->kind == OrderKind::Station && !o->passThrough() && goal(w, last)) {
         bool more = false;
-        for (const EdgeRun c : track::continuations(w, last)) more = more || isPlatformOf(w, c.edge, o->station);
+        for (const EdgeRun c : track::continuations(w, last)) more = more || goal(w, c);
         if (!more) return Extend::AtTarget;
     }
-    if (o->kind == OrderKind::Depot && intoDepot(w, last, o->depot)) return Extend::AtTarget;
-    if (o->kind == OrderKind::Via) return Extend::NoPath; // waypoints are a grid railway feature
-    const auto goal = [&](EdgeRun r) {
-        return o->kind == OrderKind::Station ? isPlatformOf(w, r.edge, o->station) : intoDepot(w, r, o->depot);
-    };
-    const auto path = findPath(w, last, goal, o->kind == OrderKind::Depot ? o->depot : DepotId{});
+    if (o->kind == OrderKind::Depot && goal(w, last)) return Extend::AtTarget;
+    const auto reached = [&](EdgeRun r) { return goal(w, r); };
+    const auto path = findPath(w, last, reached, o->kind == OrderKind::Depot ? o->depot : DepotId{}, id);
     if (!path) return Extend::NoPath;
 
     std::vector<EdgeRun> collected;
@@ -151,14 +198,14 @@ Extend extend(World& w, VehicleId id) {
         }
         if (!track::reservable(w, r.edge, id)) return Extend::Blocked;
         collected.push_back(r);
-        if (goal(r)) {
-            if (o->kind == OrderKind::Station) {
+        if (goal(w, r)) {
+            if (o->kind == OrderKind::Station && !o->passThrough()) {
                 // Run through to the far end of the platform.
                 EdgeRun cur = r;
                 for (int guard = 0; guard < 16; ++guard) {
                     std::optional<EdgeRun> next;
                     for (const EdgeRun c : track::continuations(w, cur))
-                        if (isPlatformOf(w, c.edge, o->station)) next = c;
+                        if (goal(w, c)) next = c;
                     if (!next) break;
                     if (!track::reservable(w, next->edge, id)) return Extend::Blocked;
                     collected.push_back(*next);
@@ -284,13 +331,7 @@ void advance(World& w, VehicleId id, i32 move) {
         const EdgeRun next = v.runsAhead.front();
         v.runsAhead.pop_front();
         v.runs.push_front(next);
-        // Passing a non-stop station counts as visiting it.
-        for (usize guard = 0; guard < v.orders.size(); ++guard) {
-            const auto o = targetOrder(v);
-            if (!o || !o->passThrough() || o->kind != OrderKind::Station || !isPlatformOf(w, next.edge, o->station)) break;
-            v.orderIndex = static_cast<u8>((v.orderIndex + 1) % v.orders.size());
-            v.retryTicks = 0;
-        }
+        passOrders(w, v, next);
         if (const auto o = targetOrder(v); o && o->kind == OrderKind::Depot && intoDepot(w, next, o->depot)) {
             enterDepot(w, id, o->depot);
             return;
@@ -413,7 +454,7 @@ void tick(World& w, VehicleId id) {
     // Arrived at the end of the target platform?
     if (v.runsAhead.empty() && runLen(w, v.runs.front()) - v.progress <= kStopMargin + 2) {
         const auto o = targetOrder(v);
-        if (o && o->kind == OrderKind::Station && !o->passThrough() && isPlatformOf(w, v.runs.front().edge, o->station)) {
+        if (o && o->kind == OrderKind::Station && !o->passThrough() && goalFor(w, *o)(w, v.runs.front())) {
             v.speed = 0;
             arriveAtPlatform(w, id, o->station);
         }

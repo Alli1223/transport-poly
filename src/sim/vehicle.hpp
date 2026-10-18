@@ -64,6 +64,7 @@ enum OrderFlags : u8 {
     kOrderFullLoad = 1 << 1,
     kOrderUnloadOnly = 1 << 2,
     kOrderNoLoading = 1 << 3,
+    kOrderPlatform = 1 << 4, // free-form track: stop at the platform nearest Order::platform
 };
 
 enum class OrderKind : u8 { Station, Depot, Via };
@@ -74,6 +75,7 @@ struct Order {
     DepotId depot;
     u8 flags = 0;
     TilePos waypoint;
+    TPoint platform; // with kOrderPlatform: a point on the chosen platform
 
     bool passThrough() const { return kind == OrderKind::Via || (kind == OrderKind::Station && (flags & kOrderNonStop)); }
 
@@ -82,6 +84,7 @@ struct Order {
     void serialize(Ar& ar) {
         ar(kind, station, depot, flags);
         if (ar.version == 0 || ar.version >= 9) ar(waypoint);
+        if (ar.version == 0 || ar.version >= 16) ar(platform);
     }
 };
 

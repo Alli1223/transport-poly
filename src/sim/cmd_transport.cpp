@@ -453,14 +453,28 @@ CommandResult handle(World& w, const Command& c, const CmdSendToDepot& x, bool e
     return CommandResult::success();
 }
 
+namespace {
+
+// Free-form track (other than a depot's) over or under a tile.
+bool freeTrackAt(const World& w, TilePos t) {
+    const auto it = w.trackTiles.find(ChunkPos{t.x, t.y}.key());
+    if (it == w.trackTiles.end()) return false;
+    return std::ranges::any_of(it->second, [&](TrackEdgeId e) { return w.trackEdges[e].kind != TrackKind::Depot; });
+}
+
+} // namespace
+
 CommandResult handle(World& w, const Command& c, const CmdSetOrders& x, bool exec) {
     Vehicle* v = ownedVehicle(w, c, x.vehicle);
     if (!v) return CommandResult::failure("No such vehicle");
     if (x.orders.size() > 64) return CommandResult::failure("Too many orders");
     const VehicleType type = v->info().type;
     for (const Order& o : x.orders) {
-        if (o.flags & ~(kOrderNonStop | kOrderFullLoad | kOrderUnloadOnly | kOrderNoLoading))
+        if (o.flags & ~(kOrderNonStop | kOrderFullLoad | kOrderUnloadOnly | kOrderNoLoading | kOrderPlatform))
             return CommandResult::failure("Unknown order flags");
+        if ((o.flags & kOrderPlatform) &&
+            (o.kind != OrderKind::Station || type != VehicleType::Rail || !track::platformNear(w, o.station, o.platform).valid()))
+            return CommandResult::failure("That platform is not part of the station");
         if ((o.flags & kOrderFullLoad) && (o.flags & (kOrderNonStop | kOrderUnloadOnly | kOrderNoLoading)))
             return CommandResult::failure("Full load requires a stopping order that permits loading");
         if (o.kind == OrderKind::Station) {
@@ -476,7 +490,7 @@ CommandResult handle(World& w, const Command& c, const CmdSetOrders& x, bool exe
         } else if (o.kind == OrderKind::Via) {
             const Tile* tile = w.map.tile(o.waypoint);
             const bool ok = tile && (type == VehicleType::Ship ? isWaterTile(w, o.waypoint)
-                : type == VehicleType::Rail ? tile->rail != 0 && tile->type != TileType::Depot
+                : type == VehicleType::Rail ? (tile->rail != 0 || freeTrackAt(w, o.waypoint)) && tile->type != TileType::Depot
                 : drivablePieces(w, o.waypoint, type, DepotId{}) != 0 && tile->type != TileType::Depot);
             if (!ok) return CommandResult::failure("Waypoint needs navigable infrastructure for this vehicle");
         } else if (o.kind == OrderKind::Depot) {

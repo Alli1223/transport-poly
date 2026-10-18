@@ -112,6 +112,12 @@ again for one-way (either direction) and once more to remove them. Trains reserv
 their route from signal to signal, slow for curves and climbs, and reverse at
 terminus platforms.
 
+To give a train its orders, press **Add stop or depot** in its window and click
+a platform, a depot, or (with **Via waypoint** ticked) any track to pass over.
+Clicking a platform sends the train to that platform; the platform list on each
+order switches between platforms or back to **Any free platform**, where the
+train picks a platform no other train is using.
+
 Track can cross a straight road on the level. The road traffic waits while a train
 holds the track over the crossing, and trains wait for road vehicles to clear it.
 Roads cannot branch off or be removed at a crossing; remove the track first.

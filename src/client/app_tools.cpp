@@ -322,6 +322,7 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
             tool_ = Tool::None;
             return;
         }
+        if (pickTrackOrder(overlays)) return;
         addTileOverlay(overlays, hover_.tile, t && (pickViaOrder_ || t->type == TileType::Station || t->type == TileType::Depot) ? kOk : kBad);
         if (pickViaOrder_ && t) {
             std::vector<Order> orders = v->orders;
