@@ -138,10 +138,10 @@ relies on every peer computing exactly the same game state.
 - [x] 10.3 Server: client management, company assignment, command validation & scheduling, frame broadcast
 - [x] 10.4 Client: map download, catch-up, frame-limited simulation, command submission
 - [x] 10.5 Sync checks (state hash) & desync handling
-- [~] 10.6 Chat & client list (chat window; client list window later)
+- [x] 10.6 Chat and live client list (Players / Tab, names, companies, spectators and host / local-player labels)
 - [x] 10.7 Dedicated headless server executable (CLI args, console commands)
 - [x] 10.8 Host a game from the client (listen server) and join by address
-- [ ] 10.9 Pause / speed control rules in multiplayer
+- [x] 10.9 Host-only pause / speed controls, immediate paused-state updates and paused joining; queued commands execute on resume
 - [x] 10.10 Integration test: server + 2 clients ⇒ identical hashes
 
 ## M11 — UI

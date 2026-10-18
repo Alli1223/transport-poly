@@ -143,6 +143,7 @@ private:
     ClientPreferences preferences_;
     std::string settingsError_;
     bool showChat_ = false;
+    bool showClients_ = false;
     bool cameraPlaced_ = false;
     std::deque<std::string> chatLines_;
     i32 lastAutosaveMonth_ = -1;

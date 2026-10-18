@@ -26,6 +26,7 @@ public:
     double tickFraction() const override;
     int speed() const override { return speed_; }
     void setSpeed(int) override {} // the server decides
+    bool canControlSpeed() const override { return false; }
     bool isMultiplayer() const override { return true; }
     bool ready() const override { return phase_ == Phase::Playing && world_ != nullptr; }
     std::vector<CommandFeedback> takeFeedback() override { return std::exchange(feedback_, {}); }

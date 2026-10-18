@@ -5,7 +5,9 @@
 namespace tp::net {
 
 HostSession::HostSession(std::unique_ptr<World> world, CompanyId company, NetServer::Options options)
-    : net_(std::move(world), std::move(options)), company_(company) {}
+    : net_(std::move(world), std::move(options)), company_(company) {
+    net_.setLocalHost(company);
+}
 
 std::vector<CommandFeedback> HostSession::takeFeedback() {
     std::vector<CommandFeedback> out;

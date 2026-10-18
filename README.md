@@ -73,6 +73,11 @@ transport-poly-server --port 3979 --seed 12345
 
 Clients connect through *Multiplayer → Join* in the main menu.
 
+Press **Tab** or click **Players** in multiplayer chat to see connected players,
+companies and spectators. The host controls pause and speed (including **Space**).
+Clients see changes immediately while paused; commands submitted during pause
+wait until the host resumes. The dedicated server uses its console controls.
+
 Press **F5** in a game to write `saves/quicksave.tpsave`; load it through the
 normal load menu. In multiplayer the host saves the game. Monthly autosaves
 continue independently.

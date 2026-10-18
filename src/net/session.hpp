@@ -30,6 +30,7 @@ public:
     virtual double tickFraction() const = 0;
     virtual int speed() const = 0;
     virtual void setSpeed(int speed) = 0;
+    virtual bool canControlSpeed() const { return true; }
     virtual bool isMultiplayer() const { return false; }
     // False while a network client is still connecting / downloading the map.
     virtual bool ready() const { return true; }

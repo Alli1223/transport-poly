@@ -726,8 +726,12 @@ void App::drawHud() {
     for (int i = 0; i < 6; ++i)
         if (session_->speed() == kSpeeds[i]) current = i;
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.0f * s);
+    ImGui::BeginDisabled(!session_->canControlSpeed());
     if (const int clicked = ui::segmented("##speed", kSegments, current, 28.0f); clicked >= 0)
-        session_->setSpeed(kSpeeds[clicked]); // network clients ignore this
+        session_->setSpeed(kSpeeds[clicked]);
+    ImGui::EndDisabled();
+    if (!session_->canControlSpeed() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("The host controls pause and game speed. Commands wait until play resumes.");
     const ImVec2 barPos = ImGui::GetWindowPos(), barSize = ImGui::GetWindowSize();
     ui::endBar();
 
@@ -891,7 +895,7 @@ int App::run(int argc, char** argv) {
                 renderer_.invalidateAll();
             }
             if (ImGui::IsKeyPressed(ImGuiKey_F3)) showDebug_ = !showDebug_;
-            if (!ImGui::GetIO().WantCaptureKeyboard && ImGui::IsKeyPressed(ImGuiKey_Space) && !session_->isMultiplayer())
+            if (!ImGui::GetIO().WantCaptureKeyboard && ImGui::IsKeyPressed(ImGuiKey_Space) && session_->canControlSpeed())
                 session_->setSpeed(session_->speed() == 0 ? 1 : 0);
             if (gotoTownDistance_ > 0.0 && frameCount == 90) {
                 // Jump to the most populous town found so far (used for automated screenshots).

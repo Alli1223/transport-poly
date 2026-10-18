@@ -96,5 +96,49 @@ TEST_CASE("network: two clients stay in sync with the server") {
     bool sawFeedback = false;
     for (const auto& f : a.takeFeedback()) sawFeedback = sawFeedback || f.name == "Explore";
     CHECK(sawFeedback);
+    // Pause reaches clients without waiting for another simulation frame.
+    const i64 pausedTick = sw.clock.tick;
+    for (int i = 0; i < 100; ++i) {
+        server.update(dt);
+        a.update(dt);
+        b.update(dt);
+        std::this_thread::yield();
+    }
+    CHECK_EQ(a.speed(), 0);
+    CHECK_EQ(b.speed(), 0);
+    CHECK_EQ(sw.clock.tick, pausedTick);
+    CHECK(!a.canControlSpeed());
+    a.setSpeed(16);
+    CHECK_EQ(a.speed(), 0);
+    CHECK_EQ(server.server().speed(), 0);
+    // Joining a paused server receives the current speed with its snapshot.
+    NetClientSession spectator("127.0.0.1", opt.port, "Watcher", kJoinSpectator);
+    for (int i = 0; i < 3000 && !(spectator.ready() && spectator.clients().size() == 3); ++i) {
+        server.update(dt);
+        spectator.update(dt);
+        a.update(dt);
+        b.update(dt);
+        std::this_thread::yield();
+    }
+    REQUIRE(spectator.ready());
+    CHECK_EQ(spectator.speed(), 0);
+    CHECK_EQ(spectator.world().clock.tick, pausedTick);
+    CHECK_EQ(spectator.clients().size(), 3u);
+    CHECK(!spectator.localCompany().valid());
+    // Company commands queued during pause execute only after the host resumes.
+    b.submit(CmdSetLoan{10'000});
+    for (int i = 0; i < 30; ++i) {
+        server.update(dt); b.update(dt);
+    }
+    CHECK_EQ(sw.companies[b.localCompany()].loan, sw.settings.initialLoan + 100'000);
+    server.server().setSpeed(4);
+    for (int i = 0; i < 100; ++i) {
+        server.update(dt); a.update(dt); b.update(dt); spectator.update(dt);
+    }
+    CHECK_EQ(a.speed(), 4);
+    CHECK_EQ(b.speed(), 4);
+    CHECK_EQ(spectator.speed(), 4);
+    CHECK(sw.clock.tick > pausedTick);
+    CHECK_EQ(sw.companies[b.localCompany()].loan, sw.settings.initialLoan + 110'000);
     server.stop();
 }

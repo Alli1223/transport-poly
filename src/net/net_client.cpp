@@ -94,6 +94,7 @@ void NetClientSession::handle(const Packet& p) {
         break;
     }
     case PacketType::ChatBroadcast: chat_.push_back(p.decode<ChatBroadcastMsg>()); break;
+    case PacketType::Speed: speed_ = p.decode<SpeedMsg>().speed; break;
     case PacketType::ClientList: clients_ = p.decode<ClientListMsg>().clients; break;
     case PacketType::CompanyAssigned: company_ = p.decode<CompanyAssignedMsg>().company; break;
     default: fail("unexpected packet from server"); break;
@@ -173,6 +174,7 @@ void NetClientSession::update(double dtSeconds) {
 }
 
 double NetClientSession::tickFraction() const {
+    if (speed_ == 0) return 1.0;
     const double interval = 1.0 / (kTicksPerSecond * std::max(1, speed_));
     return std::clamp(sinceTick_ / interval, 0.0, 1.0);
 }

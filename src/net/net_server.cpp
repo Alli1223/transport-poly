@@ -52,9 +52,15 @@ u32 NetServer::submitLocal(CompanyId company, CommandPayload payload) {
 
 std::vector<ClientInfo> NetServer::clients() const {
     std::vector<ClientInfo> out;
+    if (localHost_) out.push_back(*localHost_);
     for (const auto& c : clients_)
         if (c->welcomed) out.push_back({c->id, c->name, c->company});
     return out;
+}
+
+void NetServer::setLocalHost(CompanyId company, const std::string& name) {
+    localHost_ = ClientInfo{kLocalClientId, name, company};
+    broadcastClientList();
 }
 
 void NetServer::broadcastChat(const std::string& from, const std::string& text) {
@@ -102,6 +108,7 @@ void NetServer::sendMap(Client& c) {
         c.conn.sendRaw(PacketType::MapData, std::span<const u8>(snapshot.data() + pos, n));
     }
     c.conn.sendRaw(PacketType::MapEnd, {});
+    c.conn.send(PacketType::Speed, SpeedMsg{static_cast<u8>(server_.speed())});
     c.welcomed = true; // from now on the client receives the command stream
 }
 
@@ -197,6 +204,10 @@ void NetServer::update(double dtSeconds) {
             }
             if (!c->conn.open()) break;
         }
+    }
+    if (lastBroadcastSpeed_ != server_.speed()) {
+        lastBroadcastSpeed_ = server_.speed();
+        broadcastRaw(PacketType::Speed, toBytes(SpeedMsg{static_cast<u8>(lastBroadcastSpeed_)}));
     }
     server_.update(dtSeconds);
     collectResults();

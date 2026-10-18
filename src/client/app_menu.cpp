@@ -136,6 +136,8 @@ void App::startSession(std::unique_ptr<GameSession> session) {
     cameraPlaced_ = false;
     lastAutosaveMonth_ = -1;
     chatLines_.clear();
+    showClients_ = false;
+    showChat_ = false;
     screen_ = Screen::Playing;
     if (session_->ready()) placeCameraAtStart();
 }
@@ -474,6 +476,24 @@ void App::drawChat() {
     if (!session_ || !session_->isMultiplayer()) return;
     auto* client = dynamic_cast<net::NetClientSession*>(session_.get());
     auto* host = dynamic_cast<net::HostSession*>(session_.get());
+    if (!ImGui::GetIO().WantCaptureKeyboard && ImGui::IsKeyPressed(ImGuiKey_Tab)) showClients_ = !showClients_;
+    if (showClients_) {
+        ui::PanelSpec spec;
+        spec.width = 440.0f;
+        spec.subtitle = "Only the host controls pause and speed";
+        if (ui::beginPanel("##clients", "Players", ui::Icon::People, &showClients_, spec)) {
+            const auto players = client ? client->clients() : host->net().clients();
+            ImGui::Text("%zu connected player%s", players.size(), players.size() == 1 ? "" : "s");
+            ImGui::Separator();
+            for (const auto& player : players) {
+                const auto* company = world().companies.tryGet(player.company);
+                const bool local = client ? player.id == client->clientId() : player.id == kLocalClientId;
+                ImGui::Text("%s%s%s", player.name.c_str(), local ? " (you)" : "", player.id == kLocalClientId ? " [host]" : "");
+                ImGui::TextDisabled("  %s", company ? company->name.c_str() : "Spectator");
+            }
+        }
+        ui::endPanel();
+    }
     std::vector<net::ChatBroadcastMsg> incoming;
     if (client) incoming = client->takeChat();
     if (host) {
@@ -497,6 +517,7 @@ void App::drawChat() {
         ui::FontScope f(ui::fonts().small);
         ui::iconText(ui::Icon::Chat, ui::col::kBlue, session_->status().c_str(), ui::col::kTextMuted);
     }
+    if (ImGui::SmallButton("Players (Tab)")) showClients_ = !showClients_;
     const usize first = chatLines_.size() > 6 ? chatLines_.size() - 6 : 0;
     for (usize i = first; i < chatLines_.size(); ++i) ImGui::TextWrapped("%s", chatLines_[i].c_str());
     if (!showChat_) {

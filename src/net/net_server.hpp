@@ -36,6 +36,7 @@ public:
     // Commands from a player running inside the server process (the host).
     u32 submitLocal(CompanyId company, CommandPayload payload);
     std::vector<ClientInfo> clients() const;
+    void setLocalHost(CompanyId company, const std::string& name = "Host");
     void broadcastChat(const std::string& from, const std::string& text);
     // Human readable events (joins, leaves, errors) since the last call.
     std::vector<std::string> takeEvents();
@@ -64,6 +65,8 @@ private:
     std::vector<std::unique_ptr<Client>> clients_;
     u16 nextClientId_ = 2; // 0 = server, 1 = local host player
     u32 nextLocalSeq_ = 1;
+    int lastBroadcastSpeed_ = -1;
+    std::optional<ClientInfo> localHost_;
     std::vector<std::string> events_;
     std::vector<ChatBroadcastMsg> chat_;
 };

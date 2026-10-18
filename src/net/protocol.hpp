@@ -35,7 +35,8 @@ enum class PacketType : u8 {
     Frame,          // FrameMsg: clients may simulate up to and including `tick`
     ChatBroadcast,  // ChatBroadcastMsg
     ClientList,     // ClientListMsg
-    CompanyAssigned // CompanyAssignedMsg
+    CompanyAssigned, // CompanyAssignedMsg
+    Speed           // SpeedMsg: sent even while paused
 };
 
 struct HelloMsg {
@@ -118,6 +119,12 @@ struct FrameMsg {
     void serialize(Ar& ar) {
         ar(tick, hash, speed);
     }
+};
+
+struct SpeedMsg {
+    u8 speed = 1;
+    template <class Ar>
+    void serialize(Ar& ar) { ar(speed); }
 };
 
 struct ChatBroadcastMsg {
