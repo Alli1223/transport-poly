@@ -116,6 +116,7 @@ private:
     void drawNewsWindow();
     void drawMinimap(double now);
     void drawTownList();
+    void drawCitizens();
     void addCatchmentOverlay(std::vector<gfx::OverlayQuad>& overlays, const std::vector<TilePos>& tiles, i32 radius,
                              u32 color) const;
     std::string vehicleName(const Vehicle& v) const;
@@ -167,6 +168,13 @@ private:
     bool showNews_ = false;
     bool showMinimap_ = true;
     bool showTownList_ = false;
+    bool showCitizens_ = false;
+    TownId citizenTown_;
+    PersonId selPerson_;
+    u32 selPersonSerial_ = 0;
+    bool followPerson_ = false;
+    int fleetCompany_ = -2;
+    std::deque<std::pair<i64, std::string>> citizenDiary_;
 
     // News: the newest item already announced, and the banner currently shown.
     const void* newsSession_ = nullptr;

@@ -435,6 +435,7 @@ void App::drawToolbar() {
         {"##vehicles", ui::Icon::Bus, &showVehicleList_, {"Vehicles", "All of your buses, trams, trains and ships", "V"}},
         {"##finances", ui::Icon::Coins, &showFinances_, {"Finances", "Income, expenses and your loan", "F"}},
         {"##towns", ui::Icon::Town, &showTownList_, {"Towns", "Every town you have discovered", "T"}},
+        {"##citizens", ui::Icon::People, &showCitizens_, {"Citizens", "Inspect a resident's schedule and follow their journey", "C"}},
         {"##news", ui::Icon::News, &showNews_, {"News", "What has been happening", "N"}},
         {"##map", ui::Icon::Map, &showMinimap_, {"Map", "Overview of the explored world", "M"}},
     };

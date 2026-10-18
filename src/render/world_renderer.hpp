@@ -34,6 +34,7 @@ struct RenderStats {
     usize treesDrawn = 0;
     usize buildingsDrawn = 0;
     usize vehiclesDrawn = 0;
+    usize peopleDrawn = 0;
     usize trianglesDrawn = 0;
 };
 

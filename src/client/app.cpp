@@ -1,4 +1,5 @@
 #include "client/app.hpp"
+#include "render/person_pose.hpp"
 #include "client/ui/widgets.hpp"
 
 #define GLFW_INCLUDE_NONE
@@ -405,6 +406,11 @@ void App::shutdown() {
 }
 
 void App::updateCamera(double dt) {
+    if (followPerson_) {
+        const Person* p = world().people.tryGet(selPerson_);
+        if (!p || p->serial != selPersonSerial_) followPerson_ = false;
+        else if (const auto pose = gfx::personPose(world(), *p, session_->tickFraction())) camera_.targetGoal = pose->pos;
+    }
     if (const Vehicle* v = world().vehicles.tryGet(followVehicle_)) {
         if (const auto pose = gfx::vehiclePose(world(), *v, session_->tickFraction())) camera_.targetGoal = pose->pos;
     } else {
@@ -447,6 +453,7 @@ void App::updateCamera(double dt) {
         if (right != 0.0 || forward != 0.0) {
             camera_.pan(right, forward);
             followVehicle_ = {};
+            followPerson_ = false;
         }
         const double orbit = dt * preferences_.orbitPercent / 100.0;
         if (down(GLFW_KEY_Q)) camera_.orbit(-1.6 * orbit, 0.0);
@@ -463,6 +470,8 @@ void App::updateCamera(double dt) {
         if (glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS) {
             const double k = camera_.distance * 0.0016 * preferences_.panPercent / 100.0;
             camera_.pan(-dx * k, dy * k);
+            followPerson_ = false;
+            followVehicle_ = {};
         }
         mouseRay_ = camera_.screenRay(mx * sx, my * sy);
         hover_ = gfx::pickTerrain(world().map, mouseRay_);
@@ -756,6 +765,7 @@ void App::handleHotkeys() {
     if (ImGui::IsKeyPressed(ImGuiKey_T, false)) showTownList_ = !showTownList_;
     if (ImGui::IsKeyPressed(ImGuiKey_N, false)) showNews_ = !showNews_;
     if (ImGui::IsKeyPressed(ImGuiKey_M, false)) showMinimap_ = !showMinimap_;
+    if (ImGui::IsKeyPressed(ImGuiKey_C, false)) showCitizens_ = !showCitizens_;
     // Escape peels back one layer at a time: the active tool (handled by handleTools), the
     // tool flyout, open windows and finally the game menu.
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !escConsumed_) {
@@ -962,6 +972,7 @@ int App::run(int argc, char** argv) {
                 if (wants("rail")) toolGroup_ = ToolGroup::Rail;
                 if (wants("water")) toolGroup_ = ToolGroup::Water;
                 if (wants("settings")) showSettings_ = true;
+                if (wants("citizens")) showCitizens_ = true;
                 if (wants("gamemenu")) showGameMenu_ = true;
                 openWindows_.clear();
             }

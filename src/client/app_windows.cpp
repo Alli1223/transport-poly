@@ -6,6 +6,8 @@
 #include <imgui.h>
 
 #include "core/calendar.hpp"
+#include "core/names.hpp"
+#include "render/person_pose.hpp"
 #include "render/terrain_mesher.hpp"
 #include "render/vehicle_pose.hpp"
 
@@ -13,6 +15,7 @@
 #include <cfloat>
 #include <format>
 #include <string>
+#include <cctype>
 
 namespace tp {
 
@@ -132,7 +135,104 @@ std::string App::vehicleStatus(const Vehicle& v) const {
 }
 
 void App::focusOn(TilePos t) {
+    followVehicle_ = {};
+    followPerson_ = false;
     camera_.targetGoal = glm::dvec3(t.x + 0.5, gfx::terrainHeightAt(world().map, t.x + 0.5, t.y + 0.5), t.y + 0.5);
+}
+
+void App::drawCitizens() {
+    if (!showCitizens_) { followPerson_ = false; return; }
+    World& w = world();
+    const auto nameOf = [](const Person& p) {
+        return generatePersonFirstName(p.nameSeed) + " " + generatePersonSurname(p.nameSeed ^ 0x9E3779B9u);
+    };
+    ui::PanelSpec spec;
+    spec.pos = viewportPoint(0.0f, 0.0f, 20.0f, 80.0f);
+    spec.width = 520.0f;
+    spec.height = 650.0f;
+    spec.subtitle = "Choose a resident to inspect their day";
+    if (ui::beginPanel("###citizens", "Citizens", ui::Icon::People, &showCitizens_, spec)) {
+        const Town* town = w.towns.tryGet(citizenTown_);
+        if (ImGui::BeginCombo("Town", town ? town->name.c_str() : "All towns")) {
+            if (ImGui::Selectable("All towns", !citizenTown_.valid())) { citizenTown_ = {}; selPerson_ = {}; }
+            for (const auto [id, t] : w.towns)
+                if (ImGui::Selectable(t.name.c_str(), id == citizenTown_)) { citizenTown_ = id; selPerson_ = {}; }
+            ImGui::EndCombo();
+        }
+        static char search[80] = {};
+        ImGui::InputTextWithHint("##citizenSearch", "Name or citizen ID", search, sizeof(search));
+        std::string query(search);
+        std::transform(query.begin(), query.end(), query.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        std::vector<PersonId> shown;
+        usize total = 0;
+        for (const auto [id, p] : w.people) {
+            if (citizenTown_.valid() && p.town != citizenTown_) continue;
+            if (!query.empty()) {
+                std::string text = nameOf(p) + " " + std::to_string(id.value);
+                std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                if (text.find(query) == std::string::npos) continue;
+            }
+            ++total;
+            if (shown.size() < 500) shown.push_back(id);
+        }
+        const auto select = [&](PersonId id) {
+            selPerson_ = id; selPersonSerial_ = w.people[id].serial;
+            citizenDiary_.clear(); followPerson_ = false;
+        };
+        if (const Person* p = w.people.tryGet(selPerson_); !p || p->serial != selPersonSerial_) {
+            selPerson_ = {}; followPerson_ = false;
+            if (!shown.empty()) select(shown.front());
+        }
+        ImGui::TextDisabled("%zu matching citizens%s", total, total > 500 ? " (first 500 shown; refine your search)" : "");
+        ImGui::BeginChild("##residents", ImVec2(0, 140.0f * uiScale_), ImGuiChildFlags_Borders);
+        for (const PersonId id : shown) {
+            const Person& p = w.people[id];
+            const std::string label = std::format("{} - {}##{}", nameOf(p), people::stateName(p.state), id.value);
+            if (ImGui::Selectable(label.c_str(), selPerson_ == id)) select(id);
+        }
+        ImGui::EndChild();
+        if (const Person* p = w.people.tryGet(selPerson_)) {
+            ui::sectionHeader(nameOf(*p).c_str());
+            if (ui::button(followPerson_ ? "Stop following" : "Follow citizen", ui::Icon::Eye, ui::Btn::Primary)) {
+                followPerson_ = !followPerson_; followVehicle_ = {};
+                if (const auto pose = gfx::personPose(w, *p, session_->tickFraction())) camera_.targetGoal = pose->pos;
+            }
+            ui::statRow("Citizen ID", std::to_string(selPerson_.value).c_str());
+            ui::statRow("Now", std::string(people::stateName(p->state)).c_str());
+            ui::statRow("Car owner", p->carOwner ? "Yes" : "No");
+            if (p->nextEvent >= 0) {
+                const i32 day = w.clock.startDay + static_cast<i32>(p->nextEvent / kTicksPerDay);
+                const i32 minute = static_cast<i32>((p->nextEvent % kTicksPerDay) / kTicksPerMinute);
+                ui::statRow("Next activity", std::format("{} {}", formatDate(day), formatTimeOfDay(minute)).c_str());
+            } else ui::statRow("Next activity", "On arrival");
+            ui::statRow("Usual departure", formatTimeOfDay(p->departMinute).c_str());
+            ui::statRow("Last commute", std::format("{} minutes", p->commuteMinutes).c_str());
+            ImGui::TextWrapped("Monday-Friday: work. Saturday-Sunday: shopping. Home after work or shopping.");
+            const auto place = [&](const char* kind, BuildingRef ref, ui::Icon icon) {
+                const Building* b = w.buildings.tryGet(ref.id);
+                if (!b || b->serial != ref.serial) { ui::statRow(kind, "Unassigned"); return; }
+                const std::string label = std::format("{}: {} ({}, {})", kind, b->info().name, b->pos.x, b->pos.y);
+                if (ui::button(label.c_str(), icon, ui::Btn::Secondary, ImVec2(-1, 0))) focusOn(b->pos);
+            };
+            place("Home", p->home, ui::Icon::Home);
+            place("Work", p->work, ui::Icon::Briefcase);
+            place("Shop", p->shop, ui::Icon::Cart);
+            if (const Station* stop = w.stations.tryGet(p->station))
+                if (ui::button(("Station: " + stop->name).c_str(), ui::Icon::Station, ui::Btn::Ghost)) selStation_ = p->station;
+            if (w.vehicles.contains(p->vehicle))
+                if (ui::button("Inspect vehicle", ui::Icon::Bus, ui::Btn::Ghost)) selVehicle_ = p->vehicle;
+            const std::string state(people::stateName(p->state));
+            if (citizenDiary_.empty() || citizenDiary_.back().second != state) {
+                citizenDiary_.push_back({w.clock.tick, state});
+                if (citizenDiary_.size() > 12) citizenDiary_.pop_front();
+            }
+            ui::sectionHeader("Observed activities");
+            for (auto it = citizenDiary_.rbegin(); it != citizenDiary_.rend(); ++it)
+                ImGui::TextWrapped("%s - %s", formatTimeOfDay(static_cast<i32>((it->first % kTicksPerDay) / kTicksPerMinute)).c_str(), it->second.c_str());
+        }
+    }
+    ui::endPanel();
+    if (!showCitizens_) followPerson_ = false;
 }
 
 void App::drawWindows() {
@@ -144,6 +244,7 @@ void App::drawWindows() {
     drawVehicleList();
     drawNewsWindow();
     drawTownList();
+    drawCitizens();
 }
 
 void App::drawNews(double now) {
@@ -611,8 +712,10 @@ void App::drawVehicleWindow() {
         }
         const bool following = followVehicle_ == selVehicle_;
         if (actionButton(following ? "Unfollow" : "Follow", ui::Icon::Eye, following ? ui::Btn::Primary : ui::Btn::Secondary,
-                         "Keep the camera on this vehicle", mine ? bw : 0.0f))
+                         "Keep the camera on this vehicle", mine ? bw : 0.0f)) {
             followVehicle_ = following ? VehicleId{} : selVehicle_;
+            followPerson_ = false;
+        }
         if (mine && w.depots.contains(v->depot)) {
             if (actionButton("Clone", ui::Icon::Clone, ui::Btn::Ghost, "Buy a copy in its depot, with a copy of the orders", bw))
                 pendingBuySeq_ = session_->submit(CmdCloneVehicle{v->depot, selVehicle_, false});
@@ -861,6 +964,11 @@ void App::drawTownWindow() {
         }
         ImGui::Dummy(ImVec2(0, 2.0f * s));
         if (ui::button("Centre view", ui::Icon::Target, ui::Btn::Secondary, ImVec2(-1.0f, 0.0f))) focusOn(t->centre);
+        if (ui::button("Inspect residents", ui::Icon::People, ui::Btn::Secondary, ImVec2(-1.0f, 0.0f))) {
+            citizenTown_ = selTown_;
+            showCitizens_ = true;
+            selPerson_ = {};
+        }
     }
     ui::endPanel();
     if (!open) selTown_ = {};
@@ -971,10 +1079,18 @@ void App::drawVehicleList() {
     World& w = world();
     const float s = uiScale_;
     static int filter = 0; // 0 = all, else VehicleType + 1
+    static int status = 0;
+    if (fleetCompany_ == -2) fleetCompany_ = session_->localCompany().valid() ? session_->localCompany().value : -1;
+    const auto matches = [&](const Vehicle& v) {
+        return (fleetCompany_ < 0 || v.owner.value == fleetCompany_) &&
+               (filter == 0 || static_cast<int>(v.info().type) + 1 == filter) &&
+               (status == 0 || (status == 1 && !v.stopped && v.state != VehicleState::InDepot) ||
+                (status == 2 && (v.stopped || v.state == VehicleState::InDepot)) || (status == 3 && v.lost));
+    };
     int count = 0;
     Money profit = 0;
     for (const auto [id, v] : w.vehicles)
-        if (v.owner == session_->localCompany()) {
+        if (matches(v)) {
             ++count;
             profit += v.profitThisYear;
         }
@@ -986,6 +1102,15 @@ void App::drawVehicleList() {
     spec.accent = ui::col::kBlue;
     spec.subtitle = sub.c_str();
     if (ui::beginPanel("###vehicleListPanel", "Vehicles", ui::Icon::Bus, &showVehicleList_, spec)) {
+        const Company* selected = fleetCompany_ >= 0 ? w.companies.tryGet(CompanyId{static_cast<u8>(fleetCompany_)}) : nullptr;
+        if (ImGui::BeginCombo("Company", selected ? selected->name.c_str() : "All companies")) {
+            if (ImGui::Selectable("All companies", fleetCompany_ < 0)) fleetCompany_ = -1;
+            for (const auto [id, co] : w.companies)
+                if (ImGui::Selectable(co.name.c_str(), fleetCompany_ == id.value)) fleetCompany_ = id.value;
+            ImGui::EndCombo();
+        }
+        const char* statuses[] = {"All vehicles", "Operating", "Stopped / depot", "Lost"};
+        ImGui::Combo("Status", &status, statuses, 4);
         static constexpr ui::Segment kFilters[] = {{"All", ui::Icon::None, nullptr},
                                                    {"Buses", ui::Icon::Bus, nullptr},
                                                    {"Trams", ui::Icon::Tram, nullptr},
@@ -1002,8 +1127,7 @@ void App::drawVehicleList() {
             ImGui::TableSetupColumn("Last year", 0, 96.0f * s);
             ImGui::TableHeadersRow();
             for (const auto [id, v] : w.vehicles) {
-                if (v.owner != session_->localCompany()) continue;
-                if (filter > 0 && static_cast<int>(v.info().type) + 1 != filter) continue;
+                if (!matches(v)) continue;
                 ImGui::TableNextRow(0, 26.0f * s);
                 ImGui::TableNextColumn();
                 ImGui::PushID(static_cast<int>(id.value));
@@ -1029,7 +1153,7 @@ void App::drawVehicleList() {
             }
             ImGui::EndTable();
         }
-        if (count == 0) ui::emptyState(ui::Icon::Bus, "No vehicles yet - build a depot and buy one");
+        if (count == 0) ui::emptyState(ui::Icon::Bus, "No vehicles match these filters");
     }
     ui::endPanel();
 }

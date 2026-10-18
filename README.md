@@ -119,6 +119,12 @@ camera sensitivity and autosave intervals (0 disables autosaving). Save preferen
 to retain them in `settings.cfg`. Starting year and interest apply to new worlds.
 Clicking the clock also remembers the daylight preference.
 
+Press **C** or open **Citizens** in the dock to inspect residents. Filter by town,
+search by name or ID, and follow a citizen between home, work, shopping and transit.
+The inspector shows upcoming activities and a live activity log. Walking citizens
+and waiting passengers are drawn near the camera. The vehicle directory also
+filters by company, vehicle type and operating status.
+
 New worlds include sea-level rivers and lakes. Older saves retain their original
 terrain generator so exploring beyond previously visited chunks remains seamless.
 Companies pay monthly property maintenance for their road and track pieces,

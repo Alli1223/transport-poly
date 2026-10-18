@@ -57,8 +57,8 @@ relies on every peer computing exactly the same game state.
 - [x] 3.10 Shadow mapping (directional, PCF)
 - [~] 3.11 Day / night cycle bound to the game clock, lit windows and street lights at night (sky + sun follow the clock; lit windows later)
 - [x] 3.12 Mouse picking: ray vs heightfield, tile / corner hit info
-- [~] 3.13 Procedural low poly model library (houses, apartments, offices, shops, factories, trees, stations, depots, vehicles, people) (trees, 15 building types, buses, trams, stops, depots)
-- [~] 3.14 Instanced renderers for trees, buildings, vehicles, people (trees, buildings, vehicles)
+- [x] 3.13 Procedural low poly model library (houses, apartments, offices, shops, factories, trees, stations, depots, buses, trams, trains, ships and people)
+- [x] 3.14 Instanced renderers for trees, buildings, vehicles, people (visible pedestrians and waiting passengers culled around the camera, bounded at 2048 instances)
 - [x] 3.15 Selection highlight + ghost previews for build tools
 - [x] 3.16 Screenshot key
 
@@ -151,7 +151,7 @@ relies on every peer computing exactly the same game state.
 - [x] 11.4 Construction toolbars: road, tram, rail, signals, stations, depots, water, terraform, trees, demolish (grouped toolbars with bridge / tunnel tools, overlays, previews and cost)
 - [x] 11.5 Depot window: buy vehicles (model list with stats); train consists with carriages
 - [x] 11.6 Vehicle window: status, orders editor, details, follow camera
-- [~] 11.7 Vehicle list per company, filters (basic list)
+- [x] 11.7 Vehicle list per company, filters (company / all companies, vehicle type, operating / stopped / depot / lost status)
 - [x] 11.8 Station window (waiting passengers by destination, ratings)
 - [x] 11.9 Town window and town directory
 - [x] 11.10 Finance window (monthly / yearly ledgers, history, loans, debt warnings) & company details (editable name and livery; bankruptcy status)
@@ -159,7 +159,7 @@ relies on every peer computing exactly the same game state.
 - [x] 11.12 Minimap
 - [~] 11.13 Overlays: catchment areas, passenger flow, town zones (catchment areas of open stations and while placing stops; flow / zones later)
 - [x] 11.14 Settings window: graphics (shadows, view distance, VSync, daylight), controls (pan / orbit / zoom sensitivities, shortcuts), gameplay (autosave interval, new-world year / interest); persisted local preferences
-- [ ] 11.15 Citizen inspector (follow an individual person's day)
+- [x] 11.15 Citizen inspector (town / name / ID search, home / work / shop, schedule, vehicle / station links, activity log and camera follow)
 
 ## M12 — Polish & release
 - [~] 12.1 Performance pass (profiling, multithreaded meshing, LOD) (terrain LOD + skirts done)

@@ -342,7 +342,11 @@ void smokeCloud(MeshBuilder& mb) {
 }
 
 void person(MeshBuilder& mb) {
-    mb.box({-0.018f, 0.0f, -0.012f}, {0.018f, 0.07f, 0.012f}, tintable(1.0f));
+    mb.box({-0.018f, 0.03f, -0.012f}, {0.018f, 0.07f, 0.012f}, tintable(1.0f));
+    for (const float side : {-1.0f, 1.0f}) {
+        mb.box({side * 0.01f - 0.006f, 0.0f, -0.009f}, {side * 0.01f + 0.006f, 0.035f, 0.009f}, rgba(50, 58, 76));
+        mb.box({side * 0.025f - 0.005f, 0.035f, -0.008f}, {side * 0.025f + 0.005f, 0.065f, 0.008f}, rgba(226, 190, 160));
+    }
     mb.box({-0.014f, 0.07f, -0.012f}, {0.014f, 0.098f, 0.012f}, rgba(226, 190, 160));
 }
 

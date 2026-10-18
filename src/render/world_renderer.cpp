@@ -4,6 +4,7 @@
 #include "core/log.hpp"
 #include "render/shaders.hpp"
 #include "render/vehicle_pose.hpp"
+#include "render/person_pose.hpp"
 #include "sim/rail.hpp"
 #include "sim/road.hpp"
 
@@ -337,6 +338,22 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
         dynamic_.add(vehicleModelId(v.info()), makeInstance(poseMatrix(*pose), companyTint(world, v.owner)));
         if (v.breakdownTicks > 0) addSmoke(*pose, v.breakdownTicks);
         ++stats_.vehiclesDrawn;
+    }
+
+    // Pedestrians share the instanced model upload with vehicles. Indoor citizens
+    // and passengers already represented by a vehicle need no separate geometry.
+    for (const auto [id, person] : world.people) {
+        if (person.state != PersonState::Walking && person.state != PersonState::ToStop &&
+            person.state != PersonState::FromStop && person.state != PersonState::Waiting) continue;
+        const auto pose = personPose(world, person, tickFraction);
+        if (!pose || !pose->visible) continue;
+        const double dx = pose->pos.x - focus.x, dz = pose->pos.z - focus.z;
+        if (dx * dx + dz * dz > std::min(radius * radius, 10000.0)) continue;
+        const u32 tint = rgba(static_cast<u8>(70 + person.nameSeed % 150),
+                             static_cast<u8>(70 + (person.nameSeed >> 8) % 150),
+                             static_cast<u8>(70 + (person.nameSeed >> 16) % 150));
+        dynamic_.add(models::kPerson, makeInstance(glm::vec3(pose->pos - origin), pose->yaw, 1.0f, tint));
+        if (++stats_.peopleDrawn >= 2048) break;
     }
 
     // Signals: red unless a train has reserved a path through them.

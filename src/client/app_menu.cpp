@@ -127,6 +127,10 @@ void App::startSession(std::unique_ptr<GameSession> session) {
     selStation_ = {};
     selTown_ = {};
     followVehicle_ = {};
+    selPerson_ = {};
+    followPerson_ = false;
+    citizenTown_ = {};
+    fleetCompany_ = -2;
     tool_ = Tool::None;
     showGameMenu_ = false;
     cameraPlaced_ = false;
