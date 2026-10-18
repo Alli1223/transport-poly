@@ -36,6 +36,8 @@ public:
     i64 recv(void* data, usize size);
 
     bool valid() const { return fd_ != kInvalid; }
+    // Actual bound port, including the OS-selected port after listen(0); zero if unbound.
+    u16 localPort() const;
     void close();
     const std::string& peer() const { return peer_; }
 

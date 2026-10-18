@@ -29,6 +29,7 @@ NetServer::~NetServer() { stop(); }
 bool NetServer::start(std::string& error) {
     listener_ = Socket::listen(options_.port, error);
     if (!listener_) return false;
+    options_.port = listener_->localPort();
     events_.push_back(std::format("Listening on port {}", options_.port));
     log::info("Server listening on port {}", options_.port);
     return true;

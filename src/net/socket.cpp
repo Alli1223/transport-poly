@@ -204,6 +204,14 @@ std::optional<Socket> Socket::listen(u16 port, std::string& error) {
     return sock;
 }
 
+u16 Socket::localPort() const {
+    if (!valid()) return 0;
+    sockaddr_in address{};
+    socklen_t length = sizeof(address);
+    if (getsockname(native(fd_), reinterpret_cast<sockaddr*>(&address), &length) != 0) return 0;
+    return ntohs(address.sin_port);
+}
+
 std::optional<Socket> Socket::accept() {
     if (!valid()) return std::nullopt;
     sockaddr_storage addr{};

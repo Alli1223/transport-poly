@@ -12,15 +12,6 @@
 using namespace tp;
 using namespace tp::net;
 
-namespace {
-
-u16 testPort() {
-    const auto t = std::chrono::steady_clock::now().time_since_epoch().count();
-    return static_cast<u16>(40000 + (t / 1000) % 20000);
-}
-
-} // namespace
-
 TEST_CASE("network: snapshot round trip preserves the world") {
     WorldSettings s;
     s.seed = 31337;
@@ -43,11 +34,13 @@ TEST_CASE("network: two clients stay in sync with the server") {
     for (i32 y = -2; y <= 2; ++y)
         for (i32 x = -2; x <= 2; ++x) world->activateChunk({x, y});
     NetServer::Options opt;
-    opt.port = testPort();
+    opt.port = 0; // Ask the OS for an available port instead of guessing an ephemeral port.
     opt.hashInterval = 8;
     NetServer server(std::move(world), opt);
     std::string err;
     REQUIRE(server.start(err));
+    opt.port = server.options().port;
+    REQUIRE(opt.port != 0);
 
     NetClientSession a("127.0.0.1", opt.port, "Alice");
     NetClientSession b("127.0.0.1", opt.port, "Bob");
