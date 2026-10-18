@@ -13,6 +13,11 @@ constexpr u32 kBallast = rgba(128, 118, 106);
 constexpr u32 kBallastSide = rgba(112, 104, 94);
 constexpr u32 kSleeper = rgba(96, 74, 56);
 constexpr u32 kSteel = rgba(150, 152, 158);
+constexpr u32 kPlatform = rgba(188, 182, 170);
+constexpr u32 kPlatformSide = rgba(150, 144, 134);
+constexpr u32 kPlatformEdge = rgba(232, 206, 90);
+constexpr u32 kCanopy = rgba(150, 156, 166);
+constexpr u32 kPost = rgba(96, 100, 108);
 
 constexpr float kBallastTop = -0.035f; // relative to the nominal rail height
 constexpr float kSleeperTop = -0.027f;
@@ -68,6 +73,47 @@ void buildTrackMesh(const TrackEdge& edge, TilePos anchor, MeshBuilder& out) {
             const glm::vec3 b0 = at(b, rail - kRailHalf, kRailTop), b1 = at(b, rail + kRailHalf, kRailTop);
             out.triangleUp(a0, b1, b0, kSteel);
             out.triangleUp(a0, a1, b1, kSteel);
+        }
+    }
+    if (edge.kind == TrackKind::Platform) {
+        // Platforms either side of the track, with an edge line and a canopy on posts.
+        constexpr float kInner = 0.33f, kOuter = 0.93f, kTop = 0.05f, kFoot = -0.16f;
+        constexpr float kRoofIn = 0.42f, kRoofOut = 0.88f, kRoof = 0.46f;
+        for (usize i = 0; i + 1 < frames.size(); ++i) {
+            const Frame& a = frames[i];
+            const Frame& b = frames[i + 1];
+            for (const float side : {-1.0f, 1.0f}) {
+                const auto quadTop = [&](float in, float outer, float dy, u32 c) {
+                    out.triangleUp(at(a, side * in, dy), at(b, side * outer, dy), at(b, side * in, dy), c);
+                    out.triangleUp(at(a, side * in, dy), at(a, side * outer, dy), at(b, side * outer, dy), c);
+                };
+                quadTop(kInner, kOuter, kTop, kPlatform);
+                quadTop(kInner, kInner + 0.035f, kTop + 0.002f, kPlatformEdge);
+                quadTop(kRoofIn, kRoofOut, kRoof, kCanopy);
+                // Platform walls facing the track and the outside.
+                const glm::vec3 fwd(b.p.x - a.p.x, 0.0f, b.p.z - a.p.z);
+                for (const float edgeOff : {kInner, kOuter}) {
+                    const glm::vec3 a0 = at(a, side * edgeOff, kTop), b0 = at(b, side * edgeOff, kTop);
+                    const glm::vec3 a1 = at(a, side * edgeOff, kFoot), b1 = at(b, side * edgeOff, kFoot);
+                    const float facing = edgeOff == kInner ? -side : side;
+                    out.quadFacing(a1, b1, b0, a0, kPlatformSide,
+                                   glm::vec3(a.left.x * facing, 0.0f, a.left.y * facing));
+                    (void)fwd;
+                }
+            }
+        }
+        // Canopy posts every couple of tiles.
+        const float length = static_cast<float>(edge.length) / kTrackUnits;
+        const int posts = std::max(2, static_cast<int>(length / 1.6f) + 1);
+        for (int n = 0; n < posts; ++n) {
+            const usize idx = std::min(frames.size() - 1, static_cast<usize>((frames.size() - 1) * n / std::max(1, posts - 1)));
+            const Frame& f = frames[idx];
+            for (const float side : {-1.0f, 1.0f}) {
+                const glm::vec3 c = at(f, side * 0.65f, 0.0f);
+                MeshBuilder post;
+                post.box({c.x - 0.02f, c.y + kTop, c.z - 0.02f}, {c.x + 0.02f, c.y + kRoof, c.z + 0.02f}, kPost);
+                out.append(post);
+            }
         }
     }
     // Sleepers at even spacing along the edge.

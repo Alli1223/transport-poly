@@ -12,6 +12,7 @@
 #include "core/calendar.hpp"
 #include "core/log.hpp"
 #include "core/png.hpp"
+#include "core/serialize.hpp"
 #include "net/net_client.hpp"
 #include "core/math.hpp"
 #include "core/version.hpp"
@@ -187,10 +188,9 @@ std::optional<TilePos> buildDemoRailway(World& w, CompanyId company) {
     return std::nullopt;
 }
 
-// Builds two docks on a coast near `centre`, a shipyard and a ferry between them. Returns the
-// first dock's tile (used for automated screenshots / smoke tests).
-// Lays a chain of curved free-form track across the land near `centre`, the way the track
-// tool does. Returns the start of the line (used for automated screenshots / smoke tests).
+// Lays a free-form railway near `centre` the way the tools do: a station, a chain of curved
+// track through the hills, a second station, a depot and a train running between the stations.
+// Returns the start of the line (used for automated screenshots / smoke tests).
 std::optional<TPoint> buildDemoTrack(World& w, CompanyId company, TilePos centre) {
     const auto run = [&](CommandPayload p) {
         Command c;
@@ -198,44 +198,98 @@ std::optional<TPoint> buildDemoTrack(World& w, CompanyId company, TilePos centre
         c.payload = std::move(p);
         return executeCommand(w, c);
     };
+    const auto offset = [](TPoint p, double dx, double dz) {
+        return TPoint{p.x + static_cast<i32>(dx * kTrackUnits), p.z + static_cast<i32>(dz * kTrackUnits)};
+    };
+    // The open end of the track at `p`, continuing outwards.
+    const auto endAt = [&](TPoint p) {
+        TrackAnchor a;
+        a.node = track::nodeNear(w, p, 40);
+        a.pos = p;
+        if (a.node.valid()) {
+            const TrackNode& n = w.trackNodes[a.node];
+            a.pos = n.pos;
+            a.into = n.count(0) == 0 ? n.side(0) : n.side(1);
+        }
+        return a;
+    };
     // Offsets (tiles) of the successive ends relative to the start: a lazy S through the hills.
-    static constexpr double kPath[][2] = {{14, 0}, {28, 5}, {40, 14}, {50, 16}, {62, 10}};
+    static constexpr double kPath[][2] = {{20, 0}, {32, 5}, {44, 14}, {54, 16}, {66, 10}};
     for (i32 r = 0; r < 40; r += 4) {
         for (i32 i = 0; i < 8; ++i) {
-            const double a = i * 6.2831853 / 8.0;
-            const TPoint start{static_cast<i32>((centre.x - 30 + std::cos(a) * r) * kTrackUnits),
-                               static_cast<i32>((centre.y - 8 + std::sin(a) * r) * kTrackUnits)};
+            const double ang = i * 6.2831853 / 8.0;
+            const TPoint start = offset({}, centre.x - 30 + std::cos(ang) * r, centre.y - 8 + std::sin(ang) * r);
             TrackAnchor from;
             from.pos = start;
-            TrackAnchor to;
-            to.pos = {start.x + static_cast<i32>(kPath[0][0] * kTrackUnits), start.z + static_cast<i32>(kPath[0][1] * kTrackUnits)};
-            if (!run(CmdBuildTrack{from, to}).ok) continue;
-            TPoint prev = from.pos;
-            TPoint end = to.pos;
-            for (usize k = 1; k < std::size(kPath); ++k) {
-                TrackAnchor next;
-                next.pos = end;
-                next.into = normalised(static_cast<i64>(end.x) - prev.x, static_cast<i64>(end.z) - prev.z);
-                // Use the actual end direction of the track just built.
-                if (const TrackNodeId n = track::nodeNear(w, end, 32); n.valid()) {
-                    const TrackNode& node = w.trackNodes[n];
-                    next.into = node.count(0) == 0 ? node.side(0) : node.side(1);
-                }
-                TrackAnchor target;
-                target.pos = {start.x + static_cast<i32>(kPath[k][0] * kTrackUnits), start.z + static_cast<i32>(kPath[k][1] * kTrackUnits)};
-                if (const CommandResult r = run(CmdBuildTrack{next, target}); !r.ok) {
-                    log::info("Demo track stops after {} pieces: {}", k, r.error);
+            const CommandResult stationA = run(CmdBuildTrackStation{from, offset(start, 6, 0)});
+            if (!stationA.ok) continue;
+            TPoint end = offset(start, 6, 0);
+            for (const auto& step : kPath) {
+                const TPoint target = offset(start, step[0], step[1]);
+                TrackAnchor to;
+                to.pos = target;
+                if (const CommandResult res = run(CmdBuildTrack{endAt(end), to}); !res.ok) {
+                    log::info("Demo track stops early: {}", res.error);
                     break;
                 }
-                prev = end;
-                end = target.pos;
+                end = target;
             }
+            // The second station on level ground a little beyond the end, then track joining them.
+            const TrackAnchor last = endAt(end);
+            const auto ahead = [&](i64 tiles) {
+                return TPoint{last.pos.x + static_cast<i32>(i64(last.into.x) * tiles * kTrackUnits / kDirOne),
+                              last.pos.z + static_cast<i32>(i64(last.into.z) * tiles * kTrackUnits / kDirOne)};
+            };
+            const auto placeStation = [&](World& world, i64 gap) {
+                TrackAnchor platformStart;
+                platformStart.pos = ahead(gap);
+                Command c;
+                c.company = company;
+                c.payload = CmdBuildTrackStation{platformStart, ahead(gap + 6)};
+                CommandResult station = executeCommand(world, c);
+                if (!station.ok) return station;
+                TrackAnchor join;
+                join.node = track::nodeNear(world, platformStart.pos, 40);
+                join.pos = platformStart.pos;
+                c.payload = CmdBuildTrack{last, join};
+                if (const CommandResult res = executeCommand(world, c); !res.ok) return res;
+                return station;
+            };
+            // Tried on a copy first: the gap needed to ease the line down (or up) to the station varies.
+            CommandResult stationB = CommandResult::failure("No room for the second station");
+            const std::vector<u8> saved = toBytes(w, kSaveVersion);
+            for (i64 gap = 3; gap <= 24; gap += 3) {
+                World trial;
+                fromBytes(saved, trial, kSaveVersion);
+                if (placeStation(trial, gap).ok) {
+                    stationB = placeStation(w, gap);
+                    break;
+                }
+            }
+            const CommandResult dep = run(CmdBuildTrackDepot{track::nodeNear(w, start, 40)});
+            if (!stationB.ok || !dep.ok) {
+                log::info("Demo railway incomplete: {}", stationB.ok ? dep.error : stationB.error);
+                return start;
+            }
+            CommandResult buy = run(CmdBuyVehicle{DepotId(dep.createdId), 8});
+            if (!buy.ok) buy = run(CmdBuyVehicle{DepotId(dep.createdId), 7});
+            if (!buy.ok) return start;
+            const VehicleId train(buy.createdId);
+            for (int k = 0; k < 2; ++k)
+                if (!run(CmdAddCarriage{train, 12}).ok) run(CmdAddCarriage{train, 11});
+            Order oa, ob;
+            oa.station = StationId(stationA.createdId);
+            ob.station = StationId(stationB.createdId);
+            run(CmdSetOrders{train, {ob, oa}});
+            run(CmdStartStopVehicle{train});
             return start;
         }
     }
     return std::nullopt;
 }
 
+// Builds two docks on a coast near `centre`, a shipyard and a ferry between them. Returns the
+// first dock's tile (used for automated screenshots / smoke tests).
 std::optional<TilePos> buildDemoFerry(World& w, CompanyId company, TilePos centre) {
     const auto cmd = [&](CommandPayload p) {
         Command c;
@@ -340,6 +394,8 @@ bool App::parseArgs(int argc, char** argv) {
             demoRail_ = true;
         } else if (arg == "--demo-track") {
             demoTrack_ = true;
+        } else if (arg == "--preview-station") {
+            previewStation_ = true;
         } else if (arg == "--demo-ships") {
             demoShips_ = true;
         } else if (arg == "--join") {
@@ -482,9 +538,13 @@ void App::updateCamera(double dt) {
         followVehicle_ = {};
     }
     if (autoScreenshot_) {
-        // Ignore all input during automated screenshots.
+        // Ignore all input during automated screenshots, except a scripted cursor.
         hover_ = {};
         mouseOverUi_ = true;
+        if (previewHover_) {
+            hover_ = gfx::pickTerrain(world().map, gfx::Ray{{previewHover_->x, 400.0, previewHover_->z}, {0.0, -1.0, 0.0}});
+            mouseOverUi_ = false;
+        }
         camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
         camera_.update(dt);
         return;
@@ -1009,6 +1069,19 @@ int App::run(int argc, char** argv) {
                         camera_.targetGoal = glm::dvec3(at->x / double(kTrackUnits) + 30.0, 0.0, at->z / double(kTrackUnits) + 8.0);
                         camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
                         camera_.snapToGoals();
+                        if (previewStation_) {
+                            // Show the station tool part way through placing a platform beside the line.
+                            const TPoint p{at->x, at->z + 7 * kTrackUnits};
+                            tool_ = Tool::RailStation;
+                            TrackAnchor a;
+                            a.pos = p;
+                            stationStart_ = a;
+                            previewHover_ = glm::dvec3(p.x / double(kTrackUnits) + 7.0, 0.0, p.z / double(kTrackUnits) + 1.0);
+                            camera_.targetGoal = glm::dvec3(p.x / double(kTrackUnits) + 3.5, 0.0, p.z / double(kTrackUnits));
+                            camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
+                            camera_.distanceGoal = 16.0;
+                            camera_.snapToGoals();
+                        }
                     } else if (frameCount >= 600) {
                         demoTrack_ = false;
                         log::warn("No site found for the demo track");

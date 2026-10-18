@@ -264,6 +264,20 @@ void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, Ch
                 } else if (t.type == TileType::Depot) {
                     const Depot* d = world.depots.tryGet(DepotId(t.index));
                     if (!d) continue;
+                    if (const TrackEdge* stub = d->edge.valid() ? world.trackEdges.tryGet(d->edge) : nullptr;
+                        stub && stub->samples.size() >= 2) {
+                        // Free-form track depot: at the end of its track, doors facing it.
+                        const TrackSample& end = stub->samples.back();
+                        const TrackSample& prev = stub->samples[stub->samples.size() - 2];
+                        glm::vec2 dir(static_cast<float>(end.p.x - prev.p.x), static_cast<float>(end.p.z - prev.p.z));
+                        dir = glm::length(dir) > 0.0f ? glm::normalize(dir) : glm::vec2(1, 0);
+                        const glm::vec2 c = glm::vec2(end.p.x, end.p.z) / static_cast<float>(kTrackUnits) + dir * 0.4f;
+                        const float yaw = std::atan2(-dir.x, -dir.y);
+                        items.emplace_back(models::kRailDepot,
+                                           makeInstance({c.x - o.x, trackRailY(end.h) - 0.03f, c.y - o.y}, yaw, 1.0f,
+                                                        companyTint(world, d->owner)));
+                        continue;
+                    }
                     const Slope s = map.slope(wp);
                     const float y = static_cast<float>(flatSurfaceLevel(s, buildingSurface(s))) * kHeightStep;
                     const ModelId model = d->kind == DepotKind::Tram   ? models::kTramDepot
@@ -363,6 +377,29 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
         ++stats_.peopleDrawn;
     }
 
+    // Free-form track signals: one per signalled side of a node, on the right of the track.
+    for (const auto [nid, n] : world.trackNodes) {
+        if (!n.signals) continue;
+        const double nx = n.pos.x / double(kTrackUnits), nz = n.pos.z / double(kTrackUnits);
+        const double dx = nx - focus.x, dz = nz - focus.z;
+        if (dx * dx + dz * dz > radius * radius * 0.25) continue;
+        for (u8 side = 0; side < 2; ++side) {
+            if (!(n.signals & (1u << side))) continue;
+            bool clear = false;
+            for (u8 slot = 0; slot < 2; ++slot) {
+                const TrackEdgeId e = n.edges[side * 2u + slot];
+                if (e.valid() && world.trackEdges[e].reservedBy.valid()) clear = true;
+            }
+            const TDir d = n.side(side);
+            const glm::vec2 travel(d.x / float(kDirOne), d.z / float(kDirOne));
+            const glm::vec2 right(-travel.y, travel.x);
+            const glm::vec2 at = glm::vec2(float(nx), float(nz)) + right * 0.42f - travel * 0.15f;
+            const float yaw = std::atan2(travel.y, -travel.x);
+            dynamic_.add(models::kSignal,
+                         makeInstance(glm::vec3(at.x - float(origin.x), trackRailY(n.h) - 0.03f, at.y - float(origin.z)), yaw,
+                                      1.0f, clear ? rgba(60, 230, 90) : rgba(235, 50, 36)));
+        }
+    }
     // Signals: red unless a train has reserved a path through them.
     constexpr u32 kRed = rgba(235, 50, 36), kGreen = rgba(60, 230, 90);
     for (const u64 key : world.signalTiles) {
@@ -609,16 +646,30 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
 
     // Overlays
     if (!overlays.empty()) {
-        MeshBuilder mb;
-        for (const OverlayQuad& q : overlays) {
-            glm::vec3 p[4];
-            for (int i = 0; i < 4; ++i) p[i] = glm::vec3(q.corners[i] - origin);
-            mb.quad(p[0], p[1], p[2], p[3], q.color);
-        }
-        overlayMesh_.upload(mb.vertices);
         overlayShader_->use();
         overlayShader_->set("uOffset", glm::vec3(0.0f));
         glDisable(GL_CULL_FACE);
+        const auto build = [&](bool hidden) {
+            MeshBuilder mb;
+            for (const OverlayQuad& q : overlays) {
+                if (hidden && !q.xray) continue;
+                glm::vec3 p[4];
+                for (int i = 0; i < 4; ++i) p[i] = glm::vec3(q.corners[i] - origin);
+                // Hidden parts at a third of the opacity: a ghost through the hillside.
+                const u32 c = hidden ? (q.color & 0x00ffffffu) | (((q.color >> 24) / 3) << 24) : q.color;
+                mb.quad(p[0], p[1], p[2], p[3], c);
+            }
+            return mb;
+        };
+        if (const MeshBuilder hidden = build(true); !hidden.vertices.empty()) {
+            overlayMesh_.upload(hidden.vertices);
+            glDepthFunc(GL_GREATER);
+            glDepthMask(GL_FALSE);
+            overlayMesh_.draw();
+            glDepthMask(GL_TRUE);
+            glDepthFunc(GL_LESS);
+        }
+        overlayMesh_.upload(build(false).vertices);
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(-1.0f, -4.0f);
         overlayMesh_.draw();

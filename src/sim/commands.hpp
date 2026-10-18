@@ -82,6 +82,34 @@ struct CmdBuildTrack {
     }
 };
 
+// A straight, level station platform on free-form track, from an anchor towards a point.
+struct CmdBuildTrackStation {
+    TrackAnchor from;
+    TPoint to;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(from, to);
+    }
+};
+
+// A train depot at the open end of a free-form track.
+struct CmdBuildTrackDepot {
+    TrackNodeId node;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(node);
+    }
+};
+
+// Cycles the path signals at a node: none, both ways, one way, the other way.
+struct CmdTrackSignal {
+    TrackNodeId node;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(node);
+    }
+};
+
 struct CmdRemoveTrack {
     TrackEdgeId edge;
     template <class Ar>
@@ -340,7 +368,8 @@ using CommandPayload =
                  CmdSendToDepot, CmdSetOrders, CmdSkipOrder, CmdBuildRail, CmdRemoveRail, CmdCycleSignal,
                  CmdBuildRailStation, CmdBuildRailDepot, CmdAddCarriage, CmdRemoveCarriage, CmdBuildDock,
                  CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater, CmdBuildSpan, CmdRemoveSpan,
-                 CmdUpdateCompany, CmdTerraformBrush, CmdBuildTrack, CmdRemoveTrack>;
+                 CmdUpdateCompany, CmdTerraformBrush, CmdBuildTrack, CmdRemoveTrack, CmdBuildTrackStation,
+                 CmdBuildTrackDepot, CmdTrackSignal>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

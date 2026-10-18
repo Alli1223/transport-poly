@@ -4,6 +4,7 @@
 #include "core/types.hpp"
 #include "sim/coords.hpp"
 #include "sim/ids.hpp"
+#include "sim/track.hpp"
 
 #include <map>
 #include <string>
@@ -75,10 +76,12 @@ struct Depot {
     Dir facing = Dir::S; // exit direction
     DepotKind kind = DepotKind::Road;
     TownId town;
+    TrackEdgeId edge; // free-form track depots: the track into the building
 
     template <class Ar>
     void serialize(Ar& ar) {
         ar(owner, tile, facing, kind, town);
+        if (ar.version == 0 || ar.version >= 14) ar(edge);
     }
 };
 

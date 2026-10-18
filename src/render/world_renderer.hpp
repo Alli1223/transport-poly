@@ -57,6 +57,7 @@ SkyState computeSky(double minuteOfDay);
 struct OverlayQuad {
     glm::dvec3 corners[4];
     u32 color;
+    bool xray = false; // also drawn faintly where the ground hides it (build previews)
 };
 
 class WorldRenderer {

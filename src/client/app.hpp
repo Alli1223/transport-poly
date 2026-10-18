@@ -96,6 +96,9 @@ private:
     // app_track.cpp
     void handleTrackTool(std::vector<gfx::OverlayQuad>& overlays);
     void handleRemoveTrackTool(std::vector<gfx::OverlayQuad>& overlays);
+    void handleStationTool(std::vector<gfx::OverlayQuad>& overlays);
+    void handleDepotTool(std::vector<gfx::OverlayQuad>& overlays);
+    void handleSignalTool(std::vector<gfx::OverlayQuad>& overlays);
 
     // app_menu.cpp
     void drawMainMenu();
@@ -169,6 +172,7 @@ private:
     u16 levelTarget_ = 0;      // fine height the Level brush flattens to
     std::optional<TilePos> dragStart_;
     std::optional<TrackAnchor> trackStart_; // free-form track being laid (start of the next piece)
+    std::optional<TrackAnchor> stationStart_; // first end of a station platform being placed
 
     // Open windows / selection.
     DepotId selDepot_;
@@ -241,6 +245,8 @@ private:
     bool demoRail_ = false;         // automation: build a demo railway next to the biggest town
     bool demoShips_ = false;        // automation: build a demo ferry line on the nearest coast
     bool demoTrack_ = false;        // automation: lay curved free-form track near the camera
+    bool previewStation_ = false;   // automation: show the station tool placing a platform
+    std::optional<glm::dvec3> previewHover_; // automation: scripted cursor position on the ground
     bool followFirst_ = false;      // automation: follow the first vehicle
     bool directStart_ = false;      // skip the main menu (command line options given)
     std::string joinAddress_;       // --join host[:port]

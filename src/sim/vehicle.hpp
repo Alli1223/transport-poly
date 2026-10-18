@@ -5,6 +5,7 @@
 #include "core/types.hpp"
 #include "sim/coords.hpp"
 #include "sim/ids.hpp"
+#include "sim/track.hpp"
 
 #include <algorithm>
 #include <deque>
@@ -147,6 +148,12 @@ struct Vehicle {
     u8 prevHeading = 0;
     bool moving = false;
 
+    // Trains on free-form track: the edges under the train (head first) and those reserved
+    // ahead; `progress` is then the distance along the head's edge.
+    bool freeTrack = false;
+    std::deque<EdgeRun> runs;
+    std::deque<EdgeRun> runsAhead;
+
     // Reliability (basis points), servicing and breakdowns.
     u16 reliability = 10000;
     i64 lastServiceTick = 0;
@@ -186,6 +193,7 @@ struct Vehicle {
         if (ar.version == 0 || ar.version >= 2) ar(heading, prevHeading, moving);
         if (ar.version == 0 || ar.version >= 4)
             ar(reliability, lastServiceTick, breakdownTicks, breakdownsSinceService, goingForService, orderGroup);
+        if (ar.version == 0 || ar.version >= 14) ar(freeTrack, runs, runsAhead);
     }
 };
 
@@ -240,6 +248,16 @@ i32 maxSpeed(const Vehicle& v);      // units per tick
 i32 trackSpeedLimit(const Vehicle& v);
 
 } // namespace trains
+
+namespace tracktrains {
+
+void tick(World& w, VehicleId id);
+// Tries to leave the depot; returns true once the train is out on the track.
+bool leaveDepot(World& w, VehicleId id);
+// Releases every edge the train holds.
+void releaseAll(World& w, VehicleId id);
+
+} // namespace tracktrains
 
 namespace ships {
 

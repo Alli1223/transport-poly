@@ -343,8 +343,9 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 tile.type == TileType::Station && static_cast<StopKind>(tile.extra) == StopKind::Rail;
             const bool rail = tile.type == TileType::Rail;
             const bool dock = tile.type == TileType::Station && static_cast<StopKind>(tile.extra) == StopKind::Dock;
-            if (lod == 0 && (roadLike || rail || railStation || dock || tile.type == TileType::Building ||
-                             tile.type == TileType::Depot)) {
+            const bool freeDepot = tile.type == TileType::Depot && (tile.extra2 & kFreeTrackDepot);
+            if (lod == 0 && !freeDepot &&
+                (roadLike || rail || railStation || dock || tile.type == TileType::Building || tile.type == TileType::Depot)) {
                 structure = true;
                 top.corners = chunk.corners(lx, ly);
                 const Slope slope = computeSlope(top.corners);

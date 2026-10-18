@@ -342,14 +342,20 @@ VehicleId buy(World& w, CompanyId owner, DepotId depotId, u16 model) {
     v.builtTick = w.clock.tick;
     v.reliability = maxReliability(m);
     v.lastServiceTick = w.clock.tick;
-    if (m.type == VehicleType::Rail) v.cars = {model};
+    if (m.type == VehicleType::Rail) {
+        v.cars = {model};
+        v.freeTrack = d.edge.valid();
+    }
     return id;
 }
 
 void sell(World& w, VehicleId id) {
     Vehicle& v = w.vehicles[id];
     dropAll(w, v);
-    if (v.info().type == VehicleType::Rail) trains::releaseAll(w, id);
+    if (v.info().type == VehicleType::Rail) {
+        if (v.freeTrack) tracktrains::releaseAll(w, id);
+        else trains::releaseAll(w, id);
+    }
     w.vehicles.destroy(id);
 }
 
@@ -373,7 +379,7 @@ void tickAll(World& w) {
         case VehicleState::InDepot:
             if (!v.stopped && !v.orders.empty()) {
                 if (v.info().type == VehicleType::Rail)
-                    trains::leaveDepot(w, id);
+                    v.freeTrack ? tracktrains::leaveDepot(w, id) : trains::leaveDepot(w, id);
                 else if (v.info().type == VehicleType::Ship)
                     ships::leaveDepot(w, id);
                 else
@@ -394,7 +400,7 @@ void tickAll(World& w) {
                 break;
             }
             if (v.info().type == VehicleType::Rail)
-                trains::tick(w, id);
+                v.freeTrack ? tracktrains::tick(w, id) : trains::tick(w, id);
             else if (v.info().type == VehicleType::Ship)
                 ships::tick(w, id);
             else

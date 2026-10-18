@@ -24,7 +24,7 @@ namespace {
 
 bool isDragTool(Tool t) {
     return t == Tool::Road || t == Tool::RemoveRoad || t == Tool::TramTrack || t == Tool::RemoveTram ||
-           t == Tool::Clear || t == Tool::Trees || t == Tool::RailStation || t == Tool::Canal || t == Tool::ReclaimWater ||
+           t == Tool::Clear || t == Tool::Trees || t == Tool::Canal || t == Tool::ReclaimWater ||
            t == Tool::RoadBridge || t == Tool::RailBridge || t == Tool::RoadTunnel || t == Tool::RailTunnel;
 }
 
@@ -60,14 +60,13 @@ void App::addCatchmentOverlay(std::vector<gfx::OverlayQuad>& overlays, const std
 }
 
 void App::addTileOverlay(std::vector<gfx::OverlayQuad>& overlays, TilePos t, u32 color, double lift) const {
-    TileCorners c = session_->world().map.corners(t);
+    const FineCorners f = session_->world().map.fineCorners(t);
+    double h[4];
+    for (int i = 0; i < 4; ++i) h[i] = f.h[i] * gfx::kHeightStep / kSubLevels;
     if (const Tile* tile = session_->world().map.tile(t); tile && (tile->span & 3) == kSpanBridge)
-        for (u8& height : c.h) height = tile->deckHeight;
+        for (double& height : h) height = tile->deckHeight * gfx::kHeightStep;
     const double x = t.x, z = t.y;
-    overlays.push_back({{{x, c.h[0] * gfx::kHeightStep + lift, z},
-                         {x + 1, c.h[1] * gfx::kHeightStep + lift, z},
-                         {x + 1, c.h[2] * gfx::kHeightStep + lift, z + 1},
-                         {x, c.h[3] * gfx::kHeightStep + lift, z + 1}},
+    overlays.push_back({{{x, h[0] + lift, z}, {x + 1, h[1] + lift, z}, {x + 1, h[2] + lift, z + 1}, {x, h[3] + lift, z + 1}},
                         color});
 }
 
@@ -125,6 +124,12 @@ void App::handleClick() {
     const Tile* t = w.map.tile(hover_.tile);
     if (!t) return;
     switch (t->type) {
+    case TileType::Track:
+        if (const auto it = w.trackTiles.find(ChunkPos{hover_.tile.x, hover_.tile.y}.key()); it != w.trackTiles.end())
+            for (const TrackEdgeId e : it->second)
+                if (w.trackEdges[e].kind == TrackKind::Platform && w.stations.contains(w.trackEdges[e].station))
+                    selStation_ = w.trackEdges[e].station;
+        break;
     case TileType::Depot: selDepot_ = DepotId(t->index); break;
     case TileType::Station: selStation_ = StationId(t->index); break;
     case TileType::Building:
@@ -135,13 +140,15 @@ void App::handleClick() {
 }
 
 void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
-    if (autoScreenshot_) return;
+    if (autoScreenshot_ && !previewHover_) return;
     const bool esc = ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !ImGui::GetIO().WantTextInput;
     const bool rightClick = !mouseOverUi_ && ImGui::IsMouseClicked(ImGuiMouseButton_Right);
     if (tool_ != Tool::RailTrack) trackStart_.reset();
-    if (trackStart_ && (esc || rightClick)) {
-        // First stop laying the current track, then leave the tool.
+    if (tool_ != Tool::RailStation) stationStart_.reset();
+    if ((trackStart_ || stationStart_) && (esc || rightClick)) {
+        // First stop laying the current track or platform, then leave the tool.
         trackStart_.reset();
+        stationStart_.reset();
         if (esc) escConsumed_ = true;
     } else if ((esc && tool_ != Tool::None) || (rightClick && tool_ != Tool::None && !dragStart_)) {
         tool_ = Tool::None;
@@ -158,6 +165,18 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
     }
     if (tool_ == Tool::RemoveRail) {
         handleRemoveTrackTool(overlays);
+        return;
+    }
+    if (tool_ == Tool::RailStation) {
+        handleStationTool(overlays);
+        return;
+    }
+    if (tool_ == Tool::RailDepot) {
+        handleDepotTool(overlays);
+        return;
+    }
+    if (tool_ == Tool::Signal) {
+        handleSignalTool(overlays);
         return;
     }
     World& w = world();
@@ -420,15 +439,14 @@ constexpr ToolInfo kTools[] = {
      "continue it, finish on one to join up",
      false},
     {Tool::RemoveRail, ToolGroup::Rail, ui::Icon::Track, "Remove", "Click a piece of track to remove it", true},
-    {Tool::Signal, ToolGroup::Rail, ui::Icon::Signal, "Path signal",
-     "Reserves a route through junctions. Click to cycle two-way, one-way, reversed and none", false},
-    {Tool::BlockSignal, ToolGroup::Rail, ui::Icon::Signal, "Block signal",
-     "Waits until every branch of the block ahead is clear. Click to cycle directions", false},
+    {Tool::Signal, ToolGroup::Rail, ui::Icon::Signal, "Signal",
+     "Click where track joins track to add path signals; click again for one-way and back to none", false},
     {Tool::RailStation, ToolGroup::Rail, ui::Icon::Station, "Station",
-     "Drag along flat ground or straight track to build platforms", false},
-    {Tool::RailDepot, ToolGroup::Rail, ui::Icon::Depot, "Depot", "Build a train depot facing the track", false},
-    {Tool::RailBridge, ToolGroup::Rail, ui::Icon::Track, "Bridge", "Drag between equal-height flat banks across a valley or water", false},
-    {Tool::RailTunnel, ToolGroup::Rail, ui::Icon::Track, "Tunnel", "Drag between equal-height flat ends through a hill", false},
+     "Click to start a platform (on a track end to line it up), click again to set its length. The ground is "
+     "levelled for it",
+     false},
+    {Tool::RailDepot, ToolGroup::Rail, ui::Icon::Depot, "Depot", "Click the open end of a track to put a train depot there",
+     false},
     {Tool::RemoveSpan, ToolGroup::Rail, ui::Icon::Bulldoze, "Remove span", "Remove an entire owned bridge or tunnel", true},
     {Tool::Dock, ToolGroup::Water, ui::Icon::Anchor, "Dock",
      "Build a dock on the shore; ships moor at the water tile in front of it", false},

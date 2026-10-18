@@ -27,6 +27,7 @@ inline constexpr u8 kSpanBridge = 1;
 inline constexpr u8 kSpanTunnel = 2;
 inline constexpr u8 kSpanAxisX = 4;
 inline constexpr u8 kSpanCanal = 8; // restore owned canal water when dismantling a bridge
+inline constexpr u8 kFreeTrackDepot = 0x80; // Tile::extra2 of a depot on free-form track
 
 struct Tile {
     TileType type = TileType::Clear;

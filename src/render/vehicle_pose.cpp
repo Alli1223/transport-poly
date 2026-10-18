@@ -1,6 +1,7 @@
 #include "render/vehicle_pose.hpp"
 
 #include "render/terrain_mesher.hpp"
+#include "render/track_renderer.hpp"
 #include "sim/rail.hpp"
 #include "sim/road.hpp"
 #include "sim/water_path.hpp"
@@ -136,8 +137,40 @@ std::optional<glm::dvec3> trainPoint(const World& w, const Vehicle& v, double he
 
 } // namespace
 
+namespace {
+
+glm::dvec3 freeTrackWorld(const TrackEdge& e, bool forward, double dist) {
+    const TrackSample s = track::pointOn(e, forward, static_cast<i32>(dist));
+    return {s.p.x / static_cast<double>(kTrackUnits), trackRailY(s.h), s.p.z / static_cast<double>(kTrackUnits)};
+}
+
+// Point `back` units behind the (extrapolated) head of a train on free-form track.
+std::optional<glm::dvec3> freeTrackPoint(const World& w, const Vehicle& v, double head, double back) {
+    if (v.runs.empty()) return std::nullopt;
+    const TrackEdge* e0 = w.trackEdges.tryGet(v.runs.front().edge);
+    if (!e0) return std::nullopt;
+    const double s = head - back;
+    if (s >= 0.0) {
+        if (s <= e0->length || v.runsAhead.empty()) return freeTrackWorld(*e0, v.runs.front().forward, std::min<double>(s, e0->length));
+        const TrackEdge* e1 = w.trackEdges.tryGet(v.runsAhead.front().edge);
+        if (!e1) return std::nullopt;
+        return freeTrackWorld(*e1, v.runsAhead.front().forward, s - e0->length);
+    }
+    double remaining = -s;
+    for (usize i = 1; i < v.runs.size(); ++i) {
+        const TrackEdge* e = w.trackEdges.tryGet(v.runs[i].edge);
+        if (!e) return std::nullopt;
+        if (remaining <= e->length) return freeTrackWorld(*e, v.runs[i].forward, e->length - remaining);
+        remaining -= e->length;
+    }
+    return std::nullopt; // inside the depot
+}
+
+} // namespace
+
 void trainCarPoses(const World& w, const Vehicle& v, double tickFraction, std::vector<CarPose>& out) {
-    if (v.state == VehicleState::InDepot || v.trail.empty()) return;
+    if (v.state == VehicleState::InDepot) return;
+    if (v.freeTrack ? v.runs.empty() : v.trail.empty()) return;
     double head = v.progress;
     if (v.state == VehicleState::Driving && !v.stopped) head += v.speed * tickFraction;
     double offset = 0.0;
@@ -146,8 +179,8 @@ void trainCarPoses(const World& w, const Vehicle& v, double tickFraction, std::v
     for (const u16 m : cars) {
         const double len = vehicleModel(m).length * 16.0;
         const double centre = offset + len * 0.5;
-        const auto front = trainPoint(w, v, head, centre - len * 0.4);
-        const auto rear = trainPoint(w, v, head, centre + len * 0.4);
+        const auto front = v.freeTrack ? freeTrackPoint(w, v, head, centre - len * 0.4) : trainPoint(w, v, head, centre - len * 0.4);
+        const auto rear = v.freeTrack ? freeTrackPoint(w, v, head, centre + len * 0.4) : trainPoint(w, v, head, centre + len * 0.4);
         offset += len + 4.0;
         if (!front || !rear) continue;
         const glm::dvec3 d = *front - *rear;

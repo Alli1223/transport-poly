@@ -181,3 +181,161 @@ TEST_CASE("track: obstacles under the bed are refused") {
     CHECK(!r.ok);
     CHECK(r.error.find("water") != std::string::npos);
 }
+
+namespace {
+
+TrackAnchor nodeAnchor(const World& w, TPoint p, TDir into = {0, 0}) {
+    TrackAnchor a;
+    a.node = track::nodeNear(w, p, 40, true);
+    a.pos = p;
+    a.into = into;
+    return a;
+}
+
+StationId stationAt(const World& w, TPoint p) {
+    for (const auto [id, e] : w.trackEdges)
+        if (e.kind == TrackKind::Platform && e.samples.size() > 1) {
+            const TrackSample mid = track::pointOn(e, true, e.length / 2);
+            if (distance(mid.p, p) < 4 * kTrackUnits) return e.station;
+        }
+    return {};
+}
+
+} // namespace
+
+TEST_CASE("track: a train shuttles between two stations on free track") {
+    TrackWorld tw;
+    // Station A, track east, station B; a depot behind A.
+    REQUIRE(tw.run(CmdBuildTrackStation{freeAnchor(at(8, 16)), at(14, 16)}).ok);
+    REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(tw.w, at(14, 16), TDir{kDirOne, 0}), freeAnchor(at(40, 18))}).ok);
+    const TrackNodeId bEnd = track::nodeNear(tw.w, at(40, 18), 40);
+    REQUIRE(bEnd.valid());
+    TrackAnchor bStart;
+    bStart.node = bEnd;
+    REQUIRE(tw.run(CmdBuildTrackStation{bStart, at(46, 20)}).ok);
+    const CommandResult dep = tw.run(CmdBuildTrackDepot{track::nodeNear(tw.w, at(8, 16), 40)});
+    REQUIRE(dep.ok);
+    const DepotId depot(dep.createdId);
+    const StationId a = stationAt(tw.w, at(11, 16));
+    const StationId b = stationAt(tw.w, at(43, 19));
+    REQUIRE(a.valid());
+    REQUIRE(b.valid());
+    CHECK(a != b);
+
+    const CommandResult buy = tw.run(CmdBuyVehicle{depot, 7});
+    REQUIRE(buy.ok);
+    const VehicleId train(buy.createdId);
+    CHECK(tw.w.vehicles[train].freeTrack);
+    REQUIRE(tw.run(CmdAddCarriage{train, 11}).ok);
+    Order oa, ob;
+    oa.station = a;
+    ob.station = b;
+    REQUIRE(tw.run(CmdSetOrders{train, {oa, ob}}).ok);
+    REQUIRE(tw.run(CmdStartStopVehicle{train}).ok);
+    i64 lastA = -1, lastB = -1, visitsA = 0, visitsB = 0;
+    for (i64 t = 0; t < kTicksPerDay; ++t) {
+        tw.w.tick();
+        if (tw.w.stations[a].lastVisitTick != lastA) {
+            lastA = tw.w.stations[a].lastVisitTick;
+            ++visitsA;
+        }
+        if (tw.w.stations[b].lastVisitTick != lastB) {
+            lastB = tw.w.stations[b].lastVisitTick;
+            ++visitsB;
+        }
+    }
+    const Vehicle& v = tw.w.vehicles[train];
+    CHECK(!v.lost);
+    CHECK(v.state != VehicleState::InDepot);
+    CHECK(visitsA >= 3);
+    CHECK(visitsB >= 3);
+    // Track a train holds cannot be pulled up.
+    bool held = false;
+    for (const auto [id, e] : tw.w.trackEdges)
+        if (e.reservedBy == train) held = held || !tw.run(CmdRemoveTrack{id}).ok;
+    CHECK(held);
+
+    // Send it home: it drives into the depot and stops there.
+    REQUIRE(tw.run(CmdSendToDepot{train}).ok);
+    for (i64 t = 0; t < kTicksPerDay && tw.w.vehicles[train].state != VehicleState::InDepot; ++t) tw.w.tick();
+    CHECK(tw.w.vehicles[train].state == VehicleState::InDepot);
+    for (const auto [id, e] : tw.w.trackEdges) CHECK(!e.reservedBy.valid());
+}
+
+TEST_CASE("track: two trains share a signalled loop safely, and saves continue identically") {
+    TrackWorld tw;
+    // An oval: top straight with station A, curves at both ends, bottom straight with station B.
+    REQUIRE(tw.run(CmdBuildTrack{freeAnchor(at(10, 10)), freeAnchor(at(18, 10))}).ok);
+    REQUIRE(tw.run(CmdBuildTrackStation{nodeAnchor(tw.w, at(18, 10)), at(24, 10)}).ok);
+    REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(tw.w, at(24, 10), TDir{kDirOne, 0}), freeAnchor(at(40, 10))}).ok);
+    REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(tw.w, at(40, 10), TDir{kDirOne, 0}), freeAnchor(at(48, 18))}).ok);
+    REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(tw.w, at(48, 18), TDir{0, kDirOne}), freeAnchor(at(40, 26))}).ok);
+    REQUIRE(tw.run(CmdBuildTrackStation{nodeAnchor(tw.w, at(40, 26)), at(34, 26)}).ok);
+    REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(tw.w, at(34, 26), TDir{-kDirOne, 0}), freeAnchor(at(10, 26))}).ok);
+    REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(tw.w, at(10, 26), TDir{-kDirOne, 0}), freeAnchor(at(2, 18))}).ok);
+    REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(tw.w, at(2, 18), TDir{0, -kDirOne}), nodeAnchor(tw.w, at(10, 10), TDir{-kDirOne, 0})}).ok);
+    // A spur off the top straight for the depot.
+    REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(tw.w, at(32, 10), TDir{kDirOne, 0}), freeAnchor(at(41, 4))}).ok);
+    const CommandResult dep = tw.run(CmdBuildTrackDepot{track::nodeNear(tw.w, at(41, 4), 40)});
+    REQUIRE(dep.ok);
+    const DepotId depot(dep.createdId);
+    // Two-way signals at a few nodes around the loop.
+    int signals = 0;
+    for (const TPoint p : {at(40, 10), at(48, 18), at(10, 26), at(2, 18)}) {
+        const TrackNodeId n = track::nodeNear(tw.w, p, 40, true);
+        if (n.valid() && tw.run(CmdTrackSignal{n}).ok) ++signals;
+    }
+    CHECK(signals >= 3);
+    const StationId a = stationAt(tw.w, at(21, 10));
+    const StationId b = stationAt(tw.w, at(37, 26));
+    REQUIRE(a.valid());
+    REQUIRE(b.valid());
+    std::vector<VehicleId> trains;
+    for (int i = 0; i < 2; ++i) {
+        const CommandResult buy = tw.run(CmdBuyVehicle{depot, 7});
+        REQUIRE(buy.ok);
+        const VehicleId id(buy.createdId);
+        REQUIRE(tw.run(CmdAddCarriage{id, 11}).ok);
+        Order oa, ob;
+        oa.station = a;
+        ob.station = b;
+        REQUIRE(tw.run(CmdSetOrders{id, {oa, ob}}).ok);
+        REQUIRE(tw.run(CmdStartStopVehicle{id}).ok);
+        trains.push_back(id);
+    }
+    i64 lastA = -1, lastB = -1, visitsA = 0, visitsB = 0;
+    bool shared = false;
+    for (i64 t = 0; t < 2 * kTicksPerDay; ++t) {
+        tw.w.tick();
+        if (tw.w.stations[a].lastVisitTick != lastA) {
+            lastA = tw.w.stations[a].lastVisitTick;
+            ++visitsA;
+        }
+        if (tw.w.stations[b].lastVisitTick != lastB) {
+            lastB = tw.w.stations[b].lastVisitTick;
+            ++visitsB;
+        }
+        // Never two trains on one edge.
+        const Vehicle& v0 = tw.w.vehicles[trains[0]];
+        const Vehicle& v1 = tw.w.vehicles[trains[1]];
+        for (const EdgeRun r0 : v0.runs)
+            for (const EdgeRun r1 : v1.runs)
+                if (r0.edge == r1.edge && v0.state != VehicleState::InDepot && v1.state != VehicleState::InDepot) shared = true;
+    }
+    CHECK(!shared);
+    for (const VehicleId id : trains) {
+        CHECK(!tw.w.vehicles[id].lost);
+        CHECK(tw.w.vehicles[id].state != VehicleState::InDepot);
+    }
+    CHECK(visitsA >= 4);
+    CHECK(visitsB >= 4);
+
+    const auto bytes = toBytes(tw.w, kSaveVersion);
+    World copy;
+    fromBytes(bytes, copy, kSaveVersion);
+    for (i64 t = 0; t < kTicksPerDay / 2; ++t) {
+        tw.w.tick();
+        copy.tick();
+    }
+    CHECK_EQ(copy.stateHash(), tw.w.stateHash());
+}

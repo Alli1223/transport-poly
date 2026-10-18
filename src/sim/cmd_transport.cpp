@@ -143,7 +143,10 @@ CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, co
             if (v.depot == did && v.state == VehicleState::InDepot)
                 return CommandResult::failure("Vehicles are parked in this depot");
         if (occupied(busy, t)) return CommandResult::failure("Vehicle in the way");
+        if (d && d->edge.valid() && w.trackEdges.contains(d->edge) && w.trackEdges[d->edge].reservedBy.valid())
+            return CommandResult::failure("A train is using this track");
         if (exec) {
+            const TrackEdgeId stub = d ? d->edge : TrackEdgeId{};
             tile->type = TileType::Clear;
             tile->road = 0;
             tile->rail = 0;
@@ -155,6 +158,7 @@ CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, co
             for (auto [vid, v] : w.vehicles)
                 if (v.depot == did) v.depot = DepotId{};
             if (d) w.depots.destroy(did);
+            if (stub.valid() && w.trackEdges.contains(stub)) track::remove(w, stub);
             vehicles::invalidatePaths(w);
         }
         return CommandResult::success(prices::kRemoveDepot);
@@ -457,7 +461,7 @@ CommandResult handle(World& w, const Command& c, const CmdSetOrders& x, bool exe
         if (o.kind == OrderKind::Station) {
             const Station* s = w.stations.tryGet(o.station);
             if (!s || s->owner != c.company) return CommandResult::failure("Invalid station in orders");
-            bool ok = false;
+            bool ok = type == VehicleType::Rail && track::hasPlatform(w, o.station);
             for (const TilePos t : s->tiles) {
                 const Tile* tile = w.map.tile(t);
                 if (tile && tile->type == TileType::Station && stopKindMatches(type, static_cast<StopKind>(tile->extra)))

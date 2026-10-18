@@ -1,6 +1,7 @@
 #include "sim/track.hpp"
 
 #include "core/math.hpp"
+#include "sim/passengers.hpp"
 #include "sim/prices.hpp"
 #include "sim/world.hpp"
 
@@ -238,13 +239,29 @@ void computeSamples(const World& w, TrackEdge& e) {
     const i64 g1 = e.sideB == 0 ? -b.grade : b.grade;
     e.samples = sampleCurve(c, a.h, g0, b.h, g1, sampleCount(c));
     e.length = e.samples.back().s;
+    e.minRadius = 0;
+    const usize n = e.samples.size();
+    const usize k = static_cast<usize>(std::max<i64>(1, kTrackUnits / 2 * static_cast<i64>(n - 1) / std::max<i64>(1, e.length)));
+    for (usize i = k; i + k < n; ++i) {
+        const TPoint o = e.samples[i - k].p, p = e.samples[i].p, q = e.samples[i + k].p;
+        const i64 ax = static_cast<i64>(p.x) - o.x, az = static_cast<i64>(p.z) - o.z;
+        const i64 bx = static_cast<i64>(q.x) - p.x, bz = static_cast<i64>(q.z) - p.z;
+        const i64 cross = std::abs(ax * bz - az * bx);
+        const i64 la = distance(o, p), lb = distance(p, q);
+        if (cross * 2048 > la * lb) {
+            const i64 r = (la + lb) * la * lb / (2 * cross);
+            if (e.minRadius == 0 || r < e.minRadius) e.minRadius = static_cast<i32>(std::min<i64>(r, INT_MAX));
+        }
+    }
 }
+
+i32 halfWidthOf(TrackKind kind) { return kind == TrackKind::Platform ? kPlatformHalfWidth : kTrackBedHalfWidth; }
 
 void rebuildDerived(World& w) {
     w.trackTiles.clear();
     for (auto [id, e] : w.trackEdges) {
         computeSamples(w, e);
-        for (const TilePos t : bedTiles(e.samples)) w.trackTiles[tileKey(t)].push_back(id);
+        for (const TilePos t : bedTiles(e.samples, halfWidthOf(e.kind))) w.trackTiles[tileKey(t)].push_back(id);
     }
     ++w.trackRevision;
 }
@@ -280,8 +297,10 @@ TrackEdgeId edgeNear(const World& w, TPoint p, i32 radius) {
     return best;
 }
 
-TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const TrackAnchor& to) {
+TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const TrackAnchor& to,
+               const TrackOptions& options) {
     TrackPlan pl;
+    pl.options = options;
     const auto fail = [&](std::string why) {
         pl.ok = false;
         pl.error = std::move(why);
@@ -345,6 +364,12 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
     } else {
         d0 = d3 = c;
     }
+    if (options.straight) {
+        // Within a degree of the line between the ends.
+        constexpr i64 kCos1 = static_cast<i64>(kDirOne) * kDirOne * 99985 / 100000;
+        if (dot(d0, c) < kCos1 || dot(d3, c) < kCos1) return fail("This must be straight");
+        d0 = d3 = c;
+    }
     // Neither end may point away from the other (that would need a loop).
     constexpr i64 kCos80 = static_cast<i64>(kDirOne) * kDirOne * 174 / 1000;
     if (dot(d0, c) < kCos80 || dot(d3, c) < kCos80) return fail("Too sharp a turn - add a curve in between");
@@ -365,7 +390,21 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
     constexpr i64 kMax = kTrackMaxGrade * kGradeOne / kTrackUnits;
     const auto heightFor = [&](i64 grade) { return grade * len / kGradeOne; }; // height change over the track
     i64 h0, h1, g0, g1;
-    if (a.existing && b.existing) {
+    if (options.level) {
+        // Level from end to end, at the height of the ground (or of the track it joins).
+        if ((a.existing && a.grade != 0) || (b.existing && b.grade != 0))
+            return fail("This track end is on a slope - put the station on level ground and join the track to it");
+        if (a.existing && b.existing && a.h != b.h) return fail("Stations need level track");
+        if (a.existing) h0 = a.h;
+        else if (b.existing) h0 = b.h;
+        else {
+            i64 sum = 0;
+            for (int i = 0; i <= 4; ++i) sum += terrainAt(w, at(curve, kT * i / 4));
+            h0 = sum / 5;
+        }
+        h1 = h0;
+        g0 = g1 = 0;
+    } else if (a.existing && b.existing) {
         h0 = a.h;
         h1 = b.h;
         g0 = a.grade;
@@ -424,7 +463,7 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
     if (pl.minRadius && pl.minRadius < kTrackMinRadius) return fail("Curve too tight");
 
     // What lies under the bed.
-    pl.tiles = bedTiles(pl.samples);
+    pl.tiles = bedTiles(pl.samples, options.halfWidth);
     Money trees = 0;
     for (const TilePos t : pl.tiles) {
         const Tile* tile = w.map.tile(t);
@@ -444,6 +483,31 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
         }
     }
 
+    // Separate tracks may not cross or crowd each other; near the nodes this track joins they
+    // naturally converge.
+    {
+        std::unordered_set<u32> nearby;
+        for (const TilePos t : pl.tiles)
+            if (const auto it = w.trackTiles.find(tileKey(t)); it != w.trackTiles.end())
+                for (const TrackEdgeId e : it->second) nearby.insert(e.value);
+        const TPoint ends[2] = {a.pos, b.pos};
+        const TrackNodeId joined[2] = {a.existing ? a.id : TrackNodeId{}, b.existing ? b.id : TrackNodeId{}};
+        for (const u32 id : nearby) {
+            const TrackEdge& other = w.trackEdges[TrackEdgeId{id}];
+            const i32 spacing = (halfWidthOf(other.kind) + options.halfWidth) / 2 + kTrackSpacing - kTrackBedHalfWidth;
+            // Where this track joins existing track at a switch, it runs alongside the other
+            // branch for a while as the two diverge.
+            i64 exclusion[2] = {3 * kTrackUnits / 2, 3 * kTrackUnits / 2};
+            for (int j = 0; j < 2; ++j)
+                if (joined[j].valid() && w.trackNodes[joined[j]].count(0) > 0 && w.trackNodes[joined[j]].count(1) > 0)
+                    exclusion[j] = 7 * kTrackUnits;
+            for (const TrackSample& sm : pl.samples) {
+                if (distance(sm.p, ends[0]) < exclusion[0] || distance(sm.p, ends[1]) < exclusion[1]) continue;
+                if (nearest(other.samples, sm.p).d < spacing) return fail("Another track is in the way");
+            }
+        }
+    }
+
     // Earthworks: a level bed under the rails, then embankments or cuttings easing back into
     // the surrounding ground over a distance that grows with the height difference.
     const auto locked = [&](i32 cx, i32 cy) {
@@ -454,9 +518,9 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
         }
         return false;
     };
-    constexpr i32 kBed = kTrackBedHalfWidth + 48;
+    const i32 kBed = options.halfWidth + 48;
     constexpr i32 kBallastDepth = 5; // fine units the ground sits below the rails (the ballast fills the gap)
-    constexpr i32 kReach = kBed + 5 * kTrackUnits;
+    const i32 kReach = kBed + 5 * kTrackUnits;
     i64 volume = 0;
     const Field field = nearestField(pl.samples, kReach, 0);
     // Ground already under the bed of existing track keeps its height, so building next to (or
@@ -534,7 +598,8 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
     return pl;
 }
 
-std::vector<TrackEdgeId> build(World& w, CompanyId company, const TrackPlan& pl, TrackKind kind) {
+std::vector<TrackEdgeId> build(World& w, CompanyId company, const TrackPlan& pl) {
+    const TrackKind kind = pl.options.kind;
     std::vector<TrackEdgeId> edges;
     if (!pl.ok || pl.pieces.empty()) return edges;
     const auto attach = [&](TrackNodeId nid, u8 side, TrackEdgeId e) {
@@ -584,7 +649,7 @@ std::vector<TrackEdgeId> build(World& w, CompanyId company, const TrackPlan& pl,
         attach(next, nextSide, id);
         TrackEdge& e = w.trackEdges[id];
         computeSamples(w, e);
-        for (const TilePos t : bedTiles(e.samples)) {
+        for (const TilePos t : bedTiles(e.samples, halfWidthOf(kind))) {
             w.trackTiles[tileKey(t)].push_back(id);
             Tile* tile = w.map.tile(t);
             if (!tile) continue;
@@ -613,7 +678,16 @@ std::vector<TrackEdgeId> build(World& w, CompanyId company, const TrackPlan& pl,
 void remove(World& w, TrackEdgeId id) {
     TrackEdge* e = w.trackEdges.tryGet(id);
     if (!e) return;
-    for (const TilePos t : bedTiles(e->samples)) {
+    const std::vector<TilePos> tiles = bedTiles(e->samples, halfWidthOf(e->kind));
+    if (e->kind == TrackKind::Platform && w.stations.contains(e->station)) {
+        const StationId sid = e->station;
+        for (const TilePos t : tiles)
+            if (std::ranges::find(w.stations[sid].tiles, t) != w.stations[sid].tiles.end()) {
+                stations::removeTile(w, sid, t);
+                if (!w.stations.contains(sid)) break;
+            }
+    }
+    for (const TilePos t : tiles) {
         auto it = w.trackTiles.find(tileKey(t));
         if (it != w.trackTiles.end()) {
             std::erase(it->second, id);
@@ -647,3 +721,208 @@ void remove(World& w, TrackEdgeId id) {
 } // namespace track
 
 } // namespace tp
+
+namespace tp::track {
+
+TrackNodeId runEnd(const World& w, EdgeRun r) {
+    const TrackEdge& e = w.trackEdges[r.edge];
+    return r.forward ? e.b : e.a;
+}
+
+TrackNodeId runStart(const World& w, EdgeRun r) {
+    const TrackEdge& e = w.trackEdges[r.edge];
+    return r.forward ? e.a : e.b;
+}
+
+u8 runEndSide(const World& w, EdgeRun r) {
+    const TrackEdge& e = w.trackEdges[r.edge];
+    return r.forward ? e.sideB : e.sideA;
+}
+
+std::vector<EdgeRun> continuations(const World& w, EdgeRun r) {
+    std::vector<EdgeRun> out;
+    const TrackNodeId nid = runEnd(w, r);
+    const TrackNode& n = w.trackNodes[nid];
+    const u8 outSide = static_cast<u8>(1 - runEndSide(w, r));
+    for (u8 slot = 0; slot < 2; ++slot) {
+        const TrackEdgeId id = n.edges[outSide * 2u + slot];
+        if (!id.valid()) continue;
+        const TrackEdge& e = w.trackEdges[id];
+        out.push_back({id, e.a == nid && e.sideA == outSide});
+    }
+    return out;
+}
+
+TrackSample pointOn(const TrackEdge& e, bool forward, i32 dist) {
+    const std::vector<TrackSample>& sm = e.samples;
+    if (sm.empty()) return {};
+    const i32 s = std::clamp(forward ? dist : e.length - dist, 0, e.length);
+    usize i = 0;
+    usize lo = 0, hi = sm.size() - 1;
+    while (lo + 1 < hi) {
+        const usize mid = (lo + hi) / 2;
+        if (sm[mid].s <= s) lo = mid;
+        else hi = mid;
+    }
+    i = lo;
+    const TrackSample& a = sm[i];
+    const TrackSample& b = sm[std::min(i + 1, sm.size() - 1)];
+    const i64 span = std::max(1, b.s - a.s);
+    const i64 t = std::clamp<i64>(s - a.s, 0, span);
+    return {TPoint{static_cast<i32>(a.p.x + (static_cast<i64>(b.p.x) - a.p.x) * t / span),
+                   static_cast<i32>(a.p.z + (static_cast<i64>(b.p.z) - a.p.z) * t / span)},
+            static_cast<i32>(a.h + (static_cast<i64>(b.h) - a.h) * t / span), s};
+}
+
+bool reservable(const World& w, TrackEdgeId id, VehicleId train) {
+    const TrackEdge& e = w.trackEdges[id];
+    if (e.reservedBy.valid() && e.reservedBy != train) return false;
+    // The two branches of a switch overlap near the switch: only one train at a time.
+    const auto siblingFree = [&](TrackNodeId nid, u8 side) {
+        const TrackNode& n = w.trackNodes[nid];
+        for (u8 slot = 0; slot < 2; ++slot) {
+            const TrackEdgeId other = n.edges[side * 2u + slot];
+            if (!other.valid() || other == id) continue;
+            const VehicleId by = w.trackEdges[other].reservedBy;
+            if (by.valid() && by != train) return false;
+        }
+        return true;
+    };
+    return siblingFree(e.a, e.sideA) && siblingFree(e.b, e.sideB);
+}
+
+bool hasPlatform(const World& w, StationId s) {
+    for (const auto [id, e] : w.trackEdges)
+        if (e.kind == TrackKind::Platform && e.station == s) return true;
+    return false;
+}
+
+TrackPlan planPlatform(const World& w, CompanyId company, const TrackAnchor& from, TPoint to) {
+    TrackAnchor start = from;
+    TDir dir{0, 0};
+    if (start.node.valid()) {
+        const TrackNode* n = w.trackNodes.tryGet(start.node);
+        if (!n) {
+            TrackPlan p;
+            p.error = "That track no longer exists";
+            return p;
+        }
+        // Continue straight out of the node's open side.
+        const int side = n->count(0) == 0 ? 0 : (n->count(1) == 0 ? 1 : -1);
+        if (side < 0) {
+            TrackPlan p;
+            p.error = "Start a station at the open end of a track";
+            return p;
+        }
+        dir = n->side(static_cast<u8>(side));
+        start.pos = n->pos;
+        start.into = dir;
+    } else {
+        dir = normalised(static_cast<i64>(to.x) - start.pos.x, static_cast<i64>(to.z) - start.pos.z);
+        start.into = dir;
+    }
+    // Snap the length to whole tiles along the platform's line.
+    const i64 along = (static_cast<i64>(to.x) - start.pos.x) * dir.x / kDirOne +
+                      (static_cast<i64>(to.z) - start.pos.z) * dir.z / kDirOne;
+    const i64 tiles = std::clamp<i64>((along + kTrackUnits / 2) / kTrackUnits, 2, 16);
+    TrackAnchor end;
+    end.pos = offset(start.pos, dir, tiles * kTrackUnits);
+    end.into = -dir;
+    TrackOptions opt;
+    opt.kind = TrackKind::Platform;
+    opt.straight = true;
+    opt.level = true;
+    opt.halfWidth = kPlatformHalfWidth;
+    TrackPlan p = plan(w, company, start, end, opt);
+    if (p.ok) p.cost += tiles * prices::kRailStationTile;
+    return p;
+}
+
+StationId buildPlatform(World& w, CompanyId company, const TrackPlan& pl) {
+    const std::vector<TrackEdgeId> edges = build(w, company, pl);
+    if (edges.empty()) return {};
+    // Join a station of the company with a platform close by, or found a new one.
+    std::vector<TilePos> tiles;
+    for (const TrackEdgeId e : edges)
+        for (const TilePos t : bedTiles(w.trackEdges[e].samples, kPlatformHalfWidth)) tiles.push_back(t);
+    std::ranges::sort(tiles);
+    tiles.erase(std::unique(tiles.begin(), tiles.end()), tiles.end());
+    StationId sid;
+    for (const auto [id, st] : w.stations) {
+        if (st.owner != company) continue;
+        for (const TilePos a : st.tiles) {
+            for (const TilePos b : tiles)
+                if (chebyshev(a.x - b.x, a.y - b.y) <= 2) {
+                    sid = id;
+                    break;
+                }
+            if (sid.valid()) break;
+        }
+        if (sid.valid()) break;
+    }
+    const TilePos middle = tiles[tiles.size() / 2];
+    if (!sid.valid()) sid = stations::create(w, company, middle, StopKind::Rail);
+    else stations::addTile(w, sid, middle, StopKind::Rail);
+    for (const TilePos t : tiles)
+        if (t != middle && std::ranges::find(w.stations[sid].tiles, t) == w.stations[sid].tiles.end())
+            stations::addTile(w, sid, t, StopKind::Rail);
+    for (const TrackEdgeId e : edges) w.trackEdges[e].station = sid;
+    passengers::markDirty(w);
+    return sid;
+}
+
+TrackPlan planDepot(const World& w, CompanyId company, TrackNodeId node) {
+    TrackPlan p;
+    const TrackNode* n = w.trackNodes.tryGet(node);
+    if (!n) {
+        p.error = "Point at the open end of a track";
+        return p;
+    }
+    const int side = n->count(0) == 0 ? 0 : (n->count(1) == 0 ? 1 : -1);
+    if (side < 0) {
+        p.error = "Point at the open end of a track";
+        return p;
+    }
+    const TDir dir = n->side(static_cast<u8>(side));
+    TrackAnchor from;
+    from.node = node;
+    from.pos = n->pos;
+    from.into = dir;
+    TrackAnchor to;
+    to.pos = offset(n->pos, dir, kDepotStub);
+    to.into = -dir;
+    TrackOptions opt;
+    opt.kind = TrackKind::Depot;
+    opt.straight = true;
+    p = plan(w, company, from, to, opt);
+    if (!p.ok) return p;
+    // The building stands just beyond the stub.
+    const TilePos site = tileAt(depotBuildingPos(p));
+    const Tile* tile = w.map.tile(site);
+    if (!tile) {
+        p.ok = false;
+        p.error = "Area not explored";
+        return p;
+    }
+    if (tile->type != TileType::Clear && tile->type != TileType::Track) {
+        p.ok = false;
+        p.error = "No room for the depot building";
+        return p;
+    }
+    if (tile->type == TileType::Track && std::ranges::find(p.tiles, site) == p.tiles.end()) {
+        p.ok = false;
+        p.error = "Another track is in the way";
+        return p;
+    }
+    p.cost += prices::kRailDepot;
+    return p;
+}
+
+TPoint depotBuildingPos(const TrackPlan& p) {
+    const TrackPlan::Piece& last = p.pieces.back();
+    return offset(last.p3, last.d3, kTrackUnits * 2 / 5);
+}
+
+TDir depotFacing(const TrackPlan& p) { return -p.pieces.back().d3; }
+
+} // namespace tp::track

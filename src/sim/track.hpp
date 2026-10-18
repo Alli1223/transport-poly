@@ -35,6 +35,9 @@ inline constexpr i32 kTrackMaxLength = 48 * 256; // longest single build
 inline constexpr i32 kTrackPiece = 8 * 256;      // builds are split into edges at most this long
 inline constexpr i32 kTrackBedHalfWidth = 176;   // ballast bed, units either side of the centre line
 inline constexpr i32 kTrackJoinRadius = 16;      // an anchor this close to a node joins it
+inline constexpr i32 kPlatformHalfWidth = 244;   // station platforms either side of the track
+inline constexpr i32 kTrackSpacing = 300;        // closest two separate tracks may run, centre to centre
+inline constexpr i32 kDepotStub = 384;           // length of the track into a depot
 inline constexpr i64 kGradeOne = 65536;          // grade scale: fine height per unit of length
 
 struct TPoint {
@@ -77,8 +80,7 @@ struct TrackNode {
     TDir dir;       // axis: side 0 leaves along +dir, side 1 along -dir
     i64 grade = 0;  // height change along +dir, fine units per unit length times kGradeOne
     std::array<TrackEdgeId, 4> edges{}; // index side * 2 + slot
-    u8 signals = 0;    // bit s: a signal for trains leaving through side s
-    u8 signalKind = 0; // 0 = two-way path signals, 1 = one-way
+    u8 signals = 0;    // bit s: a path signal for trains leaving through side s (one bit only: one-way)
 
     TDir side(u8 s) const { return s == 0 ? dir : -dir; }
     int count(u8 s) const { return edges[s * 2u].valid() + edges[s * 2u + 1].valid(); }
@@ -87,7 +89,11 @@ struct TrackNode {
 
     template <class Ar>
     void serialize(Ar& ar) {
-        ar(pos, h, dir, grade, edges, signals, signalKind);
+        ar(pos, h, dir, grade, edges, signals);
+        if (ar.version == 13) {
+            u8 unusedSignalKind = 0; // stored by save version 13 only
+            ar(unusedSignalKind);
+        }
     }
 };
 
@@ -110,15 +116,36 @@ struct TrackEdge {
     StationId station;
     DepotId depot;
     u32 serial = 0;
+    VehicleId reservedBy; // the train holding this edge (trains only drive on track they hold)
 
     // Derived from the nodes when built or loaded (not saved).
     std::vector<TrackSample> samples;
     i32 length = 0;
+    i32 minRadius = 0; // tightest curve, units (0 when straight)
 
     template <class Ar>
     void serialize(Ar& ar) {
         ar(a, b, sideA, sideB, handleA, handleB, owner, kind, station, depot, serial);
+        if (ar.version == 0 || ar.version >= 14) ar(reservedBy);
     }
+};
+
+// An edge driven in one direction (forward = from node a to node b).
+struct EdgeRun {
+    TrackEdgeId edge;
+    bool forward = true;
+    friend bool operator==(const EdgeRun&, const EdgeRun&) = default;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(edge, forward);
+    }
+};
+
+struct TrackOptions {
+    TrackKind kind = TrackKind::Plain;
+    bool straight = false;          // no curve allowed (platforms, depots)
+    bool level = false;             // flat from end to end (platforms)
+    i32 halfWidth = kTrackBedHalfWidth;
 };
 
 // One end of a track to build.
@@ -145,6 +172,7 @@ struct TrackPlan {
     std::vector<TrackSample> samples; // the whole new track (for previews and the terrain)
     std::vector<FineChange> terrain;  // embankments, cuttings and the bed
     std::vector<TilePos> tiles;       // tiles under the bed
+    TrackOptions options;
 
     // Resolved ends.
     TrackNodeId startNode, endNode; // existing nodes joined, if any
@@ -161,11 +189,36 @@ struct TrackPlan {
 namespace track {
 
 // Plans a track between two anchors without changing anything.
-TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const TrackAnchor& to);
+TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const TrackAnchor& to,
+               const TrackOptions& options = {});
 // Builds a plan made by plan() for the same world state; returns the new edges in order.
-std::vector<TrackEdgeId> build(World& w, CompanyId company, const TrackPlan& plan, TrackKind kind = TrackKind::Plain);
-// Removes an edge, its exclusive tiles and any nodes left without edges.
+std::vector<TrackEdgeId> build(World& w, CompanyId company, const TrackPlan& plan);
+// Removes an edge, its exclusive tiles and any nodes left without edges (and a platform's
+// station tiles).
 void remove(World& w, TrackEdgeId id);
+i32 halfWidthOf(TrackKind kind);
+
+// A straight, level station platform from `from` towards `to` (snapped onto the start's line).
+TrackPlan planPlatform(const World& w, CompanyId company, const TrackAnchor& from, TPoint to);
+// Builds a planned platform and adds it to a nearby station of the company (or a new one).
+StationId buildPlatform(World& w, CompanyId company, const TrackPlan& plan);
+// A depot at the open end (side) of a node.
+TrackPlan planDepot(const World& w, CompanyId company, TrackNodeId node);
+// Where a depot's building stands and which way its doors face, for a planned stub.
+TPoint depotBuildingPos(const TrackPlan& plan);
+TDir depotFacing(const TrackPlan& plan);
+
+// Graph walking.
+TrackNodeId runEnd(const World& w, EdgeRun r);   // the node a run leads to
+TrackNodeId runStart(const World& w, EdgeRun r); // the node a run comes from
+u8 runEndSide(const World& w, EdgeRun r);        // the side of runEnd the run arrives through
+// Runs that continue from the end of `r` through its end node.
+std::vector<EdgeRun> continuations(const World& w, EdgeRun r);
+// Rail height and position `distance` units into a run.
+TrackSample pointOn(const TrackEdge& e, bool forward, i32 distance);
+// Whether a train may take an edge: free (or its own) and no switch sibling held by another.
+bool reservable(const World& w, TrackEdgeId e, VehicleId train);
+bool hasPlatform(const World& w, StationId s);
 
 void computeSamples(const World& w, TrackEdge& e);
 // Recomputes samples and the tile index (after loading).
