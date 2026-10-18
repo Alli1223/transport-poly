@@ -82,6 +82,12 @@ Press **F5** in a game to write `saves/quicksave.tpsave`; load it through the
 normal load menu. In multiplayer the host saves the game. Monthly autosaves
 continue independently.
 
+The sky has weather that changes from day to day, the same for every player:
+clouds drift over the land with the wind and cast moving shadows, overcast days
+dim the sun and grey the sky, and humid mornings fill the valleys with mist
+that thins as the sun climbs. Zoom out to see the clouds themselves. Turn it off
+with **Weather effects** in Settings.
+
 Click the clock in the top bar to toggle **Always daylight**. Lighting stays at
 midday while the simulation clock and citizens' schedules continue normally.
 Click again to restore the day / night cycle. This preference is local to the

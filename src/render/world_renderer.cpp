@@ -111,6 +111,59 @@ ModelId vehicleModelId(const VehicleModel& m) {
 
 } // namespace
 
+namespace {
+
+// C++ twins of the shaders' weather noise, to place the clouds where the shadows fall.
+float hash12(glm::vec2 p) {
+    glm::vec3 p3 = glm::fract(glm::vec3(p.x, p.y, p.x) * 0.1031f);
+    p3 += glm::dot(p3, glm::vec3(p3.y, p3.z, p3.x) + 33.33f);
+    return glm::fract((p3.x + p3.y) * p3.z);
+}
+
+float weatherNoise(glm::vec2 p) {
+    const glm::vec2 i = glm::floor(p), f = p - i;
+    const glm::vec2 u = f * f * (3.0f - 2.0f * f);
+    return glm::mix(glm::mix(hash12(i), hash12(i + glm::vec2(1, 0)), u.x), glm::mix(hash12(i + glm::vec2(0, 1)), hash12(i + glm::vec2(1, 1)), u.x), u.y);
+}
+
+float cloudField(glm::vec2 world, glm::vec2 drift, float cover) {
+    const glm::vec2 p = (world + drift) / 90.0f;
+    const float n = weatherNoise(p) * 0.55f + weatherNoise(p * 2.13f + 7.3f) * 0.3f + weatherNoise(p * 4.37f + 1.7f) * 0.15f;
+    const float edge = 1.0f - cover * 0.75f;
+    return glm::smoothstep(edge, edge + 0.16f, n);
+}
+
+// Smooth noise over time (days), in [0, 1].
+float timeNoise(u64 seed, u32 salt, double t) {
+    const double i = std::floor(t);
+    const float f = static_cast<float>(t - i);
+    const auto at = [&](double k) {
+        return static_cast<float>(hashCoords(seed, static_cast<i32>(static_cast<i64>(k)), 0, salt) >> 8) / 16777216.0f;
+    };
+    const float u = f * f * (3.0f - 2.0f * f);
+    return glm::mix(at(i), at(i + 1.0), u);
+}
+
+constexpr float kCloudHeight = 46.0f;
+
+} // namespace
+
+Weather computeWeather(u64 seed, double gameDays, double minuteOfDay) {
+    Weather w;
+    // Cloud cover drifts over a few days between clear spells and grey ones.
+    const float c = timeNoise(seed, 0xC10D, gameDays / 1.6) * 0.65f + timeNoise(seed, 0xC10E, gameDays / 0.45) * 0.35f;
+    w.cover = glm::clamp((c - 0.22f) * 1.5f, 0.0f, 1.0f);
+    // Mist on humid mornings, thinning as the sun climbs; a little in the evening too.
+    const float humid = timeNoise(seed, 0x0157, gameDays / 1.1);
+    const float hour = static_cast<float>(std::fmod(minuteOfDay, 1440.0) / 60.0);
+    const float morning = glm::smoothstep(3.5f, 6.0f, hour) * (1.0f - glm::smoothstep(7.0f, 10.5f, hour));
+    const float evening = glm::smoothstep(19.0f, 22.0f, hour) * 0.35f + (1.0f - glm::smoothstep(1.0f, 4.0f, hour)) * 0.35f;
+    w.mist = glm::clamp((humid - 0.35f) * 1.6f, 0.0f, 1.0f) * std::max(morning, evening) * 0.6f + w.cover * 0.06f;
+    const float angle = timeNoise(seed, 0x3171, gameDays / 4.0) * 6.2831853f * 2.0f;
+    w.wind = glm::vec2(std::cos(angle), std::sin(angle));
+    return w;
+}
+
 SkyState computeSky(double minuteOfDay) {
     SkyState s;
     const float dayFrac = static_cast<float>(std::fmod(minuteOfDay, 1440.0) / 1440.0);
@@ -137,11 +190,12 @@ bool WorldRenderer::init() {
     modelShader_ = Shader::create("model", shaders::modelVS(), shaders::modelFS());
     waterShader_ = Shader::create("water", shaders::waterVS(), shaders::waterFS());
     skyShader_ = Shader::create("sky", shaders::skyVS(), shaders::skyFS());
+    cloudShader_ = Shader::create("cloud", shaders::cloudVS(), shaders::cloudFS());
     shadowStaticShader_ = Shader::create("shadow-static", shaders::shadowStaticVS(), shaders::shadowFS());
     shadowModelShader_ = Shader::create("shadow-model", shaders::shadowModelVS(), shaders::shadowFS());
     overlayShader_ = Shader::create("overlay", shaders::overlayVS(), shaders::overlayFS());
     if (!terrainShader_ || !modelShader_ || !waterShader_ || !skyShader_ || !shadowStaticShader_ ||
-        !shadowModelShader_ || !overlayShader_)
+        !shadowModelShader_ || !overlayShader_ || !cloudShader_)
         return false;
 
     for (const Shader* s : {&*terrainShader_, &*modelShader_, &*waterShader_}) {
@@ -592,6 +646,26 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     const glm::mat4 proj = cam.projectionMatrix();
     const glm::mat4 viewProj = proj * view;
     sky_ = computeSky(minuteOfDay);
+    // Weather: the world's, or a fixed one for automation. Overcast skies dim the sun, lift the
+    // shade and wash the colour out of the sky.
+    weather_ = computeWeather(world.settings.seed, static_cast<double>(world.clock.tick) / kTicksPerDay, minuteOfDay);
+    if (settings.forceCloudCover >= 0.0f) weather_.cover = settings.forceCloudCover;
+    if (settings.forceMist >= 0.0f) weather_.mist = settings.forceMist;
+    if (!settings.weather) weather_ = {};
+    {
+        const float dt = lastSeconds_ < 0.0 ? 0.0f : static_cast<float>(std::clamp(timeSeconds - lastSeconds_, 0.0, 0.25));
+        lastSeconds_ = timeSeconds;
+        cloudDrift_ += weather_.wind * (1.6f + 2.4f * weather_.cover) * dt;
+        // Mist fills the low ground around the view: below the land the camera looks at.
+        const float ground = static_cast<float>(cam.target.y) + 0.6f;
+        mistLevel_ = lastSeconds_ == timeSeconds && dt == 0.0f ? ground : mistLevel_ + (ground - mistLevel_) * std::min(1.0f, dt * 0.8f);
+        const float cover2 = weather_.cover * weather_.cover;
+        sky_.sunStrength *= 1.0f - 0.62f * cover2;
+        const auto grey = [&](glm::vec3 c, float k) { return glm::mix(c, glm::vec3(glm::dot(c, glm::vec3(0.3f, 0.59f, 0.11f))), k); };
+        sky_.zenith = grey(sky_.zenith, weather_.cover * 0.6f);
+        sky_.horizon = grey(sky_.horizon, weather_.cover * 0.45f);
+        sky_.ambientSky = glm::mix(sky_.ambientSky, sky_.ambientSky * 1.22f, cover2);
+    }
     track_.sync(world);
 
     // --- Determine visible chunks, building meshes nearest first -------------------------
@@ -754,6 +828,8 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     const float fogEnd = static_cast<float>(viewRadius) - kChunkSize * 0.75f;
     fu.fogParams = glm::vec4(fogEnd * 0.5f, fogEnd, focus.x, focus.z);
     fu.shadowParams = glm::vec4(shadowTexel, 0.0006f, shadows ? 1.0f : 0.0f, 0.04f);
+    fu.weather = glm::vec4(weather_.cover, weather_.mist, cloudDrift_.x, cloudDrift_.y);
+    fu.origin = glm::vec4(static_cast<float>(origin.x), kCloudHeight, static_cast<float>(origin.z), mistLevel_);
     glBindBuffer(GL_UNIFORM_BUFFER, frameUbo_.get());
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(FrameUniforms), &fu);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
@@ -824,6 +900,42 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
         c->water.draw();
     }
     glDepthMask(GL_TRUE);
+
+    // Clouds: low poly puffs where the cloud field is thick, drifting with the wind. They show
+    // once the camera is well above the land, fading in as it rises, and are skipped above it.
+    if (weather_.cover > 0.02f && cam.distance > 80.0) {
+        clouds_.clear();
+        const float fade = static_cast<float>(glm::smoothstep(80.0, 170.0, cam.distance));
+        constexpr float kCell = 26.0f;
+        const glm::vec2 centre(static_cast<float>(cam.target.x), static_cast<float>(cam.target.z));
+        const float reach = static_cast<float>(viewRadius);
+        // Cells in drifting cloud space, so each puff keeps its place in the field as it moves.
+        const glm::vec2 lo = glm::floor((centre - reach + cloudDrift_) / kCell), hi = glm::floor((centre + reach + cloudDrift_) / kCell);
+        for (float cy = lo.y; cy <= hi.y; cy += 1.0f)
+            for (float cx = lo.x; cx <= hi.x; cx += 1.0f) {
+                const float h = hash12(glm::vec2(cx, cy) * 1.7f + 0.3f);
+                const glm::vec2 inCloud = (glm::vec2(cx, cy) + glm::vec2(0.25f + h * 0.5f, 0.75f - h * 0.5f)) * kCell;
+                const glm::vec2 at = inCloud - cloudDrift_;
+                if (glm::length(at - centre) > reach) continue;
+                const float density = cloudField(at, cloudDrift_, weather_.cover);
+                if (density < 0.3f) continue;
+                const float y = kCloudHeight + h * 6.0f;
+                if (y > static_cast<float>(cam.eye().y) - 6.0f) continue;
+                const float scale = 5.0f + density * 7.0f + h * 3.0f;
+                ModelInstance inst = makeInstance(glm::vec3(at.x - static_cast<float>(origin.x), y, at.y - static_cast<float>(origin.z)),
+                                                  h * 6.2831853f, scale);
+                inst.tint = rgba(255, 255, 255, static_cast<u8>(std::clamp(fade * (0.45f + 0.45f * density), 0.0f, 1.0f) * 255.0f));
+                clouds_.add(static_cast<ModelId>(models::kCloud0 + static_cast<int>(h * 3.0f) % 3), inst);
+            }
+        clouds_.upload();
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+        glEnable(GL_CULL_FACE);
+        cloudShader_->use();
+        clouds_.draw(models_);
+        glDepthMask(GL_TRUE);
+    }
 
     // Overlays
     if (!overlays.empty()) {

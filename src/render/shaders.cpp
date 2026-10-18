@@ -17,9 +17,30 @@ layout(std140) uniform FrameData {
     vec4 uAmbientGround;
     vec4 uFogParams;     // x: fog start, y: fog end, zw: fog centre (xz)
     vec4 uShadowParams;  // x: texel size, y: depth bias, z: enabled, w: normal offset
+    vec4 uWeather;       // x: cloud cover (0-1), y: mist, zw: cloud drift (world units)
+    vec4 uOrigin;        // xz: render origin in the world, y: height of the cloud layer, w: mist level
 };
 vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
 vec3 toSrgb(vec3 c) { return pow(max(c, vec3(0.0)), vec3(1.0 / 2.2)); }
+
+// Weather noise; the renderer mirrors these functions to place the clouds that cast the shadows.
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+float valueNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+// Cloud density over the world (absolute xz), 0 = clear sky, 1 = thick cloud.
+float cloudField(vec2 world) {
+    vec2 p = (world + uWeather.zw) / 90.0;
+    float n = valueNoise(p) * 0.55 + valueNoise(p * 2.13 + 7.3) * 0.3 + valueNoise(p * 4.37 + 1.7) * 0.15;
+    float edge = 1.0 - uWeather.x * 0.75;
+    return smoothstep(edge, edge + 0.16, n);
+}
 )";
 
 const char* const kLighting = R"(
@@ -36,13 +57,29 @@ float shadowFactor(vec3 worldPos, vec3 n) {
             s += texture(uShadowMap, vec3(p.xy + vec2(x, y) * t, p.z - uShadowParams.y));
     return s / 9.0;
 }
+// Shadow of the cloud layer: look up the clouds where the ray towards the sun crosses it.
+float cloudShadow(vec3 worldPos) {
+    if (uWeather.x <= 0.001) return 1.0;
+    float rise = max(uOrigin.y - worldPos.y, 0.0);
+    vec2 at = worldPos.xz + uOrigin.xz + uSunDir.xz / max(uSunDir.y, 0.25) * rise;
+    return 1.0 - cloudField(at) * 0.6;
+}
 vec3 litColor(vec3 albedo, vec3 n, vec3 worldPos) {
     float ndl = max(dot(n, uSunDir.xyz), 0.0);
-    float sh = ndl > 0.0 ? shadowFactor(worldPos, n) : 0.0;
+    float sh = ndl > 0.0 ? shadowFactor(worldPos, n) * cloudShadow(worldPos) : 0.0;
     vec3 ambient = mix(uAmbientGround.rgb, uAmbientSky.rgb, n.y * 0.5 + 0.5);
     return albedo * (ambient + uSunColor.rgb * (ndl * sh * uSunDir.w));
 }
 vec3 applyFog(vec3 c, vec3 worldPos) {
+    // Mist settles in low ground and in patches, thicker the further it is seen through.
+    if (uWeather.y > 0.001) {
+        float eye = length(worldPos - uCameraPos.xyz);
+        float low = exp(-max(worldPos.y - uOrigin.w, 0.0) * 0.32);
+        float patches = 0.55 + 0.9 * valueNoise((worldPos.xz + uOrigin.xz + uWeather.zw * 0.35) / 46.0);
+        float mist = clamp(uWeather.y * low * patches * (1.0 - exp(-eye * 0.014)), 0.0, 0.88);
+        vec3 mistColor = mix(uHorizonColor.rgb, uSunColor.rgb * 0.75 + uAmbientSky.rgb * 0.6, 0.45);
+        c = mix(c, mistColor, mist);
+    }
     float d = length(worldPos.xz - uFogParams.zw);
     float f = clamp((d - uFogParams.x) / max(uFogParams.y - uFogParams.x, 1.0), 0.0, 1.0);
     return mix(c, uHorizonColor.rgb, f * f * (3.0 - 2.0 * f));
@@ -211,7 +248,55 @@ void main() {
     if (dir.y < 0.0) c = uHorizonColor.rgb;
     float sd = dot(dir, uSunDir.xyz);
     c += uSunColor.rgb * (smoothstep(0.9988, 0.9995, sd) * 1.5 + pow(max(sd, 0.0), 24.0) * 0.2) * uSunDir.w;
+    if (dir.y > 0.02 && uWeather.x > 0.001) {
+        // The cloud layer seen from below, fading towards the horizon.
+        vec2 at = uOrigin.xz + uCameraPos.xz + dir.xz / dir.y * max(uOrigin.y - uCameraPos.y, 20.0) * 2.0;
+        float cloud = cloudField(at) * smoothstep(0.02, 0.25, dir.y);
+        vec3 lit = uAmbientSky.rgb * 1.3 + uSunColor.rgb * uSunDir.w * (0.55 + 0.45 * max(sd, 0.0));
+        c = mix(c, lit, cloud * 0.85);
+    }
     fragColor = vec4(toSrgb(c), 1.0);
+}
+)"});
+}
+
+std::string cloudVS() {
+    return join({kHeader, R"(
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec4 aNormal;
+layout(location = 2) in vec4 aColor;
+layout(location = 3) in vec4 iRow0;
+layout(location = 4) in vec4 iRow1;
+layout(location = 5) in vec4 iRow2;
+layout(location = 6) in vec4 iTint;
+out vec3 vWorldPos;
+out vec3 vNormal;
+out float vAlpha;
+void main() {
+    vec4 p = vec4(aPos, 1.0);
+    vec3 wp = vec3(dot(iRow0, p), dot(iRow1, p), dot(iRow2, p));
+    vNormal = normalize(vec3(dot(iRow0.xyz, aNormal.xyz), dot(iRow1.xyz, aNormal.xyz), dot(iRow2.xyz, aNormal.xyz)));
+    vAlpha = iTint.a;
+    vWorldPos = wp;
+    gl_Position = uViewProj * vec4(wp, 1.0);
+}
+)"});
+}
+
+std::string cloudFS() {
+    return join({kHeader, R"(
+in vec3 vWorldPos;
+in vec3 vNormal;
+in float vAlpha;
+out vec4 fragColor;
+void main() {
+    vec3 n = normalize(vNormal);
+    float ndl = max(dot(n, uSunDir.xyz), 0.0);
+    // Bright tops, soft grey undersides, warm at sunrise and sunset.
+    vec3 c = toLinear(vec3(0.97, 0.98, 1.0)) * (uAmbientSky.rgb * 1.2 + uAmbientGround.rgb * 0.4 * (1.0 - n.y)) +
+             uSunColor.rgb * uSunDir.w * (0.35 + 0.65 * ndl);
+    c = mix(c, uHorizonColor.rgb, 0.18);
+    fragColor = vec4(toSrgb(c), vAlpha);
 }
 )"});
 }

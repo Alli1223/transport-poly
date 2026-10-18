@@ -26,7 +26,18 @@ struct RenderSettings {
     float maxViewDistance = 460.0f; // tiles
     int meshBuildsPerFrame = 6;
     bool wireframe = false;
+    bool weather = true;        // clouds, cloud shadows and mist
+    float forceCloudCover = -1; // automation: fixed weather instead of the world's (when >= 0)
+    float forceMist = -1;
 };
+
+// The sky's weather: it changes slowly from day to day, the same for every player of a world.
+struct Weather {
+    float cover = 0.0f;   // cloud cover, 0 = clear, 1 = overcast
+    float mist = 0.0f;    // valley mist, strongest around dawn
+    glm::vec2 wind{1, 0}; // direction the clouds drift
+};
+Weather computeWeather(u64 seed, double gameDays, double minuteOfDay);
 
 struct RenderStats {
     int chunksVisible = 0;
@@ -104,6 +115,8 @@ private:
         glm::vec4 ambientGround;
         glm::vec4 fogParams;
         glm::vec4 shadowParams;
+        glm::vec4 weather;
+        glm::vec4 origin;
     };
 
     struct DrawLists {
@@ -118,7 +131,12 @@ private:
     void collectVehicles(const World& world, const glm::dvec3& origin, const glm::dvec3& focus, double radius,
                          double tickFraction);
 
-    std::optional<Shader> terrainShader_, modelShader_, waterShader_, skyShader_;
+    std::optional<Shader> terrainShader_, modelShader_, waterShader_, skyShader_, cloudShader_;
+    InstanceBatch clouds_;
+    glm::vec2 cloudDrift_{0.0f};
+    float mistLevel_ = 0.0f; // mist settles below about this height (eases after the camera)
+    double lastSeconds_ = -1.0;
+    Weather weather_;
     std::optional<Shader> shadowStaticShader_, shadowModelShader_, overlayShader_;
     ModelLibrary models_;
     Buffer frameUbo_;

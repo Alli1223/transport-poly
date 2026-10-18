@@ -51,7 +51,8 @@ inline constexpr ModelId kTreePalm0 = kEffectBase + 8; // two variants each
 inline constexpr ModelId kTreeCactus0 = kEffectBase + 10;
 inline constexpr ModelId kTreeAcacia0 = kEffectBase + 12;
 inline constexpr ModelId kShrub0 = kEffectBase + 14;
-inline constexpr ModelId kCount = kEffectBase + 16;
+inline constexpr ModelId kCloud0 = kEffectBase + 16; // three variants, unit size
+inline constexpr ModelId kCount = kEffectBase + 19;
 
 constexpr ModelId building(u16 type, u8 variant) {
     return static_cast<ModelId>(kBuildingBase + type * kBuildingVariants + variant % kBuildingVariants);

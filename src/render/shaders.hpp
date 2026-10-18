@@ -13,6 +13,8 @@ std::string waterVS();
 std::string waterFS();
 std::string skyVS();
 std::string skyFS();
+std::string cloudVS();
+std::string cloudFS();
 std::string shadowStaticVS();
 std::string shadowModelVS();
 std::string shadowFS();

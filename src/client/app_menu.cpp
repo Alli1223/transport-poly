@@ -647,6 +647,7 @@ void App::applyPreferences() {
     audio_.setEnabled(preferences_.sounds);
     preferences_.clamp();
     renderer_.settings.shadows = preferences_.shadows;
+    renderer_.settings.weather = preferences_.weather;
     renderer_.settings.maxViewDistance = static_cast<float>(preferences_.viewDistance);
     daylightOnly_ = preferences_.daylightOnly;
     glfwSwapInterval(preferences_.vsync ? 1 : 0);
@@ -665,6 +666,7 @@ void App::drawSettings() {
         if (ImGui::BeginTabBar("##settingsTabs")) {
             if (ImGui::BeginTabItem("Graphics")) {
                 changed |= ImGui::Checkbox("Shadows", &preferences_.shadows);
+                changed |= ImGui::Checkbox("Weather effects (clouds, cloud shadows and mist)", &preferences_.weather);
                 changed |= ImGui::Checkbox("VSync", &preferences_.vsync);
                 changed |= ImGui::SliderInt("View distance", &preferences_.viewDistance, 120, 900, "%d tiles");
                 changed |= ImGui::Checkbox("Always daylight", &preferences_.daylightOnly);

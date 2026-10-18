@@ -101,6 +101,20 @@ void buildShrub(MeshBuilder& mb, int variant) {
     mb.icosphere({-0.08f, 0.05f, -0.06f}, 0.09f, shade(g, 1.08f), 0, 0.7f);
 }
 
+void buildCloud(MeshBuilder& mb, int variant) {
+    // A flat-bottomed heap of puffs, about one unit across.
+    const u32 white = rgba(250, 251, 255);
+    struct Puff {
+        float x, y, z, r;
+    };
+    static constexpr Puff kPuffs[3][6] = {
+        {{0, 0.1f, 0, 0.42f}, {0.38f, 0.05f, 0.08f, 0.3f}, {-0.36f, 0.04f, -0.05f, 0.32f}, {0.1f, 0.28f, 0.05f, 0.3f}, {-0.12f, 0.02f, 0.3f, 0.26f}, {0.2f, 0.02f, -0.3f, 0.24f}},
+        {{0, 0.08f, 0, 0.36f}, {0.42f, 0.04f, 0, 0.34f}, {0.78f, 0.02f, 0.06f, 0.24f}, {-0.36f, 0.04f, 0.04f, 0.28f}, {0.22f, 0.24f, 0.02f, 0.26f}, {-0.05f, 0.02f, -0.26f, 0.22f}},
+        {{0, 0.12f, 0, 0.46f}, {0.3f, 0.3f, 0.1f, 0.3f}, {-0.32f, 0.06f, 0.2f, 0.3f}, {0.4f, 0.04f, -0.22f, 0.28f}, {-0.4f, 0.02f, -0.25f, 0.26f}, {0.02f, 0.02f, 0.42f, 0.24f}},
+    };
+    for (const Puff& p : kPuffs[variant % 3]) mb.icosphere({p.x, p.y, p.z}, p.r, white, 1, 0.62f);
+}
+
 } // namespace
 
 void ModelLibrary::build() {
@@ -134,6 +148,11 @@ void ModelLibrary::build() {
         make(models::kTreeCactus0, buildCactus);
         make(models::kTreeAcacia0, buildAcacia);
         make(models::kShrub0, buildShrub);
+    }
+    for (int v = 0; v < 3; ++v) {
+        MeshBuilder mb;
+        buildCloud(mb, v);
+        add(static_cast<ModelId>(models::kCloud0 + v), mb);
     }
     for (const ModelId id : {models::kBusStop, models::kRoadDepot, models::kTramDepot, models::kPerson,
                              models::kRailDepot, models::kSignal, models::kPlatformCanopy, models::kDock,

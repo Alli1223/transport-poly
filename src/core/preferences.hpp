@@ -25,6 +25,7 @@ struct ClientPreferences {
     int lakes = 2;
     int rivers = 2;
     int climate = 0;
+    bool weather = true; // clouds, cloud shadows and mist
     void clamp();
     bool load(const std::filesystem::path& path);
     bool save(const std::filesystem::path& path) const;

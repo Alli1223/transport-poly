@@ -22,7 +22,7 @@ bool ClientPreferences::load(const std::filesystem::path& path) {
     std::ifstream in(path);
     ClientPreferences candidate;
     int version = 0;
-    if (!(in >> version) || (version < 1 || version > 5) ||
+    if (!(in >> version) || (version < 1 || version > 6) ||
         !(in >> candidate.shadows >> candidate.vsync >> candidate.daylightOnly >> candidate.viewDistance >>
           candidate.panPercent >> candidate.orbitPercent >> candidate.zoomPercent >> candidate.autosaveMonths >>
           candidate.startYear >> candidate.interestPercent)) return false;
@@ -30,6 +30,7 @@ bool ClientPreferences::load(const std::filesystem::path& path) {
     if (version >= 3 && !(in >> candidate.sounds >> candidate.aiCompetitors)) return false;
     if (version >= 4 && !(in >> candidate.landmass >> candidate.mountains >> candidate.lakes >> candidate.rivers)) return false;
     if (version >= 5 && !(in >> candidate.climate)) return false;
+    if (version >= 6 && !(in >> candidate.weather)) return false;
     candidate.clamp();
     *this = candidate;
     return true;
@@ -38,10 +39,10 @@ bool ClientPreferences::save(const std::filesystem::path& path) const {
     ClientPreferences p = *this;
     p.clamp();
     std::ofstream out(path, std::ios::trunc);
-    out << 5 << '\n' << p.shadows << ' ' << p.vsync << ' ' << p.daylightOnly << ' ' << p.viewDistance << ' '
+    out << 6 << '\n' << p.shadows << ' ' << p.vsync << ' ' << p.daylightOnly << ' ' << p.viewDistance << ' '
         << p.panPercent << ' ' << p.orbitPercent << ' ' << p.zoomPercent << ' ' << p.autosaveMonths << ' '
         << p.startYear << ' ' << p.interestPercent << ' ' << p.inflation << ' ' << p.recessions << ' ' << p.sounds << ' ' << p.aiCompetitors << ' '
-        << p.landmass << ' ' << p.mountains << ' ' << p.lakes << ' ' << p.rivers << ' ' << p.climate << '\n';
+        << p.landmass << ' ' << p.mountains << ' ' << p.lakes << ' ' << p.rivers << ' ' << p.climate << ' ' << p.weather << '\n';
     out.flush();
     return static_cast<bool>(out);
 }

@@ -459,7 +459,7 @@ bool App::parseArgs(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (arg != "--no-debug" && arg != "--screenshot" && arg != "--frames" && arg != "--time" && arg != "--open" &&
-            arg != "--land" && arg != "--climate" && arg != "--mountains" && arg != "--lakes" && arg != "--rivers")
+            arg != "--land" && arg != "--climate" && arg != "--clouds" && arg != "--mist" && arg != "--mountains" && arg != "--lakes" && arg != "--rivers")
             directStart_ = true;
         const auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : nullptr; };
         if (arg == "--screenshot") {
@@ -486,6 +486,10 @@ bool App::parseArgs(int argc, char** argv) {
             // New world terrain: --land continents|mainland|islands|archipelago|island,
             // --mountains 0-4, --lakes 0-4, --rivers 0-3.
             if (const char* v = next(); v && landmassByKey(v)) preferences_.landmass = static_cast<int>(*landmassByKey(v));
+        } else if (arg == "--clouds" || arg == "--mist") {
+            // Automation: fixed weather, 0-1 (--clouds is cloud cover).
+            if (const char* v = next())
+                (arg == "--clouds" ? renderer_.settings.forceCloudCover : renderer_.settings.forceMist) = static_cast<float>(std::atof(v));
         } else if (arg == "--climate") {
             if (const char* v = next(); v && climateByKey(v)) preferences_.climate = static_cast<int>(*climateByKey(v));
         } else if (arg == "--mountains" || arg == "--lakes" || arg == "--rivers") {
@@ -566,6 +570,7 @@ bool App::init() {
     preferences_.load("settings.cfg");
     audio_.setEnabled(preferences_.sounds);
     renderer_.settings.shadows = preferences_.shadows;
+    renderer_.settings.weather = preferences_.weather;
     renderer_.settings.maxViewDistance = static_cast<float>(preferences_.viewDistance);
     daylightOnly_ = preferences_.daylightOnly;
     glfwSetErrorCallback(glfwErrorCallback);
