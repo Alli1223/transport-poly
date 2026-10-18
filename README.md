@@ -89,17 +89,33 @@ client, including in multiplayer.
 Building windows and town street lamps light up at dusk and fade back to their
 daytime appearance at dawn.
 
-Build a straight road across straight railway track (or railway across a road)
-on flat land to create a level crossing. Road traffic waits at red crossing lights
-while a train has reserved the track; trains wait for road vehicles to clear.
-Use the road or rail removal tool to remove only that layer. Tram tracks, signals
-and stops cannot be added on a crossing.
+The land rolls in smooth hills and mountains. The landscaping toolbar's brush
+raises, lowers, levels and smooths it with a soft edge; pick the brush size in
+the tool's panel.
 
-The railway toolbar has separate **Path signal** and **Block signal** tools.
-Path signals reserve the chosen route through a junction. Block signals wait
-until all connected branches ahead are clear, up to the next signals. Click
-again with the same tool to cycle two-way, one-way, reversed and removed;
-selecting the other signal tool changes the type while preserving its direction.
+Railways are free-form, in the style of Transport Fever. With the **Track** tool,
+click to start and click again to lay a curved piece; the next piece carries on
+from its end. Start on a track or station end to continue it (or to branch off
+through a switch), and finish on one to join up. The planner keeps to a minimum
+curve radius and a gentle gradient, and shapes the ground under the track into a
+level bed with embankments and cuttings. Where the rails would run high above the
+ground, or over water, roads and other railways, the track goes onto a bridge;
+deep under a hill it goes through a tunnel. The preview colours bridges blue and
+tunnels purple, and its tooltip gives the cost, including earthworks. **Remove**
+takes away the piece of track under the pointer.
+
+**Station** places a straight platform at any angle: click where it starts (on a
+track end to line it up) and again to set its length. While placing, a ghost shows
+the platform and the reshaped ground, with the cost of levelling it. **Depot** goes
+on an open track end. **Signal** adds path signals where track joins track; click
+again for one-way (either direction) and once more to remove them. Trains reserve
+their route from signal to signal, slow for curves and climbs, and reverse at
+terminus platforms.
+
+Track can cross a straight road on the level. The road traffic waits while a train
+holds the track over the crossing, and trains wait for road vehicles to clear it.
+Roads cannot branch off or be removed at a crossing; remove the track first.
+Saves from before free-form track keep their grid railways running.
 
 In the water toolbar, drag **Canal** over clear, level land at sea level to make
 it navigable. Use the landscaping tools to lower the terrain first. **Reclaim**
@@ -107,7 +123,7 @@ turns water into clear land; it protects ships, active sailing steps and dock /
 shipyard berths. Canals have company ownership and monthly maintenance. Raised
 waterways and locks are not yet implemented.
 
-Road and rail toolbars include **Bridge**, **Tunnel** and **Remove span**.
+The road toolbar includes **Bridge**, **Tunnel** and **Remove span**.
 Drag a straight span between clear, flat ends at the same height (3–64 tiles).
 Bridge interiors need lower terrain; tunnel interiors need higher terrain.
 Water under bridges remains navigable, with at least three height levels of

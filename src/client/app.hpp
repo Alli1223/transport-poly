@@ -48,9 +48,7 @@ enum class Tool {
     Canal,
     ReclaimWater,
     RoadBridge,
-    RailBridge,
     RoadTunnel,
-    RailTunnel,
     RemoveSpan,
     PickOrder, // click a station to append it to the selected vehicle's orders
 };

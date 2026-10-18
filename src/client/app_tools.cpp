@@ -25,18 +25,14 @@ namespace {
 bool isDragTool(Tool t) {
     return t == Tool::Road || t == Tool::RemoveRoad || t == Tool::TramTrack || t == Tool::RemoveTram ||
            t == Tool::Clear || t == Tool::Trees || t == Tool::Canal || t == Tool::ReclaimWater ||
-           t == Tool::RoadBridge || t == Tool::RailBridge || t == Tool::RoadTunnel || t == Tool::RailTunnel;
+           t == Tool::RoadBridge || t == Tool::RoadTunnel;
 }
 
 // Tools dragged along a straight line.
 bool isRoadLikeTool(Tool t) {
     return t == Tool::Road || t == Tool::RemoveRoad || t == Tool::TramTrack || t == Tool::RemoveTram ||
-           t == Tool::RailStation || t == Tool::RoadBridge || t == Tool::RailBridge ||
-           t == Tool::RoadTunnel || t == Tool::RailTunnel;
+           t == Tool::RoadBridge || t == Tool::RoadTunnel;
 }
-
-// Tools dragged along a planned rail line (straight, then diagonal).
-bool isRailLineTool(Tool) { return false; }
 
 TilePos straighten(TilePos a, TilePos b) {
     return std::abs(b.x - a.x) >= std::abs(b.y - a.y) ? TilePos{b.x, a.y} : TilePos{a.x, b.y};
@@ -78,15 +74,10 @@ std::optional<CommandPayload> App::dragCommand(TilePos a, TilePos b) const {
     case Tool::RemoveTram: return CmdRemoveRoad{a, straighten(a, b), true};
     case Tool::Clear: return CmdClearArea{a, b};
     case Tool::Trees: return CmdPlantTrees{a, b};
-    case Tool::RailTrack: return CmdBuildRail{a, b};
-    case Tool::RemoveRail: return CmdRemoveRail{a, b};
-    case Tool::RailStation: return CmdBuildRailStation{a, straighten(a, b)};
     case Tool::Canal: return CmdEditWater{a, b, true};
     case Tool::ReclaimWater: return CmdEditWater{a, b, false};
     case Tool::RoadBridge: return CmdBuildSpan{a, straighten(a, b), false, false};
-    case Tool::RailBridge: return CmdBuildSpan{a, straighten(a, b), true, false};
     case Tool::RoadTunnel: return CmdBuildSpan{a, straighten(a, b), false, true};
-    case Tool::RailTunnel: return CmdBuildSpan{a, straighten(a, b), true, true};
     default: return std::nullopt;
     }
 }
@@ -215,30 +206,17 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
         const TilePos b = isRoadLikeTool(tool_) ? straighten(a, hover_.tile) : hover_.tile;
         const auto cmd = dragCommand(a, hover_.tile);
         if (!cmd) return;
-        // Line tools only make sense once dragged (a single click removes all track of a tile).
-        const bool line = isRoadLikeTool(tool_) || isRailLineTool(tool_);
-        const bool needsDrag = line && tool_ != Tool::RailStation && tool_ != Tool::RemoveRail;
-        const CommandResult r = (dragStart_ || !line || tool_ == Tool::RailStation) ? test(*cmd) : CommandResult::success();
+        // Line tools only make sense once dragged.
+        const bool line = isRoadLikeTool(tool_);
+        const CommandResult r = (dragStart_ || !line) ? test(*cmd) : CommandResult::success();
         const u32 color = r.ok ? kOk : kBad;
-        if (tool_ == Tool::RailStation) {
-            std::vector<TilePos> tiles;
-            const TilePos e = straighten(a, b);
-            for (i32 y = std::min(a.y, e.y); y <= std::max(a.y, e.y); ++y)
-                for (i32 x = std::min(a.x, e.x); x <= std::max(a.x, e.x); ++x) tiles.push_back({x, y});
-            addCatchmentOverlay(overlays, tiles, catchmentRadius(StopKind::Rail), gfx::rgba(90, 170, 255, 45));
-        }
-        if (isRailLineTool(tool_)) {
-            addTileOverlay(overlays, a, color);
-            for (const RailStep& st : planRailLine(a, b)) addTileOverlay(overlays, st.tile, color);
-        } else {
-            const i32 x0 = std::min(a.x, b.x), x1 = std::max(a.x, b.x), y0 = std::min(a.y, b.y), y1 = std::max(a.y, b.y);
-            if ((x1 - x0 + 1) * (y1 - y0 + 1) <= 4096)
-                for (i32 y = y0; y <= y1; ++y)
-                    for (i32 x = x0; x <= x1; ++x) addTileOverlay(overlays, {x, y}, color);
-        }
-        if (dragStart_ || tool_ == Tool::RailStation) showResult(r);
+        const i32 x0 = std::min(a.x, b.x), x1 = std::max(a.x, b.x), y0 = std::min(a.y, b.y), y1 = std::max(a.y, b.y);
+        if ((x1 - x0 + 1) * (y1 - y0 + 1) <= 4096)
+            for (i32 y = y0; y <= y1; ++y)
+                for (i32 x = x0; x <= x1; ++x) addTileOverlay(overlays, {x, y}, color);
+        if (dragStart_) showResult(r);
         if (dragStart_ && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-            if (!(needsDrag && a == b)) session_->submit(*cmd);
+            if (!(line && a == b)) session_->submit(*cmd);
             dragStart_.reset();
         }
         return;
@@ -436,7 +414,7 @@ constexpr ToolInfo kTools[] = {
     {Tool::TramDepot, ToolGroup::Tram, ui::Icon::Depot, "Depot", "Build a tram depot next to tram track", false},
     {Tool::RailTrack, ToolGroup::Rail, ui::Icon::Track, "Track",
      "Click to start, click again to lay curved track; it carries on from there. Start on a track end to "
-     "continue it, finish on one to join up",
+     "continue it, finish on one to join up. Bridges, tunnels and level crossings are added where needed",
      false},
     {Tool::RemoveRail, ToolGroup::Rail, ui::Icon::Track, "Remove", "Click a piece of track to remove it", true},
     {Tool::Signal, ToolGroup::Rail, ui::Icon::Signal, "Signal",
@@ -447,7 +425,6 @@ constexpr ToolInfo kTools[] = {
      false},
     {Tool::RailDepot, ToolGroup::Rail, ui::Icon::Depot, "Depot", "Click the open end of a track to put a train depot there",
      false},
-    {Tool::RemoveSpan, ToolGroup::Rail, ui::Icon::Bulldoze, "Remove span", "Remove an entire owned bridge or tunnel", true},
     {Tool::Dock, ToolGroup::Water, ui::Icon::Anchor, "Dock",
      "Build a dock on the shore; ships moor at the water tile in front of it", false},
     {Tool::ShipDepot, ToolGroup::Water, ui::Icon::Shipyard, "Shipyard",

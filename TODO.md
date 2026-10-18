@@ -177,4 +177,4 @@ relies on every peer computing exactly the same game state.
 - [x] 13.5 Stations at any angle with a ghost while placing, automatic ground flattening and its cost
 - [x] 13.6 Trains, depots and signals on the free track network
 - [x] 13.7 Automatic bridges, tunnels and level crossings on free track
-- [ ] 13.8 Retire the grid rail system
+- [x] 13.8 Retire the grid rail system (building tools; old saves keep their grid railways)
