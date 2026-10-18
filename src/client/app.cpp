@@ -314,6 +314,10 @@ void App::captureScreenshot(const std::string& path) {
 }
 
 bool App::init() {
+    preferences_.load("settings.cfg");
+    renderer_.settings.shadows = preferences_.shadows;
+    renderer_.settings.maxViewDistance = static_cast<float>(preferences_.viewDistance);
+    daylightOnly_ = preferences_.daylightOnly;
     glfwSetErrorCallback(glfwErrorCallback);
     if (!glfwInit()) return false;
 
@@ -332,7 +336,7 @@ bool App::init() {
     window_ = glfwCreateWindow(1600, 900, "transport-poly", nullptr, nullptr);
     if (!window_) return false;
     glfwMakeContextCurrent(window_);
-    glfwSwapInterval(1);
+    glfwSwapInterval(preferences_.vsync ? 1 : 0);
     glfwSetWindowUserPointer(window_, this);
     glfwSetScrollCallback(window_, [](GLFWwindow* w, double, double dy) { appFrom(w)->onScroll(dy); });
     glfwSetFramebufferSizeCallback(
@@ -382,6 +386,8 @@ bool App::init() {
 void App::newGame(u64 seed) {
     seed_ = seed;
     WorldSettings settings;
+    settings.startYear = preferences_.startYear;
+    settings.interestPercent = preferences_.interestPercent;
     settings.seed = seed;
     startSession(std::make_unique<LocalSession>(settings));
 }
@@ -431,7 +437,7 @@ void App::updateCamera(double dt) {
     lastMouseY_ = my;
 
     if (!io.WantCaptureKeyboard) {
-        const double speed = camera_.distanceGoal * 1.1 * dt;
+        const double speed = camera_.distanceGoal * 1.1 * dt * preferences_.panPercent / 100.0;
         const auto down = [&](int key) { return glfwGetKey(window_, key) == GLFW_PRESS; };
         double right = 0.0, forward = 0.0;
         if (down(GLFW_KEY_W) || down(GLFW_KEY_UP)) forward += speed;
@@ -442,18 +448,20 @@ void App::updateCamera(double dt) {
             camera_.pan(right, forward);
             followVehicle_ = {};
         }
-        if (down(GLFW_KEY_Q)) camera_.orbit(-1.6 * dt, 0.0);
-        if (down(GLFW_KEY_E)) camera_.orbit(1.6 * dt, 0.0);
-        if (down(GLFW_KEY_R)) camera_.orbit(0.0, 1.0 * dt);
-        if (down(GLFW_KEY_F)) camera_.orbit(0.0, -1.0 * dt);
+        const double orbit = dt * preferences_.orbitPercent / 100.0;
+        if (down(GLFW_KEY_Q)) camera_.orbit(-1.6 * orbit, 0.0);
+        if (down(GLFW_KEY_E)) camera_.orbit(1.6 * orbit, 0.0);
+        if (down(GLFW_KEY_R)) camera_.orbit(0.0, orbit);
+        if (down(GLFW_KEY_F)) camera_.orbit(0.0, -orbit);
         if (down(GLFW_KEY_PAGE_UP)) camera_.zoom(std::pow(0.3, dt));
         if (down(GLFW_KEY_PAGE_DOWN)) camera_.zoom(std::pow(3.0, dt));
     }
     if (!io.WantCaptureMouse) {
-        if (scrollAccum_ != 0.0) camera_.zoom(std::pow(0.85, scrollAccum_));
-        if (glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) camera_.orbit(dx * 0.006, dy * 0.004);
+        if (scrollAccum_ != 0.0) camera_.zoom(std::pow(0.85, scrollAccum_ * preferences_.zoomPercent / 100.0));
+        if (glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS)
+            camera_.orbit(dx * 0.006 * preferences_.orbitPercent / 100.0, dy * 0.004 * preferences_.orbitPercent / 100.0);
         if (glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS) {
-            const double k = camera_.distance * 0.0016;
+            const double k = camera_.distance * 0.0016 * preferences_.panPercent / 100.0;
             camera_.pan(-dx * k, dy * k);
         }
         mouseRay_ = camera_.screenRay(mx * sx, my * sy);
@@ -676,7 +684,11 @@ void App::drawHud() {
          {daylightOnly_ ? "Always daylight" : "Day / night cycle",
           daylightOnly_ ? "Click to restore the day / night cycle. The game clock continues normally."
                         : "Click to keep the world in daylight. The game clock continues normally."}))
+    {
         daylightOnly_ = !daylightOnly_;
+        preferences_.daylightOnly = daylightOnly_;
+        preferences_.save("settings.cfg");
+    }
     if (const Company* co = w.companies.tryGet(session_->localCompany())) {
         separator();
         const std::string money = formatMoney(co->money);
@@ -949,6 +961,7 @@ int App::run(int argc, char** argv) {
                 }
                 if (wants("rail")) toolGroup_ = ToolGroup::Rail;
                 if (wants("water")) toolGroup_ = ToolGroup::Water;
+                if (wants("settings")) showSettings_ = true;
                 if (wants("gamemenu")) showGameMenu_ = true;
                 openWindows_.clear();
             }
@@ -990,6 +1003,7 @@ int App::run(int argc, char** argv) {
                 (fixedTimeOfDay_ ? *fixedTimeOfDay_ : world().clock.exactMinuteOfDay(session_->tickFraction()));
             renderer_.render(world(), camera_, minute, timeSeconds_, session_->tickFraction(), overlays);
         }
+        drawSettings();
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         ++frameCount;

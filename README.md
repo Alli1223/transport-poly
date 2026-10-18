@@ -114,6 +114,11 @@ or livery. Four quarterly checks with negative cash trigger bankruptcy: vehicles
 are liquidated, stops and depots close, and remaining routes become public.
 Returning to a non-negative balance resets the debt-quarter counter.
 
+Open **Settings** from either menu for shadows, view distance, VSync, daylight,
+camera sensitivity and autosave intervals (0 disables autosaving). Save preferences
+to retain them in `settings.cfg`. Starting year and interest apply to new worlds.
+Clicking the clock also remembers the daylight preference.
+
 New worlds include sea-level rivers and lakes. Older saves retain their original
 terrain generator so exploring beyond previously visited chunks remains seamless.
 Companies pay monthly property maintenance for their road and track pieces,

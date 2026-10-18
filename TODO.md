@@ -145,10 +145,10 @@ relies on every peer computing exactly the same game state.
 - [x] 10.10 Integration test: server + 2 clients ⇒ identical hashes
 
 ## M11 — UI
-- [~] 11.1 Dear ImGui integration, theme, font (Roboto font, rounded dark theme)
-- [~] 11.2 Main menu: new game (seed, settings), load, host, join, settings, quit (new / load / host / join / quit; settings later)
+- [x] 11.1 Dear ImGui integration, theme, font (Roboto font, rounded dark theme)
+- [x] 11.2 Main menu: new game (seed, year and interest settings), load, host, join, settings, quit
 - [x] 11.3 Main toolbar, time controls (pause, speeds), date / money display
-- [~] 11.4 Construction toolbars: road, tram, rail, signals, stations, depots, water, terraform, trees, demolish (grouped toolbar: landscaping, road, tram, rail and water tools incl. signals, platforms, docks and depots with previews and cost)
+- [x] 11.4 Construction toolbars: road, tram, rail, signals, stations, depots, water, terraform, trees, demolish (grouped toolbars with bridge / tunnel tools, overlays, previews and cost)
 - [x] 11.5 Depot window: buy vehicles (model list with stats); train consists with carriages
 - [x] 11.6 Vehicle window: status, orders editor, details, follow camera
 - [~] 11.7 Vehicle list per company, filters (basic list)
@@ -158,7 +158,7 @@ relies on every peer computing exactly the same game state.
 - [x] 11.11 News feed and error message popups (news banner + history: first arrivals, new models, town growth, new villages, ageing vehicles)
 - [x] 11.12 Minimap
 - [~] 11.13 Overlays: catchment areas, passenger flow, town zones (catchment areas of open stations and while placing stops; flow / zones later)
-- [ ] 11.14 Settings window: graphics (shadows, view distance), controls, gameplay
+- [x] 11.14 Settings window: graphics (shadows, view distance, VSync, daylight), controls (pan / orbit / zoom sensitivities, shortcuts), gameplay (autosave interval, new-world year / interest); persisted local preferences
 - [ ] 11.15 Citizen inspector (follow an individual person's day)
 
 ## M12 — Polish & release

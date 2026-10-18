@@ -1,6 +1,7 @@
 #pragma once
 
 #include "net/session.hpp"
+#include "core/preferences.hpp"
 #include "render/camera.hpp"
 #include "sim/savegame.hpp"
 #include "render/picking.hpp"
@@ -99,6 +100,8 @@ private:
     void updatePreview(double dt);
     void autosave();
     void quicksave();
+    void drawSettings();
+    void applyPreferences();
     void placeCameraAtStart();
 
     // app_windows.cpp
@@ -134,6 +137,9 @@ private:
     char chatBuf_[256] = "";
     int port_ = 3979;
     bool showGameMenu_ = false;
+    bool showSettings_ = false;
+    ClientPreferences preferences_;
+    std::string settingsError_;
     bool showChat_ = false;
     bool cameraPlaced_ = false;
     std::deque<std::string> chatLines_;

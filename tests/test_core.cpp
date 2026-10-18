@@ -1,4 +1,8 @@
 #include "test.hpp"
+#include "core/preferences.hpp"
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 
 #include "core/calendar.hpp"
 #include "core/fixed.hpp"
@@ -18,6 +22,35 @@
 #include <vector>
 
 using namespace tp;
+
+TEST_CASE("preferences: validated settings round trip and malformed files leave values intact") {
+    const auto path = std::filesystem::temp_directory_path() /
+                      std::format("transport-poly-prefs-{}.cfg", std::chrono::steady_clock::now().time_since_epoch().count());
+    struct Cleanup { std::filesystem::path path; ~Cleanup() { std::error_code ec; std::filesystem::remove(path, ec); } } cleanup{path};
+    ClientPreferences original;
+    original.daylightOnly = true;
+    original.viewDistance = 700;
+    original.panPercent = 180;
+    original.autosaveMonths = 3;
+    REQUIRE(original.save(path));
+    ClientPreferences copy;
+    REQUIRE(copy.load(path));
+    CHECK(copy.daylightOnly);
+    CHECK_EQ(copy.viewDistance, 700);
+    CHECK_EQ(copy.panPercent, 180);
+    CHECK_EQ(copy.autosaveMonths, 3);
+    { std::ofstream out(path); out << "bad settings"; }
+    CHECK(!copy.load(path));
+    CHECK_EQ(copy.viewDistance, 700);
+    original.viewDistance = 99999;
+    original.panPercent = -10;
+    original.autosaveMonths = 99;
+    REQUIRE(original.save(path));
+    REQUIRE(copy.load(path));
+    CHECK_EQ(copy.viewDistance, 900);
+    CHECK_EQ(copy.panPercent, 25);
+    CHECK_EQ(copy.autosaveMonths, 12);
+}
 
 TEST_CASE("math: floorDiv and floorMod") {
     CHECK_EQ(floorDiv(7, 2), 3);

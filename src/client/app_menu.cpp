@@ -236,6 +236,8 @@ void App::drawMainMenu() {
         open(MenuPage::Host);
     if (menuItem("##join", ui::Icon::Globe, "Join a game", "Connect to a friend's server", menuPage_ == MenuPage::Join))
         open(MenuPage::Join);
+    if (menuItem("##settings", ui::Icon::Wrench, "Settings", "Graphics, controls and gameplay preferences", showSettings_))
+        showSettings_ = !showSettings_;
     if (menuItem("##quit", ui::Icon::Power, "Quit", "Back to the desktop", false)) glfwSetWindowShouldClose(window_, 1);
     ImGui::End();
 
@@ -298,10 +300,14 @@ void App::drawMainMenu() {
             if (ui::miniButton("##random", ui::Icon::Spark, ui::col::kAccent, "Random seed"))
                 std::snprintf(seedBuf_, sizeof(seedBuf_), "%llu", static_cast<unsigned long long>(randomSeed()));
             field("Company name", "##company", companyName_, sizeof(companyName_), "Leave empty for a generated name");
+            ImGui::SliderInt("Starting year", &preferences_.startYear, 1900, 2100);
+            ImGui::SliderInt("Loan interest", &preferences_.interestPercent, 0, 20, "%d%%");
             ImGui::Dummy(ImVec2(0, 6.0f * s));
             if (ui::button("Start", ui::Icon::Play, ui::Btn::Primary, ImVec2(-1.0f, 40.0f))) {
                 WorldSettings ws;
                 ws.seed = std::strtoull(seedBuf_, nullptr, 10);
+                ws.startYear = preferences_.startYear;
+                ws.interestPercent = preferences_.interestPercent;
                 startSession(std::make_unique<LocalSession>(ws, companyName_));
             }
             break;
@@ -341,6 +347,8 @@ void App::drawMainMenu() {
             if (ui::button("Host new world", ui::Icon::Server, ui::Btn::Primary, ImVec2(-1.0f, 40.0f))) {
                 WorldSettings ws;
                 ws.seed = std::strtoull(seedBuf_, nullptr, 10);
+                ws.startYear = preferences_.startYear;
+                ws.interestPercent = preferences_.interestPercent;
                 auto hosted = std::make_unique<World>(ws);
                 Command create;
                 create.client = kLocalClientId;
@@ -447,6 +455,10 @@ void App::drawGameMenu() {
         }
         ImGui::Dummy(ImVec2(0, 4.0f * s));
         if (ui::button("Resume", ui::Icon::Play, ui::Btn::Secondary, ImVec2(-1.0f, 0.0f))) showGameMenu_ = false;
+        if (ui::button("Settings", ui::Icon::Wrench, ui::Btn::Secondary, ImVec2(-1.0f, 0.0f))) {
+            showSettings_ = true;
+            showGameMenu_ = false;
+        }
         if (ui::button("Exit to main menu", ui::Icon::Folder, ui::Btn::Secondary, ImVec2(-1.0f, 0.0f))) leave = true;
         if (ui::button("Quit game", ui::Icon::Power, ui::Btn::Danger, ImVec2(-1.0f, 0.0f))) glfwSetWindowShouldClose(window_, 1);
     }
@@ -518,18 +530,82 @@ void App::quicksave() {
 
 void App::autosave() {
     if (!session_ || !session_->ready() || dynamic_cast<net::NetClientSession*>(session_.get())) return;
-    const i32 month = static_cast<i32>(world().clock.date().month);
+    if (!preferences_.autosaveMonths) return;
+    const CivilDate d = world().clock.date();
+    const i32 month = d.year * 12 + static_cast<i32>(d.month) - 1;
     if (lastAutosaveMonth_ < 0) {
         lastAutosaveMonth_ = month;
         return;
     }
-    if (month == lastAutosaveMonth_) return;
+    if (month - lastAutosaveMonth_ < preferences_.autosaveMonths) return;
     lastAutosaveMonth_ = month;
     std::string err;
     if (saveGame(world(), session_->localCompany(), std::format("{}/autosave.tpsave", kSaveDir), err))
         toasts_.push_back({"Autosaved", glfwGetTime() + 2.0, false});
     else
         log::warn("Autosave failed: {}", err);
+}
+
+void App::applyPreferences() {
+    preferences_.clamp();
+    renderer_.settings.shadows = preferences_.shadows;
+    renderer_.settings.maxViewDistance = static_cast<float>(preferences_.viewDistance);
+    daylightOnly_ = preferences_.daylightOnly;
+    glfwSwapInterval(preferences_.vsync ? 1 : 0);
+}
+
+void App::drawSettings() {
+    if (!showSettings_) return;
+    ui::PanelSpec spec;
+    spec.pos = screenCentre();
+    spec.pivot = ImVec2(0.5f, 0.5f);
+    spec.width = 510.0f;
+    spec.height = 510.0f;
+    spec.subtitle = "Graphics, controls and gameplay";
+    bool changed = false;
+    if (ui::beginPanel("###settings", "Settings", ui::Icon::Wrench, &showSettings_, spec)) {
+        if (ImGui::BeginTabBar("##settingsTabs")) {
+            if (ImGui::BeginTabItem("Graphics")) {
+                changed |= ImGui::Checkbox("Shadows", &preferences_.shadows);
+                changed |= ImGui::Checkbox("VSync", &preferences_.vsync);
+                changed |= ImGui::SliderInt("View distance", &preferences_.viewDistance, 120, 900, "%d tiles");
+                changed |= ImGui::Checkbox("Always daylight", &preferences_.daylightOnly);
+                ImGui::TextWrapped("Always daylight changes the lighting. Citizens and the game clock continue normally.");
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Controls")) {
+                changed |= ImGui::SliderInt("Camera pan", &preferences_.panPercent, 25, 300, "%d%%");
+                changed |= ImGui::SliderInt("Camera orbit", &preferences_.orbitPercent, 25, 300, "%d%%");
+                changed |= ImGui::SliderInt("Mouse wheel zoom", &preferences_.zoomPercent, 25, 300, "%d%%");
+                ImGui::TextWrapped("WASD / arrows: pan. Q/E: orbit. R/F: tilt. Page Up/Down or mouse wheel: zoom. Right drag: orbit. Middle drag: pan.");
+                ImGui::TextWrapped("1-5: construction toolbars. Space: pause. F5: quicksave. F12: screenshot. Esc: close the current tool or window.");
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Gameplay")) {
+                changed |= ImGui::SliderInt("Autosave interval", &preferences_.autosaveMonths, 0, 12, "%d months");
+                ImGui::TextDisabled("Zero disables autosaves. Multiplayer hosts save for their game.");
+                changed |= ImGui::SliderInt("New game year", &preferences_.startYear, 1900, 2100);
+                changed |= ImGui::SliderInt("New game interest", &preferences_.interestPercent, 0, 20, "%d%%");
+                ImGui::TextWrapped("Year and interest apply when starting a new world.");
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        if (changed) applyPreferences();
+        if (!settingsError_.empty()) ImGui::TextWrapped("%s", settingsError_.c_str());
+        ImGui::Separator();
+        if (ui::button("Save preferences", ui::Icon::Save, ui::Btn::Primary)) {
+            applyPreferences();
+            settingsError_ = preferences_.save("settings.cfg") ? "Preferences saved" : "Could not write settings.cfg";
+        }
+        ImGui::SameLine();
+        if (ui::button("Defaults", ui::Icon::Wrench, ui::Btn::Secondary)) {
+            preferences_ = ClientPreferences{};
+            applyPreferences();
+            settingsError_.clear();
+        }
+    }
+    ui::endPanel();
 }
 
 } // namespace tp
