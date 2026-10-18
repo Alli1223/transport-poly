@@ -57,6 +57,13 @@ bool tileIsWater(const Map& map, TilePos t) {
 }
 
 ModelId treeModel(const TreePlacement& t) {
+    switch (t.type) {
+    case TreeType::Palm: return static_cast<ModelId>(models::kTreePalm0 + t.variant % 2);
+    case TreeType::Cactus: return static_cast<ModelId>(models::kTreeCactus0 + t.variant % 2);
+    case TreeType::Acacia: return static_cast<ModelId>(models::kTreeAcacia0 + t.variant % 2);
+    case TreeType::Shrub: return static_cast<ModelId>(models::kShrub0 + t.variant % 2);
+    default: break;
+    }
     if (t.snowy) return models::kTreeConiferSnow;
     const ModelId base = t.type == TreeType::Conifer ? models::kTreeConifer0 : models::kTreeDeciduous0;
     return static_cast<ModelId>(base + t.variant % 3);

@@ -97,10 +97,16 @@ A new game's **Terrain** section shows a picture of the land around the start
 and chooses what kind it is: **Continents**, **Mainland** (land almost
 everywhere), **Islands**, **Archipelago** (many small islands) or a **Single
 island** surrounded by ocean. It also sets how many mountains (none to alpine),
-lakes and rivers there are. A new company always starts on land. The dedicated
-server takes the same choices: `--land continents|mainland|islands|archipelago|island`,
-`--mountains 0-4`, `--lakes 0-4` and `--rivers 0-3`. Worlds saved before these
-options keep the land they were made with.
+lakes and rivers there are, and the climate: **Temperate**, **Arid** (deserts
+with mesas and dunes, and dry steppe), **Arctic** (tundra, snowy taiga and
+glaciers), **Tropical** (jungle and savanna) or **Varied** (every biome in
+broad regions across the world). Each biome has its own ground and trees: cacti
+and shrubs in the desert, acacias on the savanna, palms in the jungle. A new
+company always starts on land. The dedicated server takes the same choices:
+`--land continents|mainland|islands|archipelago|island`,
+`--climate temperate|arid|arctic|tropical|varied`, `--mountains 0-4`,
+`--lakes 0-4` and `--rivers 0-3`. Worlds saved before these options keep the
+land they were made with.
 
 Railways are free-form, in the style of Transport Fever. With the **Track** tool,
 click to start and click again to lay a curved piece; the next piece carries on

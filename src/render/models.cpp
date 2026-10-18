@@ -47,6 +47,60 @@ void buildDeciduous(MeshBuilder& mb, int variant) {
     }
 }
 
+void buildPalm(MeshBuilder& mb, int variant) {
+    // A leaning, segmented trunk under a crown of drooping fronds.
+    const float lean = variant ? -0.06f : 0.07f;
+    glm::vec3 at(0.0f);
+    for (int i = 0; i < 4; ++i) {
+        mb.frustum(at, 0.055f - i * 0.006f, 0.05f - i * 0.006f, 0.17f, 5, i % 2 ? rgba(128, 98, 66) : rgba(112, 86, 58));
+        at += glm::vec3(lean * (0.4f + i * 0.25f), 0.17f, lean * 0.3f);
+    }
+    const u32 frond = variant ? rgba(64, 138, 58) : rgba(78, 150, 62);
+    for (int k = 0; k < 7; ++k) {
+        const float a = k * 6.2831853f / 7.0f + variant * 0.4f;
+        const glm::vec3 dir(std::cos(a), 0.0f, std::sin(a));
+        const glm::vec3 side(-dir.z, 0.0f, dir.x);
+        const glm::vec3 mid = at + dir * 0.22f + glm::vec3(0, 0.05f, 0);
+        const glm::vec3 tip = at + dir * 0.42f + glm::vec3(0, -0.12f, 0);
+        mb.triangle(at, mid + side * 0.07f, mid - side * 0.07f, frond);
+        mb.triangle(at, mid - side * 0.07f, mid + side * 0.07f, shade(frond, 0.85f));
+        mb.triangle(mid - side * 0.07f, mid + side * 0.07f, tip, frond);
+        mb.triangle(mid + side * 0.07f, mid - side * 0.07f, tip, shade(frond, 0.85f));
+    }
+    mb.icosphere(at + glm::vec3(0, -0.02f, 0), 0.05f, rgba(96, 72, 44));
+}
+
+void buildCactus(MeshBuilder& mb, int variant) {
+    const u32 g = variant ? rgba(92, 140, 76) : rgba(80, 128, 70);
+    const float h = variant ? 0.42f : 0.55f;
+    mb.prism({0, 0, 0}, 0.06f, h, 6, g);
+    mb.icosphere({0, h, 0}, 0.06f, g, 0, 0.7f);
+    // Arms bending upwards.
+    for (const float side : {-1.0f, 1.0f}) {
+        if (variant && side > 0) continue;
+        const float y = h * (side > 0 ? 0.45f : 0.3f);
+        mb.box({side > 0 ? 0.0f : -0.15f, y - 0.03f, -0.03f}, {side > 0 ? 0.15f : 0.0f, y + 0.03f, 0.03f}, shade(g, 0.95f));
+        mb.prism({side * 0.15f, y, 0}, 0.04f, h * 0.35f, 6, g);
+        mb.icosphere({side * 0.15f, y + h * 0.35f, 0}, 0.04f, g, 0, 0.7f);
+    }
+}
+
+void buildAcacia(MeshBuilder& mb, int variant) {
+    // Thin forked trunk and a wide, flat crown.
+    const u32 g = variant ? rgba(120, 146, 64) : rgba(104, 136, 58);
+    mb.frustum({0, 0, 0}, 0.04f, 0.03f, 0.36f, 5, kTrunk);
+    mb.frustum({0, 0.3f, 0}, 0.025f, 0.02f, 0.16f, 4, kTrunk);
+    mb.icosphere({0.03f, 0.5f, 0.0f}, 0.38f + 0.05f * variant, g, 0, 0.22f);
+    mb.icosphere({-0.12f, 0.46f, 0.08f}, 0.22f, shade(g, 0.92f), 0, 0.25f);
+}
+
+void buildShrub(MeshBuilder& mb, int variant) {
+    const u32 g = variant ? rgba(132, 124, 78) : rgba(104, 112, 70);
+    mb.icosphere({0, 0.08f, 0}, 0.14f, g, 0, 0.7f);
+    mb.icosphere({0.1f, 0.06f, 0.05f}, 0.1f, shade(g, 0.9f), 0, 0.7f);
+    mb.icosphere({-0.08f, 0.05f, -0.06f}, 0.09f, shade(g, 1.08f), 0, 0.7f);
+}
+
 } // namespace
 
 void ModelLibrary::build() {
@@ -69,6 +123,17 @@ void ModelLibrary::build() {
         MeshBuilder mb;
         buildDeciduous(mb, v);
         add(static_cast<ModelId>(models::kTreeDeciduous0 + v), mb);
+    }
+    for (int v = 0; v < 2; ++v) {
+        const auto make = [&](ModelId base, void (*fn)(MeshBuilder&, int)) {
+            MeshBuilder mb;
+            fn(mb, v);
+            add(static_cast<ModelId>(base + v), mb);
+        };
+        make(models::kTreePalm0, buildPalm);
+        make(models::kTreeCactus0, buildCactus);
+        make(models::kTreeAcacia0, buildAcacia);
+        make(models::kShrub0, buildShrub);
     }
     for (const ModelId id : {models::kBusStop, models::kRoadDepot, models::kTramDepot, models::kPerson,
                              models::kRailDepot, models::kSignal, models::kPlatformCanopy, models::kDock,

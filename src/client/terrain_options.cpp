@@ -14,7 +14,23 @@ constexpr LandmassInfo kLandmasses[kLandmassCount] = {
     {"Single island", "island", "One large island around the start, ocean beyond"},
 };
 
+constexpr LandmassInfo kClimates[kClimateCount] = {
+    {"Temperate", "temperate", "Meadows, woods and snowy peaks"},
+    {"Arid", "arid", "Deserts with mesas and dunes, and dry steppe"},
+    {"Arctic", "arctic", "Tundra, snowy taiga forests and glaciers"},
+    {"Tropical", "tropical", "Jungle, savanna and white beaches"},
+    {"Varied", "varied", "Every biome in broad regions: desert, jungle, tundra and more"},
+};
+
 } // namespace
+
+const LandmassInfo& climateInfo(Climate c) { return kClimates[std::clamp(static_cast<int>(c), 0, kClimateCount - 1)]; }
+
+std::optional<Climate> climateByKey(std::string_view key) {
+    for (int i = 0; i < kClimateCount; ++i)
+        if (key == kClimates[i].key) return static_cast<Climate>(i);
+    return std::nullopt;
+}
 
 const LandmassInfo& landmassInfo(Landmass m) { return kLandmasses[std::clamp(static_cast<int>(m), 0, kLandmassCount - 1)]; }
 
@@ -45,6 +61,7 @@ TerrainSettings terrainSettings(const ClientPreferences& p) {
     t.mountains = static_cast<u8>(std::clamp(p.mountains, 0, kTerrainAmountMax));
     t.lakes = static_cast<u8>(std::clamp(p.lakes, 0, kTerrainAmountMax));
     t.rivers = static_cast<u8>(std::clamp(p.rivers, 0, kRiverAmountMax));
+    t.climate = static_cast<Climate>(std::clamp(p.climate, 0, kClimateCount - 1));
     return t;
 }
 

@@ -17,6 +17,8 @@ struct LandmassInfo {
 };
 
 const LandmassInfo& landmassInfo(Landmass m);
+const LandmassInfo& climateInfo(Climate c);
+std::optional<Climate> climateByKey(std::string_view key);
 std::optional<Landmass> landmassByKey(std::string_view key);
 // "None", "Few", "Normal", "Many", then the extreme for mountains, lakes or rivers.
 const char* mountainAmountName(int amount);

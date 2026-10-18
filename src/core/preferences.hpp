@@ -24,6 +24,7 @@ struct ClientPreferences {
     int mountains = 2;
     int lakes = 2;
     int rivers = 2;
+    int climate = 0;
     void clamp();
     bool load(const std::filesystem::path& path);
     bool save(const std::filesystem::path& path) const;

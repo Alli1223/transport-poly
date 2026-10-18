@@ -23,6 +23,10 @@ u32 groundColour(const Tile& t) {
     case Ground::Sand: return rgba(214, 200, 142);
     case Ground::Snow: return rgba(234, 238, 246);
     case Ground::Rough: return rgba(118, 150, 76);
+    case Ground::Desert: return rgba(222, 182, 118);
+    case Ground::Steppe: return rgba(176, 172, 92);
+    case Ground::Tundra: return rgba(140, 146, 112);
+    case Ground::Jungle: return t.trees > 0 ? rgba(40, 104, 44) : rgba(72, 140, 58);
     default: return t.trees > 0 ? rgba(62, 118, 52) : rgba(98, 158, 72);
     }
 }

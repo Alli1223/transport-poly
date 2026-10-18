@@ -31,6 +31,18 @@ enum class Landmass : u8 {
     SingleIsland, // one large island around the start, ocean beyond
 };
 inline constexpr int kLandmassCount = 5;
+
+// The world's climate: which biomes its land is made of.
+enum class Climate : u8 {
+    Temperate, // meadows, woods and snowy peaks
+    Arid,      // deserts with mesas, and dry steppe
+    Arctic,    // tundra, taiga and glaciers
+    Tropical,  // jungle, savanna and white beaches
+    Varied,    // every biome, in broad regions across the world
+};
+inline constexpr int kClimateCount = 5;
+
+enum class Biome : u8 { Temperate, Desert, Steppe, Tundra, Taiga, Jungle, Savanna };
 inline constexpr int kTerrainAmountMax = 4; // mountains and lakes: none, few, normal, many, most
 inline constexpr int kRiverAmountMax = 3;   // rivers: none, few, normal, many
 
@@ -42,6 +54,7 @@ struct TerrainSettings {
     u8 mountains = 2;
     u8 lakes = 2;
     u8 rivers = 2;
+    Climate climate = Climate::Temperate; // saved from save version 20
 
     static TerrainSettings original() {
         TerrainSettings t;
@@ -52,6 +65,8 @@ struct TerrainSettings {
     template <class Ar>
     void serialize(Ar& ar) {
         ar(style, landmass, mountains, lakes, rivers);
+        if (ar.version == 0 || ar.version >= 20) ar(climate);
+        else if constexpr (Ar::kReading) climate = Climate::Temperate;
     }
 };
 
@@ -86,11 +101,21 @@ public:
     // Forest density in [0, 65536) - also used by town placement to avoid dense forests.
     i64 forestDensity(i32 x, i32 y) const;
 
+    // The biome at a point, and the kind of tree that grows there.
+    Biome biomeAt(i32 x, i32 y) const;
+    TreeType treeFor(TilePos t, i32 level) const;
+
 private:
     i64 legacyHeight(i32 x, i32 y) const;
     i64 smoothHeight(i32 x, i32 y) const;
     i64 shapedHeight(i32 x, i32 y) const;
     i64 landNoise(i64 qx, i64 qy) const;
+    // Biome strengths at a point (of kHeightOne): heat and moisture, and the share of desert.
+    struct ClimateSample {
+        i64 heat = 0, wet = 0, desert = 0;
+        Biome biome = Biome::Temperate;
+    };
+    ClimateSample climateAt(i32 x, i32 y) const;
     i64 waterBed(i32 x, i32 y) const;
 
     u64 seed_;

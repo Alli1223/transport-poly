@@ -8,6 +8,8 @@
 #include "sim/world.hpp"
 
 #include <algorithm>
+#include <array>
+#include <tuple>
 #include <cstdio>
 #include <cstdlib>
 
@@ -385,4 +387,53 @@ TEST_CASE("terrain: worlds saved before terrain settings keep their land") {
     fromBytes(toBytes(w, kSaveVersion), copy, kSaveVersion);
     CHECK(copy.settings.terrain == s.terrain);
     for (i32 x = -500; x < 500; x += 97) CHECK_EQ(copy.map.generator().rawHeight(x, -x), w.map.generator().rawHeight(x, -x));
+}
+
+TEST_CASE("terrain: climates grow their own biomes, ground and trees") {
+    const auto count = [](Climate climate) {
+        TerrainSettings ts;
+        ts.climate = climate;
+        const TerrainGenerator gen(77, true, true, ts);
+        std::array<int, 16> ground{}, trees{}, biomes{};
+        for (i32 y = -1024; y < 1024; y += 16)
+            for (i32 x = -1024; x < 1024; x += 16) {
+                const i64 raw[4] = {gen.rawHeight(x, y), gen.rawHeight(x + 1, y), gen.rawHeight(x + 1, y + 1), gen.rawHeight(x, y + 1)};
+                const u16 fine[4] = {gen.cornerFine(x, y), gen.cornerFine(x + 1, y), gen.cornerFine(x + 1, y + 1), gen.cornerFine(x, y + 1)};
+                const Tile t = gen.generateTile({x, y}, raw, fine);
+                ++ground[static_cast<usize>(t.ground)];
+                if (t.trees) ++trees[static_cast<usize>(t.treeType)];
+                ++biomes[static_cast<usize>(gen.biomeAt(x, y))];
+            }
+        return std::tuple{ground, trees, biomes};
+    };
+    const auto [aridGround, aridTrees, aridBiomes] = count(Climate::Arid);
+    CHECK(aridGround[static_cast<usize>(Ground::Desert)] > aridGround[static_cast<usize>(Ground::Grass)]);
+    CHECK(aridTrees[static_cast<usize>(TreeType::Cactus)] > 0);
+    CHECK_EQ(aridTrees[static_cast<usize>(TreeType::Deciduous)], 0);
+    const auto [arcticGround, arcticTrees, arcticBiomes] = count(Climate::Arctic);
+    CHECK(arcticGround[static_cast<usize>(Ground::Tundra)] + arcticGround[static_cast<usize>(Ground::Snow)] > 0);
+    CHECK(arcticTrees[static_cast<usize>(TreeType::Conifer)] > arcticTrees[static_cast<usize>(TreeType::Deciduous)]);
+    const auto [tropicGround, tropicTrees, tropicBiomes] = count(Climate::Tropical);
+    CHECK(tropicGround[static_cast<usize>(Ground::Jungle)] > 0);
+    CHECK(tropicTrees[static_cast<usize>(TreeType::Palm)] > 0);
+    const auto [variedGround, variedTrees, variedBiomes] = count(Climate::Varied);
+    int kinds = 0;
+    for (const int n : variedBiomes) kinds += n > 0;
+    CHECK(kinds >= 4);
+    // Temperate worlds are made exactly as before climates existed.
+    const auto [temperateGround, temperateTrees, temperateBiomes] = count(Climate::Temperate);
+    CHECK_EQ(temperateBiomes[static_cast<usize>(Biome::Temperate)], 128 * 128);
+    CHECK_EQ(temperateGround[static_cast<usize>(Ground::Desert)] + temperateGround[static_cast<usize>(Ground::Jungle)], 0);
+}
+
+TEST_CASE("terrain: saves from before climates are temperate") {
+    WorldSettings s;
+    s.terrain.climate = Climate::Arid;
+    World w(s);
+    World old;
+    fromBytes(toBytes(w, 19), old, 19);
+    CHECK(old.settings.terrain.climate == Climate::Temperate);
+    World copy;
+    fromBytes(toBytes(w, kSaveVersion), copy, kSaveVersion);
+    CHECK(copy.settings.terrain.climate == Climate::Arid);
 }

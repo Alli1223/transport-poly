@@ -43,6 +43,11 @@ constexpr u32 kRock = rgba(138, 132, 126);
 constexpr u32 kSand = rgba(226, 210, 152);
 constexpr u32 kSnow = rgba(238, 243, 250);
 constexpr u32 kSeabed = rgba(178, 168, 122);
+constexpr u32 kDesert = rgba(222, 182, 118);
+constexpr u32 kSteppe = rgba(176, 172, 92);
+constexpr u32 kTundra = rgba(140, 146, 112);
+constexpr u32 kJungle = rgba(72, 140, 58);
+constexpr u32 kJungleFloor = rgba(56, 116, 48);
 constexpr u32 kGarden = rgba(96, 156, 70);
 constexpr u32 kPlaza = rgba(170, 164, 150);
 constexpr u32 kPavement = rgba(176, 172, 162);
@@ -67,6 +72,10 @@ u32 groundColor(const Tile& t) {
     case Ground::Sand: return kSand;
     case Ground::Snow: return kSnow;
     case Ground::Water: return kSeabed;
+    case Ground::Desert: return kDesert;
+    case Ground::Steppe: return kSteppe;
+    case Ground::Tundra: return kTundra;
+    case Ground::Jungle: return t.trees >= 2 ? kJungleFloor : kJungle;
     }
     return kGrass;
 }

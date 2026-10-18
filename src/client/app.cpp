@@ -459,7 +459,7 @@ bool App::parseArgs(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (arg != "--no-debug" && arg != "--screenshot" && arg != "--frames" && arg != "--time" && arg != "--open" &&
-            arg != "--land" && arg != "--mountains" && arg != "--lakes" && arg != "--rivers")
+            arg != "--land" && arg != "--climate" && arg != "--mountains" && arg != "--lakes" && arg != "--rivers")
             directStart_ = true;
         const auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : nullptr; };
         if (arg == "--screenshot") {
@@ -486,6 +486,8 @@ bool App::parseArgs(int argc, char** argv) {
             // New world terrain: --land continents|mainland|islands|archipelago|island,
             // --mountains 0-4, --lakes 0-4, --rivers 0-3.
             if (const char* v = next(); v && landmassByKey(v)) preferences_.landmass = static_cast<int>(*landmassByKey(v));
+        } else if (arg == "--climate") {
+            if (const char* v = next(); v && climateByKey(v)) preferences_.climate = static_cast<int>(*climateByKey(v));
         } else if (arg == "--mountains" || arg == "--lakes" || arg == "--rivers") {
             if (const char* v = next()) {
                 int& amount = arg == "--mountains" ? preferences_.mountains : arg == "--lakes" ? preferences_.lakes : preferences_.rivers;

@@ -17,9 +17,15 @@ enum class TileType : u8 {
     Footpath = 8, // station entrance and approach pavement (index = station)
 };
 
-enum class Ground : u8 { Grass, Rough, Rock, Sand, Snow, Water };
+enum class Ground : u8 {
+    Grass, Rough, Rock, Sand, Snow, Water,
+    Desert, // dunes and dry sand
+    Steppe, // dry grassland and savanna
+    Tundra, // cold moss and scrub
+    Jungle, // lush tropical undergrowth
+};
 
-enum class TreeType : u8 { Deciduous, Conifer };
+enum class TreeType : u8 { Deciduous, Conifer, Palm, Cactus, Acacia, Shrub };
 
 // Owner values stored in tiles (company ids are 0..kMaxCompanies-1).
 inline constexpr u8 kOwnerNone = 0xFF;

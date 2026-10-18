@@ -198,11 +198,11 @@ CommandResult handle(World& w, const Command& c, const CmdPlantTrees& x, bool ex
             Tile* tile = w.map.tile({xx, y});
             if (!tile) return CommandResult::failure("Area not explored");
             if (tile->type != TileType::Clear || tile->trees >= 4) continue;
-            if (tile->ground != Ground::Grass && tile->ground != Ground::Rough && tile->ground != Ground::Snow) continue;
+            if (tile->ground == Ground::Rock || tile->ground == Ground::Sand || tile->ground == Ground::Water) continue;
             cost += prices::kPlantTree;
             if (exec) {
                 if (tile->trees == 0)
-                    tile->treeType = w.map.tileBaseHeight({xx, y}) >= 14 ? TreeType::Conifer : TreeType::Deciduous;
+                    tile->treeType = w.map.generator().treeFor({xx, y}, w.map.tileBaseHeight({xx, y}));
                 ++tile->trees;
                 w.map.touch({xx, y});
             }

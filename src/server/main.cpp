@@ -65,13 +65,23 @@ int main(int argc, char** argv) {
                 return EXIT_FAILURE;
             }
             settings.terrain.landmass = static_cast<Landmass>(it - std::begin(kKeys));
+        } else if (arg == "--climate") {
+            static constexpr const char* kKeys[] = {"temperate", "arid", "arctic", "tropical", "varied"};
+            const std::string v = next();
+            const auto it = std::find(std::begin(kKeys), std::end(kKeys), v);
+            if (it == std::end(kKeys)) {
+                std::cerr << "--climate takes temperate, arid, arctic, tropical or varied\n";
+                return EXIT_FAILURE;
+            }
+            settings.terrain.climate = static_cast<Climate>(it - std::begin(kKeys));
         } else if (arg == "--mountains") settings.terrain.mountains = static_cast<u8>(std::clamp(std::atoi(next().c_str()), 0, kTerrainAmountMax));
         else if (arg == "--lakes") settings.terrain.lakes = static_cast<u8>(std::clamp(std::atoi(next().c_str()), 0, kTerrainAmountMax));
         else if (arg == "--rivers") settings.terrain.rivers = static_cast<u8>(std::clamp(std::atoi(next().c_str()), 0, kRiverAmountMax));
         else {
             std::cerr << "usage: transport-poly-server [--port N] [--seed N] [--load file] [--name text] "
                          "[--autosave months] [--ai 0-3] [--inflation] [--no-recessions]\n"
-                         "       [--land continents|mainland|islands|archipelago|island] [--mountains 0-4] [--lakes 0-4] [--rivers 0-3]\n";
+                         "       [--land continents|mainland|islands|archipelago|island] [--climate temperate|arid|arctic|tropical|varied]\n"
+                         "       [--mountains 0-4] [--lakes 0-4] [--rivers 0-3]\n";
             return EXIT_FAILURE;
         }
     }

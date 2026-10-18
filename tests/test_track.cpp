@@ -1,4 +1,4 @@
-﻿#include "test.hpp"
+#include "test.hpp"
 
 #include "core/serialize.hpp"
 #include "sim/commands.hpp"

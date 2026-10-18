@@ -57,6 +57,15 @@ void TerrainPreview::update(u64 seed, const TerrainSettings& terrain) {
             const auto at = [&](i32 x, i32 y) { return levels[static_cast<usize>((y + 1) * kSpan + x + 1)]; };
             const float h = at(px, py);
             glm::vec3 c = heightColour(h);
+            if (h >= 0.0f && terrain.climate != Climate::Temperate) {
+                // Tint lowland by biome; peaks keep their rock and snow.
+                static constexpr float kTint[7][3] = {{0, 0, 0},     {222, 182, 118}, {176, 172, 92}, {150, 152, 120},
+                                                      {60, 110, 70}, {48, 120, 50},   {170, 168, 90}};
+                const int b = static_cast<int>(gen.biomeAt(origin + px * kTilesPerPixel, origin + py * kTilesPerPixel));
+                const float snow = b == static_cast<int>(Biome::Tundra) ? 24.0f : b == static_cast<int>(Biome::Taiga) ? 32.0f : 200.0f;
+                if (h >= snow) c = glm::vec3(236, 240, 246);
+                else if (b != 0 && h > 0.6f && h < 48.0f) c = glm::vec3(kTint[b][0], kTint[b][1], kTint[b][2]);
+            }
             if (h < 0.0f) {
                 ++water;
             } else {

@@ -121,6 +121,20 @@ void terrainOptions(ClientPreferences& prefs, gfx::TerrainPreview& preview, u64 
         ui::FontScope f(ui::fonts().small);
         ui::mutedText(landmassInfo(static_cast<Landmass>(prefs.landmass)).description);
     }
+    ui::fieldLabel("Climate");
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::BeginCombo("##climate", climateInfo(static_cast<Climate>(prefs.climate)).name)) {
+        for (int i = 0; i < kClimateCount; ++i) {
+            const LandmassInfo& info = climateInfo(static_cast<Climate>(i));
+            if (ImGui::Selectable(info.name, prefs.climate == i)) prefs.climate = i;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", info.description);
+        }
+        ImGui::EndCombo();
+    }
+    {
+        ui::FontScope f(ui::fonts().small);
+        ui::mutedText(climateInfo(static_cast<Climate>(prefs.climate)).description);
+    }
     const auto amounts = [&](const char* label, const char* id, int& value, int count, const char* (*name)(int)) {
         ui::fieldLabel(label);
         std::array<ui::Segment, kTerrainAmountMax + 1> items{};
