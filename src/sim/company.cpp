@@ -1,4 +1,6 @@
 #include "sim/company.hpp"
+#include "sim/world.hpp"
+#include <format>
 
 namespace tp {
 
@@ -48,11 +50,57 @@ std::string_view companyColourName(u8 index) { return kColours[index % kCompanyC
 void Company::spend(Expense category, Money amount) {
     money -= amount;
     thisYear.amounts[static_cast<usize>(category)] -= amount;
+    thisMonth.amounts[static_cast<usize>(category)] -= amount;
 }
 
 void Company::earn(Expense category, Money amount) {
     money += amount;
     thisYear.amounts[static_cast<usize>(category)] += amount;
+    thisMonth.amounts[static_cast<usize>(category)] += amount;
+}
+
+void liquidateCompany(World& w, CompanyId company) {
+    Company* co = w.companies.tryGet(company);
+    if (!co || co->bankrupt) return;
+    std::vector<VehicleId> fleet;
+    for (const auto [id, v] : w.vehicles) if (v.owner == company) fleet.push_back(id);
+    for (const VehicleId id : fleet) vehicles::sell(w, id);
+    for (const auto [id, p] : w.people)
+        if (p.state == PersonState::Waiting)
+            if (const Station* s = w.stations.tryGet(p.station); s && s->owner == company)
+                passengers::giveUpWaiting(w, id);
+    for (const ChunkPos cp : w.map.activeChunks()) {
+        Chunk& chunk = *w.map.chunk(cp);
+        for (Tile& tile : chunk.tiles) {
+            if (tile.roadOwner == company.value) { tile.roadOwner = kOwnerTown; ++chunk.revision; }
+            if (tile.owner != company.value) continue;
+            if (tile.type == TileType::Station) {
+                const auto kind = static_cast<StopKind>(tile.extra);
+                tile.type = kind == StopKind::Rail ? TileType::Rail :
+                            (kind == StopKind::Bus || kind == StopKind::Tram) ? TileType::Road : TileType::Clear;
+                tile.extra = 0; tile.extra2 = 0; tile.index = 0;
+            } else if (tile.type == TileType::Depot) {
+                tile.type = TileType::Clear; tile.road = 0; tile.rail = 0;
+                tile.extra = 0; tile.extra2 = 0; tile.index = 0;
+            }
+            tile.owner = kOwnerNone;
+            ++chunk.revision;
+        }
+    }
+    std::vector<StationId> stops;
+    for (const auto [id, s] : w.stations) if (s.owner == company) stops.push_back(id);
+    for (const StationId id : stops) w.stations.destroy(id);
+    std::vector<DepotId> depots;
+    for (const auto [id, d] : w.depots) if (d.owner == company) depots.push_back(id);
+    for (const DepotId id : depots) w.depots.destroy(id);
+    stations::rebuildIndex(w);
+    w.rebuildSignalIndex();
+    passengers::markDirty(w);
+    vehicles::invalidatePaths(w);
+    co->bankrupt = true;
+    co->loan = 0;
+    if (co->money < 0) co->earn(Expense::Other, -co->money);
+    w.addNews(NewsKind::Company, std::format("{} is bankrupt. Its vehicles have been liquidated and its routes made public.", co->name));
 }
 
 } // namespace tp

@@ -875,6 +875,7 @@ void App::drawFinanceWindow() {
     ui::PanelSpec spec;
     spec.pos = viewportPoint(0.0f, 0.0f, 20.0f, 80.0f);
     spec.width = 420.0f;
+    spec.height = 620.0f;
     spec.accent = ui::col::kGreen;
     spec.subtitle = c->name.c_str();
     if (ui::beginPanel("###financePanel", "Finances", ui::Icon::Coins, &showFinances_, spec)) {
@@ -886,25 +887,42 @@ void App::drawFinanceWindow() {
         ui::statCard(ui::Icon::Briefcase, loan.c_str(), "Loan", ui::col::kOrange, cw);
         ImGui::Dummy(ImVec2(0, 2.0f * s));
         const float bw = ui::columnWidth(2) / s;
+        if (c->bankrupt) {
+            ui::iconText(ui::Icon::Warning, ui::col::kRed, "This company is bankrupt");
+            ImGui::TextWrapped("Vehicles were liquidated and infrastructure made public. You can continue observing the world or start a new game.");
+        } else if (c->quartersInDebt > 0) {
+            ImGui::TextWrapped("Negative cash for %d quarter(s). Restore a positive balance before four quarters to avoid bankruptcy.", c->quartersInDebt);
+        }
+        ImGui::BeginDisabled(c->bankrupt);
         if (actionButton("Borrow $100,000", ui::Icon::Plus, ui::Btn::Secondary, "Increase the loan", bw))
             session_->submit(CmdSetLoan{100'000});
         ImGui::SameLine();
         if (actionButton("Repay $100,000", ui::Icon::Minus, ui::Btn::Secondary, "Pay back part of the loan", bw))
             session_->submit(CmdSetLoan{-100'000});
+        ImGui::EndDisabled();
 
-        ui::sectionHeader(std::format("{} so far", c->thisYear.year).c_str());
+        static int period = 0;
+        static constexpr ui::Segment periods[] = {{"This year", ui::Icon::None, nullptr},
+                                                  {"This month", ui::Icon::None, nullptr},
+                                                  {"Last month", ui::Icon::None, nullptr}};
+        if (const int p = ui::segmented("##ledgerPeriod", periods, period); p >= 0) period = p;
+        const YearLedger* ledger = &c->thisYear;
+        const YearLedger emptyLedger;
+        if (period == 1) ledger = &c->thisMonth;
+        if (period == 2) ledger = c->monthlyHistory.empty() ? &emptyLedger : &c->monthlyHistory.back();
+        ui::sectionHeader(period == 0 ? std::format("{} so far", ledger->year).c_str() : "Monthly income and expenses");
         bool anyEntry = false;
         for (usize i = 0; i < kExpenseCount; ++i) {
-            const Money m = c->thisYear.amounts[i];
+            const Money m = ledger->amounts[i];
             if (m == 0) continue;
             anyEntry = true;
             ui::moneyRow(std::string(expenseName(static_cast<Expense>(i))).c_str(), m);
         }
-        if (!anyEntry) ui::emptyState(ui::Icon::Chart, "Nothing earned or spent yet this year");
+        if (!anyEntry) ui::emptyState(ui::Icon::Chart, "No income or expenses in this period");
         ImGui::Separator();
         {
             ui::FontScope f(ui::fonts().heading);
-            ui::moneyRow("Total", c->thisYear.total());
+            ui::moneyRow("Total", ledger->total());
         }
         ui::statRow("Passengers carried", std::format("{}", c->passengersThisYear).c_str());
         if (!c->history.empty()) {
@@ -915,6 +933,34 @@ void App::drawFinanceWindow() {
             ui::sparkline(values, ImVec2(0, 64.0f), ui::col::kGreen);
             const YearLedger& last = c->history.back();
             ui::moneyRow(std::format("{}", last.year).c_str(), last.total());
+        }
+        if (!c->monthlyHistory.empty()) {
+            ui::sectionHeader("Monthly results");
+            const usize first = c->monthlyHistory.size() > 12 ? c->monthlyHistory.size() - 12 : 0;
+            for (usize i = first; i < c->monthlyHistory.size(); ++i) {
+                const MonthLedger& m = c->monthlyHistory[i];
+                ui::moneyRow(std::format("{}-{:02}", m.year, m.month).c_str(), m.total());
+            }
+        }
+        if (ImGui::CollapsingHeader("Company details")) {
+            static std::string source;
+            static char name[65] = {};
+            static int colour = 0;
+            const std::string identity = c->name + std::to_string(c->colour);
+            if (source != identity) {
+                std::copy(c->name.begin(), c->name.end(), name); name[c->name.size()] = '\0';
+                colour = c->colour; source = identity;
+            }
+            ImGui::BeginDisabled(c->bankrupt);
+            ImGui::InputText("Name", name, sizeof(name));
+            if (ImGui::BeginCombo("Livery", companyColourName(static_cast<u8>(colour)).data())) {
+                for (int i = 0; i < static_cast<int>(kCompanyColourCount); ++i)
+                    if (ImGui::Selectable(companyColourName(static_cast<u8>(i)).data(), i == colour)) colour = i;
+                ImGui::EndCombo();
+            }
+            if (ui::button("Apply company details", ui::Icon::Check, ui::Btn::Primary))
+                session_->submit(CmdUpdateCompany{name, static_cast<u8>(colour)});
+            ImGui::EndDisabled();
         }
     }
     ui::endPanel();

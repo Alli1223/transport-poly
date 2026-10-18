@@ -43,6 +43,11 @@ struct YearLedger {
     }
 };
 
+struct MonthLedger : YearLedger {
+    u8 month = 0;
+    template <class Ar> void serialize(Ar& ar) { ar(year, amounts, month); }
+};
+
 // Company livery colours (index into this palette is stored per company).
 inline constexpr usize kCompanyColourCount = 16;
 u32 companyColourRgb(u8 index); // 0xRRGGBB
@@ -60,6 +65,9 @@ struct Company {
     // Simple performance stats.
     i64 passengersThisYear = 0;
     i64 passengersLastYear = 0;
+    MonthLedger thisMonth;
+    std::vector<MonthLedger> monthlyHistory;
+    bool bankrupt = false;
 
     void spend(Expense category, Money amount); // amount > 0 is subtracted from money
     void earn(Expense category, Money amount);  // amount > 0 is added to money
@@ -68,7 +76,11 @@ struct Company {
     void serialize(Ar& ar) {
         ar(name, colour, money, loan, foundedTick, quartersInDebt, thisYear, history, passengersThisYear,
            passengersLastYear);
+        if (ar.version == 0 || ar.version >= 8) ar(thisMonth, monthlyHistory, bankrupt);
     }
 };
+
+class World;
+void liquidateCompany(World& world, CompanyId company);
 
 } // namespace tp

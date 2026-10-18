@@ -4,6 +4,7 @@
 #include <bit>
 
 #include "core/hash.hpp"
+#include "core/serialize.hpp"
 #include "sim/prices.hpp"
 
 namespace tp {
@@ -16,23 +17,31 @@ World::World(const WorldSettings& s) : settings(s), rng(s.seed, 0x5EED), map(s.s
 
 void World::tick() {
     ++clock.tick;
+    if (clock.isNewDay()) onNewDay();
     passengers::updateRouting(*this);
     people::process(*this);
     vehicles::tickAll(*this);
-    if (clock.isNewDay()) onNewDay();
 }
 
 void World::onNewDay() {
-    towns::growAll(*this);
-    vehicles::daily(*this);
     const CivilDate d = clock.date();
     if (d.day == 1) {
-        onNewMonth();
         if (d.month == 1) onNewYear();
+        onNewMonth();
     }
+    towns::growAll(*this);
+    vehicles::daily(*this);
 }
 
 void World::onNewMonth() {
+    const CivilDate d = clock.date();
+    for (auto [id, c] : companies) {
+        if (c.thisMonth.month) c.monthlyHistory.push_back(c.thisMonth);
+        if (c.monthlyHistory.size() > 60) c.monthlyHistory.erase(c.monthlyHistory.begin());
+        c.thisMonth = MonthLedger{};
+        c.thisMonth.year = d.year;
+        c.thisMonth.month = static_cast<u8>(d.month);
+    }
     towns::monthly(*this);
     towns::spawnNewTowns(*this);
     stations::monthly(*this);
@@ -64,11 +73,16 @@ void World::onNewMonth() {
             c.spend(Expense::LoanInterest, interest);
         }
     }
-    const CivilDate d = clock.date();
     if (d.month % 3 == 1) {
-        // Quarterly bankruptcy tracking.
-        for (auto [id, c] : companies) c.quartersInDebt = c.money < 0 ? c.quartersInDebt + 1 : 0;
+        for (auto [id, c] : companies) {
+            if (c.bankrupt) continue;
+            c.quartersInDebt = c.money < 0 ? c.quartersInDebt + 1 : 0;
+            if (c.quartersInDebt >= 4) liquidateCompany(*this, id);
+            else if (c.quartersInDebt > 0)
+                addNews(NewsKind::Finance, std::format("{} has negative cash for {} quarter(s). Bankruptcy follows four quarters in debt.", c.name, c.quartersInDebt));
+        }
     }
+    for (auto [id, c] : companies) if (c.money >= 0 && !c.bankrupt) c.quartersInDebt = 0;
 }
 
 void World::onNewYear() {
@@ -116,21 +130,10 @@ void World::addNews(NewsKind kind, std::string text, std::optional<TilePos> wher
 }
 
 u64 World::stateHash() const {
-    StateHasher h;
-    h.add(clock.tick);
-    h.add(rng.stateForHash());
-    h.add(map.activeChunks().size());
-    for (const auto [id, c] : companies) h.addAll(id.value, c.money, c.loan);
-    h.addAll(towns.size(), buildings.size(), people.size(), nextSerial);
-    for (const auto [id, t] : towns) h.addAll(id.value, t.population, t.jobs, t.workers, t.roads.size());
-    u64 acc = 0;
-    for (const auto [id, p] : people)
-        acc += static_cast<u64>(p.nextEvent) * 1315423911ULL ^ (static_cast<u64>(p.state) << 3) ^ id.value;
-    h.add(acc);
-    h.addAll(stations.size(), depots.size(), vehicles.size());
-    for (const auto [id, v] : vehicles)
-        h.addAll(id.value, v.tile.x, v.tile.y, v.progress, v.speed, static_cast<u8>(v.state), v.passengers.size());
-    return h.value();
+    // Hash the canonical save representation so new simulation fields are covered
+    // automatically. Render revisions and rebuildable lookup caches are excluded.
+    const auto bytes = toBytes(*this, kSaveVersion);
+    return hashString(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
 }
 
 } // namespace tp

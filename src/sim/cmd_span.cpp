@@ -75,7 +75,7 @@ CommandResult handle(World& w, const Command& c, const CmdBuildSpan& x, bool exe
 CommandResult handle(World& w, const Command& c, const CmdRemoveSpan& x, bool exec) {
     const Tile* picked = w.map.tile(x.tile);
     if (!picked || !picked->span) return CommandResult::failure("No bridge or tunnel here");
-    if (picked->owner != c.company.value || !w.companies.contains(c.company))
+    if ((picked->owner != c.company.value && picked->owner != kOwnerNone) || !w.companies.contains(c.company))
         return CommandResult::failure("Owned by another company");
     const bool axisX = picked->span & kSpanAxisX;
     const i32 length = static_cast<i32>(picked->index >> 16);
@@ -87,7 +87,7 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveSpan& x, bool ex
     for (i32 i = 0; i < length; ++i) {
         const TilePos p{a.x + (axisX ? i : 0), a.y + (axisX ? 0 : i)};
         const Tile* tile = w.map.tile(p);
-        if (!tile || (tile->span & 7) != (picked->span & 7) || tile->owner != c.company.value ||
+        if (!tile || (tile->span & 7) != (picked->span & 7) || tile->owner != picked->owner ||
             tile->index != (static_cast<u32>(length) << 16 | static_cast<u32>(i)))
             return CommandResult::failure("Invalid span");
         if (tile->extra2 || busy.contains(ChunkPos{p.x, p.y}.key()))

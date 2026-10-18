@@ -209,3 +209,86 @@ TEST_CASE("world: old saves retain their original terrain when exploring") {
     CHECK(!resaved.settings.waterways);
     CHECK_EQ(resaved.map.generator().cornerHeight(700, -30), original.map.generator().cornerHeight(700, -30));
 }
+
+TEST_CASE("finance: monthly periods close before new month and new year charges") {
+    World w;
+    const CompanyId id = createCompany(w);
+    w.companies[id].spend(Expense::Construction, 1234);
+    w.clock.tick = w.clock.tickOfDay(daysFromCivil(1950, 2, 1)) - 1;
+    w.tick();
+    const Company& co = w.companies[id];
+    REQUIRE(co.monthlyHistory.size() == 1);
+    CHECK_EQ(co.monthlyHistory[0].month, 1);
+    CHECK_EQ(co.monthlyHistory[0].total(), -1234);
+    CHECK_EQ(co.thisMonth.month, 2);
+    CHECK(co.thisMonth.amounts[static_cast<usize>(Expense::LoanInterest)] < 0);
+    const Money oldYear = co.thisYear.total();
+    w.clock.tick = w.clock.tickOfDay(daysFromCivil(1951, 1, 1)) - 1;
+    w.tick();
+    CHECK_EQ(co.history.back().total(), oldYear);
+    CHECK_EQ(co.thisYear.year, 1951);
+    CHECK_EQ(co.thisMonth.year, 1951);
+    CHECK_EQ(co.thisMonth.month, 1);
+    CHECK(co.thisYear.amounts[static_cast<usize>(Expense::LoanInterest)] < 0);
+}
+
+TEST_CASE("finance: four debt quarters liquidate vehicles and release infrastructure") {
+    WorldSettings settings;
+    settings.interestPercent = 0;
+    World w(settings);
+    const CompanyId co = createCompany(w);
+    w.map.activate({0, 0});
+    Tile& t = *w.map.tile({10, 10});
+    t = Tile{}; t.type = TileType::Road; t.road = 5; t.roadOwner = co.value;
+    Vehicle bus; bus.owner = co; bus.model = 0;
+    w.vehicles.create(bus);
+    w.companies[co].money = -100;
+    for (const auto date : {CivilDate{1950, 4, 1}, CivilDate{1950, 7, 1}, CivilDate{1950, 10, 1}, CivilDate{1951, 1, 1}}) {
+        w.clock.tick = w.clock.tickOfDay(daysFromCivil(date.year, date.month, date.day)) - 1;
+        w.tick();
+    }
+    CHECK(w.companies[co].bankrupt);
+    CHECK_EQ(w.companies[co].loan, 0);
+    CHECK_EQ(w.companies[co].money, 0);
+    CHECK(w.vehicles.empty());
+    CHECK_EQ(t.roadOwner, kOwnerTown);
+    CHECK(!executeCommand(w, makeCommand(co, CmdSetLoan{10'000})).ok);
+    World copy;
+    fromBytes(toBytes(w, kSaveVersion), copy, kSaveVersion);
+    CHECK(copy.companies[co].bankrupt);
+    CHECK_EQ(copy.stateHash(), w.stateHash());
+}
+
+TEST_CASE("finance: recovering cash resets debt quarters and company details are validated") {
+    WorldSettings settings; settings.interestPercent = 0;
+    World w(settings);
+    const CompanyId co = createCompany(w);
+    w.companies[co].quartersInDebt = 3;
+    w.clock.tick = w.clock.tickOfDay(daysFromCivil(1950, 2, 1)) - 1;
+    w.tick();
+    CHECK_EQ(w.companies[co].quartersInDebt, 0);
+    REQUIRE(executeCommand(w, makeCommand(co, CmdUpdateCompany{"New name", 3})).ok);
+    CHECK_EQ(w.companies[co].name, std::string("New name"));
+    CHECK_EQ(w.companies[co].colour, 3);
+    CHECK(!executeCommand(w, makeCommand(co, CmdUpdateCompany{"", 3})).ok);
+    CHECK(!executeCommand(w, makeCommand(co, CmdUpdateCompany{"Name", 255})).ok);
+}
+
+TEST_CASE("world: hash covers terrain, orders and ledgers but ignores rendering caches") {
+    World w;
+    const CompanyId co = createCompany(w);
+    w.map.activate({0, 0});
+    u64 hash = w.stateHash();
+    ++w.map.chunk({0, 0})->revision;
+    CHECK_EQ(w.stateHash(), hash);
+    w.map.tile({2, 2})->rail = 1;
+    CHECK(w.stateHash() != hash);
+    hash = w.stateHash();
+    w.companies[co].thisYear.amounts[0] -= 5;
+    CHECK(w.stateHash() != hash);
+    Vehicle vehicle; vehicle.owner = co;
+    const VehicleId id = w.vehicles.create(vehicle);
+    hash = w.stateHash();
+    w.vehicles[id].orders.push_back(Order{});
+    CHECK(w.stateHash() != hash);
+}

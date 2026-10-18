@@ -66,9 +66,9 @@ relies on every peer computing exactly the same game state.
 - [x] 4.1 `World` game state container and fixed tick loop (30 ticks/s × game speed)
 - [x] 4.2 Command framework: typed commands (std::variant), serialisation, test / execute phases, cost, error messages
 - [x] 4.3 Command queue scheduled by tick; single player runs through the same server path as multiplayer
-- [~] 4.4 Companies: create, colour, name, money, loan, bankruptcy (bankruptcy pending)
-- [~] 4.5 Finances: income / expense categories, monthly & yearly ledgers, interest, maintenance (ledgers + interest; maintenance with infrastructure)
-- [~] 4.6 World state hash for desync detection (clock, RNG, companies, chunks; extend as systems arrive)
+- [x] 4.4 Companies: create, colour, name, money, loan, bankruptcy (four debt quarters, fleet liquidation, public routes and disabled company commands)
+- [x] 4.5 Finances: income / expense categories, monthly & yearly ledgers, interest, maintenance (60 monthly and 20 yearly historical ledgers; costs booked after period rollover)
+- [x] 4.6 World state hash for desync detection (complete canonical serialized simulation state; render revisions and rebuildable caches excluded)
 - [x] 4.7 Determinism test: two worlds + same command stream ⇒ identical hash over many ticks
 - [x] 4.8 Exploration: clients request chunk activation as the camera moves; server rate-limits
 
@@ -154,7 +154,7 @@ relies on every peer computing exactly the same game state.
 - [~] 11.7 Vehicle list per company, filters (basic list)
 - [x] 11.8 Station window (waiting passengers by destination, ratings)
 - [x] 11.9 Town window and town directory
-- [~] 11.10 Finance window (income / expenses, loan) & company window (ledger + loan buttons)
+- [x] 11.10 Finance window (monthly / yearly ledgers, history, loans, debt warnings) & company details (editable name and livery; bankruptcy status)
 - [x] 11.11 News feed and error message popups (news banner + history: first arrivals, new models, town growth, new villages, ageing vehicles)
 - [x] 11.12 Minimap
 - [~] 11.13 Overlays: catchment areas, passenger flow, town zones (catchment areas of open stations and while placing stops; flow / zones later)

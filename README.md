@@ -108,6 +108,12 @@ clearance. Remove the entire structure with **Remove span** after all vehicles
 and reservations have cleared it. Spans reserve their footprint; surface junctions
 and buildings cannot share those tiles.
 
+Finances show current-year, current-month and previous-month income and expenses,
+with monthly history. Open **Company details** in that window to change the name
+or livery. Four quarterly checks with negative cash trigger bankruptcy: vehicles
+are liquidated, stops and depots close, and remaining routes become public.
+Returning to a non-negative balance resets the debt-quarter counter.
+
 New worlds include sea-level rivers and lakes. Older saves retain their original
 terrain generator so exploring beyond previously visited chunks remains seamless.
 Companies pay monthly property maintenance for their road and track pieces,

@@ -297,12 +297,19 @@ struct CmdRemoveSpan {
     template <class Ar> void serialize(Ar& ar) { ar(tile); }
 };
 
+struct CmdUpdateCompany {
+    std::string name;
+    u8 colour = 0;
+    template <class Ar> void serialize(Ar& ar) { ar(name, colour); }
+};
+
 using CommandPayload =
     std::variant<CmdActivateChunks, CmdCreateCompany, CmdSetLoan, CmdTerraform, CmdClearArea, CmdPlantTrees, CmdBuildRoad,
                  CmdRemoveRoad, CmdBuildRoadStop, CmdBuildRoadDepot, CmdBuyVehicle, CmdSellVehicle, CmdStartStopVehicle,
                  CmdSendToDepot, CmdSetOrders, CmdSkipOrder, CmdBuildRail, CmdRemoveRail, CmdCycleSignal,
                  CmdBuildRailStation, CmdBuildRailDepot, CmdAddCarriage, CmdRemoveCarriage, CmdBuildDock,
-                 CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater, CmdBuildSpan, CmdRemoveSpan>;
+                 CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater, CmdBuildSpan, CmdRemoveSpan,
+                 CmdUpdateCompany>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

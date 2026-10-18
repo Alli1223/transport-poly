@@ -26,7 +26,7 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 7;
+inline constexpr u32 kSaveVersion = 8;
 inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
@@ -112,6 +112,11 @@ public:
         ar(clock, rng, map, companies, towns, buildings, people, stations, depots, vehicles, processedTownCells,
            nextSerial, news);
         if constexpr (Ar::kReading) {
+            for (auto [id, c] : companies)
+                if (!c.thisMonth.month) {
+                    c.thisMonth.year = clock.date().year;
+                    c.thisMonth.month = static_cast<u8>(clock.date().month);
+                }
             people::rebuildEvents(*this);
             stations::rebuildIndex(*this);
             routing = RoutingTable{};

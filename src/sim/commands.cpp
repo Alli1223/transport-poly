@@ -16,6 +16,9 @@ struct Overloaded : Ts... {
 };
 
 CommandResult run(World& world, const Command& cmd, bool exec) {
+    if (const Company* co = world.companies.tryGet(cmd.company); co && co->bankrupt &&
+        !std::holds_alternative<CmdActivateChunks>(cmd.payload) && !std::holds_alternative<CmdCreateCompany>(cmd.payload))
+        return CommandResult::failure("This company is bankrupt");
     return std::visit([&](const auto& payload) { return cmd::handle(world, cmd, payload, exec); }, cmd.payload);
 }
 
@@ -74,6 +77,7 @@ std::string_view commandName(const CommandPayload& payload) {
                           [](const CmdEditWater& c) { return std::string_view(c.water ? "Build canal" : "Reclaim water"); },
                           [](const CmdBuildSpan& c) { return std::string_view(c.tunnel ? "Build tunnel" : "Build bridge"); },
                           [](const CmdRemoveSpan&) { return std::string_view("Remove bridge / tunnel"); },
+                          [](const CmdUpdateCompany&) { return std::string_view("Company details"); },
                       },
                       payload);
 }

@@ -48,6 +48,8 @@ CommandResult handle(World& w, const Command&, const CmdCreateCompany& x, bool e
     co.loan = w.settings.initialLoan;
     co.foundedTick = w.clock.tick;
     co.thisYear.year = w.clock.date().year;
+    co.thisMonth.year = w.clock.date().year;
+    co.thisMonth.month = static_cast<u8>(w.clock.date().month);
     w.addNews(NewsKind::Company, std::format("{} has been founded", co.name));
     CommandResult r = CommandResult::success();
     r.createdId = id.value;
@@ -68,6 +70,18 @@ CommandResult handle(World& w, const Command& c, const CmdSetLoan& x, bool exec)
         co->loan += x.delta;
         co->money += x.delta;
     }
+    return CommandResult::success();
+}
+
+CommandResult handle(World& w, const Command& c, const CmdUpdateCompany& x, bool exec) {
+    Company* co = w.companies.tryGet(c.company);
+    if (!co) return CommandResult::failure("No company");
+    if (x.name.empty() || x.name.size() > 64) return CommandResult::failure("Company name must be 1 to 64 bytes");
+    if (x.colour >= kCompanyColourCount) return CommandResult::failure("Invalid company colour");
+    for (const auto [id, other] : w.companies)
+        if (id != c.company && !other.bankrupt && other.colour == x.colour)
+            return CommandResult::failure("Colour already used by another company");
+    if (exec) { co->name = x.name; co->colour = x.colour; }
     return CommandResult::success();
 }
 
