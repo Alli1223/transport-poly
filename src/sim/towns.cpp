@@ -532,6 +532,7 @@ TownId foundTown(World& w, const TownSite& site) {
     recompute(w, id);
     Town& t = w.towns[id];
     t.shopTown = findShopTown(w, id);
+    if (w.settings.industries) addNeeds(w, t);
     return id;
 }
 

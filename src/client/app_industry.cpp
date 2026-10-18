@@ -61,7 +61,7 @@ void App::drawIndustryWindow() {
         const std::string made = std::format("{}", ind.producedLastMonth);
         const std::string shipped = ind.producedLastMonth ? std::format("{}%", std::min<u32>(100, ind.shippedLastMonth * 100 / ind.producedLastMonth)) : std::string("-");
         const std::string stock = std::format("{}", ind.stock[out]);
-        ui::statCard(ui::Icon::Chart, made.c_str(), "Made last month", ui::col::kLeaf, cw);
+        ui::statCard(ui::Icon::Chart, made.c_str(), "Last month", ui::col::kLeaf, cw);
         ImGui::SameLine();
         ui::statCard(ui::Icon::Train, shipped.c_str(), "Transported", ui::col::kBlue, cw);
         ImGui::SameLine();
@@ -122,10 +122,10 @@ void App::drawTownNeeds(const Town& t) {
     ui::FontScope f(ui::fonts().small);
     if (const i32 next = towns::nextNeedPopulation(t); next > 0) {
         if (!allMet && t.population >= next) ui::iconText(ui::Icon::Warning, ui::col::kOrange, "Growth has stopped until every need is met", ui::col::kOrange);
-        else ui::mutedText(std::format("Another need at {} people. Deliveries count at shops, offices and civic buildings.", next).c_str());
-    } else {
-        ui::mutedText("Every need met speeds the town's growth.");
+        else ui::mutedText(std::format("Another need at {} people.", next).c_str());
     }
+    ui::mutedText("Each need met speeds growth. Deliveries count at");
+    ui::mutedText("the town's shops, offices and civic buildings.");
 }
 
 } // namespace tp

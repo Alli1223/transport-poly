@@ -1314,6 +1314,7 @@ int App::run(int argc, char** argv) {
                 const World& w = world();
                 const glm::dvec2 at(camera_.target.x, camera_.target.z);
                 const Building* best = nullptr;
+                BuildingId bestId;
                 double bestD = 1e18;
                 for (const auto [id, b] : w.buildings) {
                     if (!industries::isCountryside(b.type)) continue;
@@ -1322,6 +1323,7 @@ int App::run(int argc, char** argv) {
                     if (d < bestD) {
                         bestD = d;
                         best = &b;
+                        bestId = id;
                     }
                 }
                 if (best) {
@@ -1330,6 +1332,7 @@ int App::run(int argc, char** argv) {
                     camera_.targetGoal.y = gfx::terrainHeightAt(w.map, camera_.targetGoal.x, camera_.targetGoal.z);
                     camera_.distanceGoal = 9.0;
                     camera_.snapToGoals();
+                    selIndustry_ = bestId; // and open its window
                     gotoIndustry_.reset();
                 } else if (frameCount > 600) {
                     log::warn("No industry found to look at");
