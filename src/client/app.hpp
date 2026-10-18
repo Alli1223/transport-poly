@@ -86,6 +86,7 @@ private:
     void drawToolbar();
     void handleTools(std::vector<gfx::OverlayQuad>& overlays);
     void handleClick();
+    void drawWorldOverlays(std::vector<gfx::OverlayQuad>& overlays);
     std::optional<CommandPayload> dragCommand(TilePos a, TilePos b) const;
     void addTileOverlay(std::vector<gfx::OverlayQuad>& overlays, TilePos t, u32 color, double lift = 0.04) const;
     VehicleId pickVehicle() const;
@@ -167,6 +168,7 @@ private:
     bool showVehicleList_ = false;
     bool showNews_ = false;
     bool showMinimap_ = true;
+    int overlayMode_ = 0; // none, catchments, passenger flow, town zones
     bool showTownList_ = false;
     bool showCitizens_ = false;
     TownId citizenTown_;

@@ -147,6 +147,17 @@ void monthly(World& w) {
     for (auto [id, s] : w.stations) {
         s.boardedLastMonth = s.boardedThisMonth;
         s.boardedThisMonth = 0;
+        const i64 days = s.lastVisitTick < 0 ? 30 : std::clamp<i64>((w.clock.tick - s.lastVisitTick) / kTicksPerDay, 0, 30);
+        const i32 crowding = static_cast<i32>(s.waitingCount() * 100 / s.waitingCapacity());
+        i64 oldestWait = 0;
+        for (const auto& [to, queue] : s.waiting)
+            for (const PersonId pid : queue)
+                if (const Person* p = w.people.tryGet(pid); p && p->nextEvent >= 0)
+                    oldestWait = std::max(oldestWait, w.clock.tick - p->nextEvent + 3 * kTicksPerHour);
+        const i32 waitPenalty = static_cast<i32>(std::clamp<i64>(oldestWait * 80 / (3 * kTicksPerHour), 0, 80));
+        const i32 target = std::clamp(180 + std::min(s.boardedLastMonth, 150) / 2 -
+                                      static_cast<i32>(days) * 5 - crowding - waitPenalty, 0, 255);
+        s.rating = (s.rating * 3 + target) / 4;
     }
 }
 

@@ -125,6 +125,11 @@ The inspector shows upcoming activities and a live activity log. Walking citizen
 and waiting passengers are drawn near the camera. The vehicle directory also
 filters by company, vehicle type and operating status.
 
+The map window's display selector shows station catchments, current passenger
+flows, or town zones. Town details include monthly station boardings and the
+share of residents covered by recently served stops. Stations have capacity
+based on their facilities and size; crowding and long waits reduce their rating.
+
 New worlds include sea-level rivers and lakes. Older saves retain their original
 terrain generator so exploring beyond previously visited chunks remains seamless.
 Companies pay monthly property maintenance for their road and track pieces,

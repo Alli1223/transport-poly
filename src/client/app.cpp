@@ -973,6 +973,9 @@ int App::run(int argc, char** argv) {
                 if (wants("water")) toolGroup_ = ToolGroup::Water;
                 if (wants("settings")) showSettings_ = true;
                 if (wants("citizens")) showCitizens_ = true;
+                if (wants("zones")) overlayMode_ = 3;
+                if (wants("flow")) overlayMode_ = 2;
+                if (wants("catchments")) overlayMode_ = 1;
                 if (wants("gamemenu")) showGameMenu_ = true;
                 openWindows_.clear();
             }
@@ -991,6 +994,7 @@ int App::run(int argc, char** argv) {
             autosave();
 
             std::vector<gfx::OverlayQuad> overlays;
+            drawWorldOverlays(overlays);
             if (hover_.hit && tool_ == Tool::None)
                 addTileOverlay(overlays, hover_.tile, gfx::rgba(255, 255, 255, 70), 0.04);
             // Catchment area of the station whose window is open.

@@ -8,6 +8,15 @@
 
 using namespace tp;
 
+TEST_CASE("towns: zone overlay boundaries match the building zoning rules") {
+    Town t; t.radius = 10; t.centre = {-100, 50};
+    CHECK_EQ(towns::zoneAt(t, {-100, 50}), kZoneCore);
+    CHECK_EQ(towns::zoneAt(t, {-96, 50}), kZoneCore);
+    CHECK_EQ(towns::zoneAt(t, {-95, 50}), kZoneInner);
+    CHECK_EQ(towns::zoneAt(t, {-92, 50}), kZoneOuter);
+    CHECK_EQ(towns::zoneAt(t, {-100, 42}), kZoneOuter);
+}
+
 namespace {
 
 void explore(World& w, i32 radiusChunks) {

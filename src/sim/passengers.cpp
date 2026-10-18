@@ -67,10 +67,16 @@ bool vehicleVisits(const Vehicle& v, StationId s) {
 
 void waitAt(World& w, PersonId pid, StationId at, StationId nextHop) {
     Person& p = w.people[pid];
+    Station& station = w.stations[at];
+    if (station.waitingCount() >= station.waitingCapacity()) {
+        station.rating = std::max(0, station.rating - 4);
+        people::travelAbstract(w, pid, {station.sign.x * 2 + 1, station.sign.y * 2 + 1}, p.tripTo2, false);
+        return;
+    }
     p.state = PersonState::Waiting;
     p.station = at;
     p.targetStation = nextHop;
-    w.stations[at].waiting[nextHop].push_back(pid);
+    station.waiting[nextHop].push_back(pid);
     people::schedule(w, pid, w.clock.tick + kMaxWaitTicks);
 }
 

@@ -46,7 +46,7 @@ std::optional<PersonPose> personPose(const World& w, const Person& p, double fra
     }
     double along = 0;
     if (moving && p.nextEvent >= 0) {
-        const double tiles = std::ceil(std::abs(to.x - from.x) + std::abs(to.y - from.y));
+        const double tiles = std::floor(glm::length(to - from) + 0.5);
         const double duration = std::max(1.0, tiles) * static_cast<double>(speed) + static_cast<double>(overhead);
         along = std::clamp(1.0 - (static_cast<double>(p.nextEvent - w.clock.tick) - fraction) / duration, 0.0, 1.0);
     }

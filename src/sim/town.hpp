@@ -100,6 +100,7 @@ struct Town {
 std::string_view townClassName(TownClass c);
 
 namespace towns {
+u8 zoneAt(const Town& town, TilePos tile);
 
 // Founds every town whose footprint became fully explored by activating `chunk`.
 void onChunkActivated(World& w, ChunkPos chunk);

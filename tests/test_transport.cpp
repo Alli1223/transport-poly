@@ -12,6 +12,47 @@
 
 using namespace tp;
 
+TEST_CASE("stations: waiting capacity scales with facilities and overflow uses fallback travel") {
+    World w;
+    const StationId a = w.stations.create(), b = w.stations.create();
+    w.stations[a].tiles = {{0, 0}};
+    w.stations[a].facilities = kFacilityBus;
+    w.stations[a].sign = {0, 0};
+    w.stations[b].tiles = {{40, 0}};
+    w.stations[b].sign = {40, 0};
+    const usize capacity = w.stations[a].waitingCapacity();
+    CHECK_EQ(capacity, 64u);
+    for (usize i = 0; i < capacity; ++i) {
+        Person p; p.state = PersonState::Waiting; p.station = a; p.targetStation = b;
+        const PersonId id = w.people.create(p);
+        w.stations[a].waiting[b].push_back(id);
+    }
+    Person extra; extra.state = PersonState::ToStop; extra.station = a; extra.targetStation = b;
+    extra.tripTo2 = {81, 1};
+    const PersonId overflow = w.people.create(extra);
+    const i32 rating = w.stations[a].rating;
+    passengers::arriveAtStation(w, overflow);
+    CHECK_EQ(w.stations[a].waitingCount(), capacity);
+    CHECK(w.people[overflow].state == PersonState::Lift);
+    CHECK(w.people[overflow].nextEvent > 0);
+    CHECK(w.stations[a].rating < rating);
+    w.stations[a].facilities |= kFacilityRail;
+    CHECK_EQ(w.stations[a].waitingCapacity(), 512u);
+    w.stations[a].tiles.push_back({1, 0});
+    CHECK_EQ(w.stations[a].waitingCapacity(), 1024u);
+}
+
+TEST_CASE("stations: service ratings reward recent boarding and penalize stale service") {
+    World w;
+    const StationId fresh = w.stations.create(), stale = w.stations.create();
+    w.stations[fresh].lastVisitTick = w.clock.tick;
+    w.stations[fresh].boardedThisMonth = 100;
+    stations::monthly(w);
+    CHECK(w.stations[fresh].rating > w.stations[stale].rating);
+    CHECK_EQ(w.stations[fresh].boardedLastMonth, 100);
+    CHECK_EQ(w.stations[fresh].boardedThisMonth, 0);
+}
+
 namespace {
 
 Command cmd(CompanyId company, CommandPayload payload) {

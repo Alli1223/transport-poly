@@ -54,6 +54,11 @@ struct Station {
         for (const auto& [to, list] : waiting) n += list.size();
         return n;
     }
+    usize waitingCapacity() const {
+        const usize perTile = (facilities & kFacilityRail) ? 512 : (facilities & kFacilityDock) ? 256 :
+                              (facilities & kFacilityTram) ? 128 : 64;
+        return (tiles.empty() ? 1 : tiles.size()) * perTile;
+    }
 
     template <class Ar>
     void serialize(Ar& ar) {

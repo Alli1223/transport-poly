@@ -301,6 +301,8 @@ TownId findShopTown(const World& w, TownId self) {
 
 } // namespace
 
+u8 zoneAt(const Town& town, TilePos tile) { return zoneOf(town, tile); }
+
 bool canPlaceBuilding(const World& w, TilePos pos, u8 size) {
     int level = -1;
     for (i32 dy = 0; dy < size; ++dy) {

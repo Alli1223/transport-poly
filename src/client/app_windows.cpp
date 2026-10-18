@@ -7,6 +7,7 @@
 
 #include "core/calendar.hpp"
 #include "core/names.hpp"
+#include "core/math.hpp"
 #include "render/person_pose.hpp"
 #include "render/terrain_mesher.hpp"
 #include "render/vehicle_pose.hpp"
@@ -426,6 +427,15 @@ void App::drawMinimap(double now) {
             minimapUpdated_ = -1.0;
         }
         ImGui::SetCursorScreenPos(back);
+        const char* modes[] = {"None", "Station catchments", "Passenger flow", "Town zones"};
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::Combo("##overlay", &overlayMode_, modes, 4);
+        if (overlayMode_ == 2) ImGui::TextWrapped("Waiting and riding passengers. Wider arrows show more demand.");
+        if (overlayMode_ == 3) {
+            ui::legendItem(ui::col::kPurple, "Core"); ImGui::SameLine();
+            ui::legendItem(ui::col::kBlue, "Inner"); ImGui::SameLine();
+            ui::legendItem(ui::col::kLeaf, "Outer");
+        }
     }
     ui::endPanel();
 }
@@ -883,6 +893,7 @@ void App::drawStationWindow() {
         ui::meterRow("Service rating", std::format("{}%", st->rating * 100 / 255).c_str(), rating, qualityColour(rating));
         ui::statRow("Catchment radius", std::format("{} tiles", st->catchment).c_str());
         ui::statRow("Stop tiles", std::format("{}", st->tiles.size()).c_str());
+        ui::statRow("Waiting capacity", std::format("{} / {}", st->waitingCount(), st->waitingCapacity()).c_str());
         ui::sectionHeader("Waiting for");
         if (st->waiting.empty()) ui::emptyState(ui::Icon::People, "Nobody is waiting");
         usize most = 1;
@@ -928,6 +939,24 @@ void App::drawTownWindow() {
         ImGui::Dummy(ImVec2(0, 2.0f * s));
         ui::statRow("Unemployed", std::format("{}", t->unemployed.size()).c_str());
         ui::statRow("Shopping capacity", std::format("{}", t->retailCapacity).c_str());
+        i64 servedResidents = 0;
+        i64 boardings = 0;
+        std::vector<StationId> coverage;
+        for (const BuildingId bid : t->buildings) {
+            const Building* b = w.buildings.tryGet(bid);
+            if (!b || !b->residents) continue;
+            const TilePos centre = b->centre2();
+            stations::stationsCovering(w, {floorDiv(centre.x, 2), floorDiv(centre.y, 2)}, coverage);
+            for (const StationId sid : coverage)
+                if (const Station* stop = w.stations.tryGet(sid); stop && stop->lastVisitTick >= 0 &&
+                    w.clock.tick - stop->lastVisitTick <= 30 * kTicksPerDay) {
+                    servedResidents += b->residents;
+                    break;
+                }
+        }
+        for (const auto [id, stop] : w.stations) if (stop.town == selTown_) boardings += stop.boardedLastMonth;
+        ui::statRow("Boardings last month", std::format("{}", boardings).c_str());
+        ui::statRow("Population served", std::format("{}%", t->population ? std::min<i64>(100, servedResidents * 100 / t->population) : 0).c_str());
         if (const Town* shop = w.towns.tryGet(t->shopTown); shop && shop != t) ui::statRow("Residents shop in", shop->name.c_str());
 
         const TripStats& m = t->lastMonth.trips > 0 ? t->lastMonth : t->thisMonth;

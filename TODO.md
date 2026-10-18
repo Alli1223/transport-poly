@@ -86,7 +86,7 @@ relies on every peer computing exactly the same game state.
 - [x] 5.11 Town growth (roads + buildings) driven by population, jobs and transport service (growth rate scales with transit share and served stations)
 - [x] 5.12 New towns spawn over time in explored land (villages, preferably around remote stations)
 - [x] 5.13 Town ratings per company & local authority restrictions
-- [~] 5.14 Town statistics (population, passengers last month, served %) (monthly trip stats per mode)
+- [x] 5.14 Town statistics (population, monthly trips per mode, station boardings last month and residents served by recently visited stops)
 
 ## M6 — Infrastructure
 - [x] 6.1 Roads: road bits per tile, build / remove along a drag line, slopes, costs, town roads
@@ -120,7 +120,7 @@ relies on every peer computing exactly the same game state.
 ## M8 — Passengers & economy
 - [x] 8.1 Link graph from vehicle orders (capacity, frequency, travel time)
 - [x] 8.2 Station-to-station routing tables (Dijkstra per station, periodic recompute)
-- [~] 8.3 Passengers waiting per station per next hop; station capacity; station rating (waiting per next hop; simple rating)
+- [x] 8.3 Passengers waiting per next hop; facility-based station capacity, overflow fallback, and ratings based on service recency, boardings, crowding and waiting time
 - [x] 8.4 Boarding / alighting and transfers; passengers are the actual Person entities
 - [x] 8.5 Fare payment by distance & travel time (per leg, per company)
 - [x] 8.6 Passengers giving up after long waits ⇒ rating penalty
@@ -157,7 +157,7 @@ relies on every peer computing exactly the same game state.
 - [x] 11.10 Finance window (monthly / yearly ledgers, history, loans, debt warnings) & company details (editable name and livery; bankruptcy status)
 - [x] 11.11 News feed and error message popups (news banner + history: first arrivals, new models, town growth, new villages, ageing vehicles)
 - [x] 11.12 Minimap
-- [~] 11.13 Overlays: catchment areas, passenger flow, town zones (catchment areas of open stations and while placing stops; flow / zones later)
+- [x] 11.13 Map overlays: station catchments, passenger flow from waiting / onboard passengers, and town zones matching building-placement rules
 - [x] 11.14 Settings window: graphics (shadows, view distance, VSync, daylight), controls (pan / orbit / zoom sensitivities, shortcuts), gameplay (autosave interval, new-world year / interest); persisted local preferences
 - [x] 11.15 Citizen inspector (town / name / ID search, home / work / shop, schedule, vehicle / station links, activity log and camera follow)
 
