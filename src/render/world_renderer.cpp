@@ -350,7 +350,8 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
     // and passengers already represented by a vehicle need no separate geometry.
     for (const auto [id, person] : world.people) {
         if (person.state != PersonState::Walking && person.state != PersonState::ToStop &&
-            person.state != PersonState::FromStop && person.state != PersonState::Waiting) continue;
+            person.state != PersonState::FromStop && person.state != PersonState::Waiting &&
+            !(person.state == PersonState::Riding && person.transitEnd > world.clock.tick)) continue;
         const auto pose = personPose(world, person, tickFraction);
         if (!pose || !pose->visible) continue;
         const double dx = pose->pos.x - focus.x, dz = pose->pos.z - focus.z;
@@ -359,7 +360,7 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
                              static_cast<u8>(70 + (person.nameSeed >> 8) % 150),
                              static_cast<u8>(70 + (person.nameSeed >> 16) % 150));
         dynamic_.add(models::kPerson, makeInstance(glm::vec3(pose->pos - origin), pose->yaw, 1.0f, tint));
-        if (++stats_.peopleDrawn >= 2048) break;
+        ++stats_.peopleDrawn;
     }
 
     // Signals: red unless a train has reserved a path through them.

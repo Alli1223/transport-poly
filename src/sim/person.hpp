@@ -52,6 +52,11 @@ struct Person {
     VehicleId vehicle;
     i64 boardTick = 0;         // when the current ride started (fare calculation)
     u32 nameSeed = 0;
+    // Physical boarding / alighting, retained after leaving the vehicle so every
+    // person walks from their own door instead of appearing at the station sign.
+    TilePos transitFrom2, transitTo2;
+    i64 transitBegin = -1, transitEnd = -1;
+    u8 transitMotion = 0; // 0 none, 1 boarding, 2 alighting
 
     bool employed() const { return work.valid(); }
 
@@ -60,6 +65,7 @@ struct Person {
         ar(serial, home, work, shop, town, state, purpose, carOwner, departMinute, workMinutes, arriveMinute,
            commuteMinutes, nextEvent, tripStart,
            tripFrom2, tripTo2, station, targetStation, finalStation, vehicle, boardTick, nameSeed);
+        if (ar.version == 0 || ar.version >= 11) ar(transitFrom2, transitTo2, transitBegin, transitEnd, transitMotion);
     }
 };
 

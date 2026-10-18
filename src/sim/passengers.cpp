@@ -2,6 +2,7 @@
 
 #include "core/math.hpp"
 #include "sim/person.hpp"
+#include "sim/rail.hpp"
 #include "sim/vehicle.hpp"
 #include "sim/world.hpp"
 
@@ -97,7 +98,30 @@ TilePos stationPos2(const World& w, StationId id, TilePos fallback2) {
 }
 
 // The person reached a station they get off at: pay, then transfer or walk on.
-void alight(World& w, PersonId pid, StationId at, Vehicle& v) {
+// Door position of the carriage containing this seat, in half-tile coordinates.
+TilePos doorPosition2(const Vehicle& v, usize seat) {
+    TilePos tile = v.tile;
+    if (v.info().type == VehicleType::Rail && !v.trail.empty()) {
+        i32 offset = 0;
+        for (const u16 model : v.cars) {
+            const auto& car = vehicleModel(model);
+            if (seat < car.capacity) { offset += car.length * 8; break; }
+            seat -= std::min<usize>(seat, car.capacity);
+            offset += car.length * 16 + 4;
+        }
+        i32 remaining = offset - v.progress;
+        for (usize i = 0; i < v.trail.size(); ++i) {
+            tile = v.trail[i].tile;
+            if (i == 0 && remaining <= 0) break;
+            if (i == 0) continue;
+            remaining -= trackLength(trackBetween(v.trail[i].entry, v.trail[i].exit));
+            if (remaining <= 0) break;
+        }
+    }
+    return {tile.x * 2 + 1, tile.y * 2 + 1};
+}
+
+void alight(World& w, PersonId pid, StationId at, Vehicle& v, usize seat, i32 sequence) {
     Person& p = w.people[pid];
     const Station* from = w.stations.tryGet(p.station);
     const Station* to = w.stations.tryGet(at);
@@ -114,11 +138,20 @@ void alight(World& w, PersonId pid, StationId at, Vehicle& v) {
     ++v.passengersThisYear;
     p.vehicle = VehicleId{};
     p.station = at;
+    p.transitMotion = 2;
+    p.transitFrom2 = doorPosition2(v, seat);
+    p.transitTo2 = p.transitFrom2;
+    // Walk sideways onto the platform / kerb (or up the dock gangway).
+    if (v.info().type == VehicleType::Ship && to) p.transitTo2 = {to->sign.x * 2 + 1, to->sign.y * 2 + 1};
+    else if (v.exit == Dir::E || v.exit == Dir::W) ++p.transitTo2.y;
+    else ++p.transitTo2.x;
+    p.transitBegin = w.clock.tick + sequence * 2;
+    p.transitEnd = p.transitBegin + 8;
 
     if (at == p.finalStation || !w.stations.contains(p.finalStation)) {
         p.state = PersonState::FromStop;
-        const i64 walk = tilesBetween2(stationPos2(w, at, p.tripTo2), p.tripTo2);
-        people::schedule(w, pid, w.clock.tick + std::max<i64>(1, walk) * kWalkTicksPerTile);
+        const i64 walk = tilesBetween2(p.transitTo2, p.tripTo2);
+        people::schedule(w, pid, p.transitEnd + std::max<i64>(1, walk) * kWalkTicksPerTile);
         return;
     }
     const RouteEntry* r = w.routing.find(at, p.finalStation);
@@ -262,11 +295,13 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
     // Unload.
     std::vector<PersonId> staying;
     staying.reserve(v.passengers.size());
+    usize seat = 0;
     for (const PersonId pid : v.passengers) {
+        const usize seatNumber = seat++;
         Person* p = w.people.tryGet(pid);
         if (!p) continue;
         if ((o && (o->flags & kOrderUnloadOnly)) || p->targetStation == sid || p->finalStation == sid || !vehicleVisits(v, p->targetStation)) {
-            alight(w, pid, sid, v);
+            alight(w, pid, sid, v, seatNumber, moved);
             ++moved;
         } else {
             staying.push_back(pid);
@@ -284,6 +319,8 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
     const usize capacity = v.capacity();
     usize taken = 0;
     while (taken < queue.size() && v.passengers.size() < capacity) {
+        if (const Person* nextPerson = w.people.tryGet(queue[taken]); nextPerson && nextPerson->transitMotion == 2 &&
+            nextPerson->transitEnd > w.clock.tick) break; // finish walking off the previous vehicle first
         const PersonId pid = queue[taken++];
         Person* p = w.people.tryGet(pid);
         if (!p || p->state != PersonState::Waiting || p->station != sid) continue;
@@ -291,6 +328,11 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
         p->vehicle = vid;
         p->boardTick = w.clock.tick;
         p->nextEvent = -1;
+        p->transitMotion = 1;
+        p->transitFrom2 = {station->sign.x * 2 + 1, station->sign.y * 2 + 1};
+        p->transitTo2 = doorPosition2(v, v.passengers.size());
+        p->transitBegin = w.clock.tick + moved * 2;
+        p->transitEnd = p->transitBegin + 8;
         v.passengers.push_back(pid);
         ++station->boardedThisMonth;
         ++moved;

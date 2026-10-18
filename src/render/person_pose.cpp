@@ -7,6 +7,24 @@
 
 namespace tp::gfx {
 std::optional<PersonPose> personPose(const World& w, const Person& p, double fraction) {
+    const double now = static_cast<double>(w.clock.tick) + fraction;
+    if (p.transitEnd > now && p.transitBegin >= 0 &&
+        (p.state == PersonState::Riding || p.state == PersonState::Waiting || p.state == PersonState::FromStop)) {
+        const glm::dvec2 from(p.transitFrom2.x * 0.5, p.transitFrom2.y * 0.5);
+        const glm::dvec2 to(p.transitTo2.x * 0.5, p.transitTo2.y * 0.5);
+        const double along = std::clamp((now - static_cast<double>(p.transitBegin)) /
+            static_cast<double>(std::max<i64>(1, p.transitEnd - p.transitBegin)), 0.0, 1.0);
+        const auto at = glm::mix(from, to, along);
+        const auto height = [&](TilePos pos2) {
+            const TilePos tile{static_cast<i32>(std::floor(pos2.x * 0.5)), static_cast<i32>(std::floor(pos2.y * 0.5))};
+            return roadSurfaceY(w, tile, 0.5f, 0.5f);
+        };
+        const double y = glm::mix(static_cast<double>(height(p.transitFrom2)), static_cast<double>(height(p.transitTo2)), along);
+        const double lane = (static_cast<int>(p.serial % 5) - 2) * 0.025;
+        return PersonPose{{at.x + lane, y + 0.035, at.y + lane},
+            static_cast<float>(std::atan2(-(to.y - from.y), to.x - from.x)),
+            p.transitMotion == 1 || now >= p.transitBegin};
+    }
     const auto buildingPos = [&](BuildingRef ref) -> std::optional<glm::dvec2> {
         const Building* b = w.buildings.tryGet(ref.id);
         if (!b || b->serial != ref.serial) return std::nullopt;
@@ -30,11 +48,11 @@ std::optional<PersonPose> personPose(const World& w, const Person& p, double fra
         if (const Station* s = w.stations.tryGet(p.station)) {
             const glm::dvec2 stop(s->sign.x + 0.5, s->sign.y + 0.5);
             if (p.state == PersonState::Waiting) {
-                const double ox = (static_cast<int>(p.serial % 7) - 3) * 0.045;
-                const double oy = (static_cast<int>((p.serial / 7) % 7) - 3) * 0.045;
+                const double ox = (static_cast<int>(p.serial % 32) - 16) * 0.035;
+                const double oy = (static_cast<int>((p.serial / 32) % 32) - 16) * 0.035;
                 from = to = stop + glm::dvec2(ox, oy);
             } else if (p.state == PersonState::ToStop) to = stop;
-            else from = stop;
+            else from = p.transitMotion == 2 ? glm::dvec2(p.transitTo2.x * 0.5, p.transitTo2.y * 0.5) : stop;
         }
         visible = true;
         moving = p.state != PersonState::Waiting;
