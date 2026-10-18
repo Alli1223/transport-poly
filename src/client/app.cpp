@@ -781,6 +781,9 @@ int App::run(int argc, char** argv) {
             std::vector<gfx::OverlayQuad> overlays;
             if (hover_.hit && tool_ == Tool::None)
                 addTileOverlay(overlays, hover_.tile, gfx::rgba(255, 255, 255, 70), 0.04);
+            // Catchment area of the station whose window is open.
+            if (const Station* st = world().stations.tryGet(selStation_))
+                addCatchmentOverlay(overlays, st->tiles, st->catchment, gfx::rgba(90, 170, 255, 55));
             handleTools(overlays);
 
             drawHud();
@@ -790,6 +793,8 @@ int App::run(int argc, char** argv) {
             drawChat();
             drawGameMenu();
             drawToasts(now);
+            drawNews(now);
+            drawMinimap(now);
             const double minute =
                 fixedTimeOfDay_ ? *fixedTimeOfDay_ : world().clock.exactMinuteOfDay(session_->tickFraction());
             drawTownLabels();

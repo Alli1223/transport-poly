@@ -153,11 +153,11 @@ relies on every peer computing exactly the same game state.
 - [x] 11.6 Vehicle window: status, orders editor, details, follow camera
 - [~] 11.7 Vehicle list per company, filters (basic list)
 - [x] 11.8 Station window (waiting passengers by destination, ratings)
-- [~] 11.9 Town window and town directory (town window; directory later)
+- [x] 11.9 Town window and town directory
 - [~] 11.10 Finance window (income / expenses, loan) & company window (ledger + loan buttons)
-- [~] 11.11 News feed and error message popups (toasts for costs and errors; news feed later)
-- [ ] 11.12 Minimap
-- [ ] 11.13 Overlays: catchment areas, passenger flow, town zones
+- [x] 11.11 News feed and error message popups (news banner + history: first arrivals, new models, town growth, new villages, ageing vehicles)
+- [x] 11.12 Minimap
+- [~] 11.13 Overlays: catchment areas, passenger flow, town zones (catchment areas of open stations and while placing stops; flow / zones later)
 - [ ] 11.14 Settings window: graphics (shadows, view distance), controls, gameplay
 - [ ] 11.15 Citizen inspector (follow an individual person's day)
 

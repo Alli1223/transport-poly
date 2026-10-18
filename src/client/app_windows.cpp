@@ -65,6 +65,182 @@ void App::drawWindows() {
     drawTownWindow();
     drawFinanceWindow();
     drawVehicleList();
+    drawNewsWindow();
+    drawTownList();
+}
+
+namespace {
+
+ImVec4 newsColour(NewsKind k) {
+    switch (k) {
+    case NewsKind::Town: return {0.6f, 0.9f, 0.6f, 1.0f};
+    case NewsKind::Company: return {1.0f, 0.85f, 0.45f, 1.0f};
+    case NewsKind::Vehicle: return {0.6f, 0.8f, 1.0f, 1.0f};
+    case NewsKind::Finance: return {1.0f, 0.6f, 0.5f, 1.0f};
+    default: return {0.9f, 0.9f, 0.9f, 1.0f};
+    }
+}
+
+} // namespace
+
+void App::drawNews(double now) {
+    const World& w = world();
+    // A new session starts with its old news already read.
+    if (newsSession_ != session_.get()) {
+        newsSession_ = session_.get();
+        lastNewsTick_ = w.news.empty() ? -1 : w.news.back().tick;
+        newsBanner_.reset();
+    }
+    if (!w.news.empty() && w.news.back().tick > lastNewsTick_) {
+        lastNewsTick_ = w.news.back().tick;
+        newsBanner_ = w.news.back();
+        newsBannerUntil_ = now + 10.0;
+    }
+    if (!newsBanner_ || now > newsBannerUntil_) return;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + 10.0f, vp->WorkPos.y + vp->WorkSize.y - 10.0f), ImGuiCond_Always,
+                            ImVec2(0.0f, 1.0f));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(260, 0), ImVec2(420, 400));
+    ImGui::SetNextWindowBgAlpha(0.88f);
+    ImGui::Begin("##newsbanner", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    ImGui::TextDisabled("NEWS  %s", formatDate(w.clock.startDay + static_cast<i32>(newsBanner_->tick / kTicksPerDay)).c_str());
+    ImGui::PushTextWrapPos(400.0f);
+    ImGui::TextColored(newsColour(newsBanner_->kind), "%s", newsBanner_->text.c_str());
+    ImGui::PopTextWrapPos();
+    if (newsBanner_->location) {
+        if (ImGui::SmallButton("Go to")) focusOn(*newsBanner_->location);
+        ImGui::SameLine();
+    }
+    if (ImGui::SmallButton("History")) showNews_ = true;
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Dismiss")) newsBanner_.reset();
+    ImGui::End();
+}
+
+void App::drawNewsWindow() {
+    if (!showNews_) return;
+    const World& w = world();
+    ImGui::SetNextWindowSize(ImVec2(460, 360), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(20, 140), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("News", &showNews_)) {
+        if (w.news.empty()) ImGui::TextDisabled("Nothing has happened yet");
+        int n = 0;
+        for (auto it = w.news.rbegin(); it != w.news.rend() && n < 100; ++it, ++n) {
+            ImGui::PushID(n);
+            ImGui::TextDisabled("%s", formatDate(w.clock.startDay + static_cast<i32>(it->tick / kTicksPerDay)).c_str());
+            ImGui::SameLine();
+            if (it->location) {
+                if (ImGui::SmallButton("Go to")) focusOn(*it->location);
+                ImGui::SameLine();
+            }
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextColored(newsColour(it->kind), "%s", it->text.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::PopID();
+        }
+    }
+    ImGui::End();
+}
+
+void App::drawMinimap(double now) {
+    if (!showMinimap_) return;
+    const World& w = world();
+    const glm::dvec2 cam(camera_.target.x, camera_.target.z);
+    const double drift = glm::length(cam - minimapCentre_) / minimapScale_;
+    if (minimapUpdated_ < 0.0 || now - minimapUpdated_ > 0.5 || drift > 24.0) {
+        minimap_.update(w, cam.x, cam.y, minimapScale_);
+        minimapCentre_ = cam;
+        minimapUpdated_ = now;
+    }
+    if (!minimap_.ready()) return;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float size = static_cast<float>(gfx::Minimap::kSize) * uiScale_;
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x - 10.0f, vp->WorkPos.y + vp->WorkSize.y - 10.0f),
+                            ImGuiCond_FirstUseEver, ImVec2(1.0f, 1.0f));
+    if (ImGui::Begin("Map", &showMinimap_, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoScrollbar)) {
+        if (ImGui::SmallButton("-") && minimapScale_ < 8) {
+            minimapScale_ *= 2;
+            minimapUpdated_ = -1.0;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("+") && minimapScale_ > 1) {
+            minimapScale_ /= 2;
+            minimapUpdated_ = -1.0;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%d tiles across - click to jump", gfx::Minimap::kSize * minimapScale_);
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        ImGui::Image(static_cast<ImTextureID>(minimap_.textureId()), ImVec2(size, size));
+        const float k = size / static_cast<float>(gfx::Minimap::kSize);
+        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            const ImVec2 m = ImGui::GetMousePos();
+            focusOn(minimap_.tileAt((m.x - at.x) / k, (m.y - at.y) / k));
+        }
+        // The camera position, and town names when zoomed out.
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 c(at.x + static_cast<float>(minimap_.pixelX(cam.x)) * k,
+                       at.y + static_cast<float>(minimap_.pixelY(cam.y)) * k);
+        const float r = std::max(4.0f, static_cast<float>(camera_.distance / minimapScale_) * k * 0.6f);
+        dl->PushClipRect(at, ImVec2(at.x + size, at.y + size), true);
+        dl->AddRect(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), IM_COL32(255, 255, 255, 220), 0.0f, 0, 1.5f);
+        for (const auto [id, t] : w.towns) {
+            const ImVec2 p(at.x + static_cast<float>(minimap_.pixelX(t.centre.x + 0.5)) * k,
+                           at.y + static_cast<float>(minimap_.pixelY(t.centre.y + 0.5)) * k);
+            if (p.x < at.x || p.y < at.y || p.x > at.x + size || p.y > at.y + size) continue;
+            const ImVec2 ts = ImGui::CalcTextSize(t.name.c_str());
+            dl->AddText(ImVec2(p.x - ts.x * 0.5f + 1, p.y - ts.y * 0.5f + 1), IM_COL32(0, 0, 0, 200), t.name.c_str());
+            dl->AddText(ImVec2(p.x - ts.x * 0.5f, p.y - ts.y * 0.5f), IM_COL32(255, 255, 255, 235), t.name.c_str());
+        }
+        dl->PopClipRect();
+    }
+    ImGui::End();
+}
+
+void App::drawTownList() {
+    if (!showTownList_) return;
+    const World& w = world();
+    ImGui::SetNextWindowSize(ImVec2(470, 380), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(500, 140), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Towns", &showTownList_)) {
+        std::vector<TownId> ids;
+        for (const auto [id, t] : w.towns) ids.push_back(id);
+        std::ranges::sort(ids, [&](TownId a, TownId b) { return w.towns[a].population > w.towns[b].population; });
+        i64 total = 0;
+        for (const TownId id : ids) total += w.towns[id].population;
+        ImGui::Text("%zu towns, %lld people", ids.size(), static_cast<long long>(total));
+        if (ImGui::BeginTable("towns", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit)) {
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("Town", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Population");
+            ImGui::TableSetupColumn("Transit");
+            ImGui::TableSetupColumn("Your rating");
+            ImGui::TableHeadersRow();
+            for (const TownId id : ids) {
+                const Town& t = w.towns[id];
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                const std::string label = std::format("{} ({})##{}", t.name, townClassName(t.cls), id.value);
+                if (ImGui::Selectable(label.c_str(), selTown_ == id)) {
+                    selTown_ = id;
+                    focusOn(t.centre);
+                }
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", t.population);
+                ImGui::TableNextColumn();
+                const TripStats& m = t.lastMonth.trips > 0 ? t.lastMonth : t.thisMonth;
+                if (m.trips > 0)
+                    ImGui::Text("%d%%", m.transit * 100 / m.trips);
+                else
+                    ImGui::TextDisabled("-");
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(ratingName(towns::rating(t, session_->localCompany())).data());
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::End();
 }
 
 void App::drawDepotWindow() {

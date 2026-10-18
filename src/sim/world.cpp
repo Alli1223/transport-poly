@@ -1,5 +1,7 @@
 #include "sim/world.hpp"
 
+#include <format>
+
 #include "core/hash.hpp"
 
 namespace tp {
@@ -50,6 +52,11 @@ void World::onNewMonth() {
 void World::onNewYear() {
     vehicles::yearly(*this);
     const i32 year = clock.date().year;
+    for (const VehicleModel& m : vehicleModels())
+        if (m.introYear == year)
+            addNews(NewsKind::Vehicle, std::format("New {} available: {} ({} km/h{})", vehicleTypeName(m.type), m.name,
+                                                   m.maxSpeedKmh,
+                                                   m.capacity ? std::format(", {} seats", m.capacity) : std::string()));
     for (auto [id, c] : companies) {
         c.thisYear.year = year - 1;
         c.history.push_back(c.thisYear);

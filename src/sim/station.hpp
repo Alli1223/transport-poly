@@ -93,6 +93,8 @@ void stationsCovering(const World& w, TilePos tile, std::vector<StationId>& out)
 // Rebuilds the derived catchment index (after loading or station changes).
 void rebuildIndex(World& w);
 void monthly(World& w);
+// A vehicle stopped at the station: records the visit (with a news item for the very first one).
+void recordVisit(World& w, StationId id, VehicleId vehicle);
 
 } // namespace stations
 

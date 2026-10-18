@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <unordered_set>
 
 namespace tp {
 
@@ -39,6 +40,21 @@ TilePos straighten(TilePos a, TilePos b) {
 }
 
 } // namespace
+
+void App::addCatchmentOverlay(std::vector<gfx::OverlayQuad>& overlays, const std::vector<TilePos>& tiles, i32 radius,
+                              u32 color) const {
+    std::unordered_set<u64> done;
+    for (const TilePos c : tiles) {
+        for (i32 dy = -radius; dy <= radius; ++dy) {
+            for (i32 dx = -radius; dx <= radius; ++dx) {
+                const TilePos t{c.x + dx, c.y + dy};
+                if (!done.insert(ChunkPos{t.x, t.y}.key()).second) continue;
+                if (session_->world().map.tile(t)) addTileOverlay(overlays, t, color, 0.06);
+            }
+        }
+        if (done.size() > 6000) break;
+    }
+}
 
 void App::addTileOverlay(std::vector<gfx::OverlayQuad>& overlays, TilePos t, u32 color, double lift) const {
     const TileCorners c = session_->world().map.corners(t);
@@ -151,6 +167,13 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
         const bool needsDrag = line && tool_ != Tool::RailStation && tool_ != Tool::RemoveRail;
         const CommandResult r = (dragStart_ || !line || tool_ == Tool::RailStation) ? test(*cmd) : CommandResult::success();
         const u32 color = r.ok ? kOk : kBad;
+        if (tool_ == Tool::RailStation) {
+            std::vector<TilePos> tiles;
+            const TilePos e = straighten(a, b);
+            for (i32 y = std::min(a.y, e.y); y <= std::max(a.y, e.y); ++y)
+                for (i32 x = std::min(a.x, e.x); x <= std::max(a.x, e.x); ++x) tiles.push_back({x, y});
+            addCatchmentOverlay(overlays, tiles, catchmentRadius(StopKind::Rail), gfx::rgba(90, 170, 255, 45));
+        }
         if (isRailLineTool(tool_)) {
             addTileOverlay(overlays, a, color);
             for (const RailStep& st : planRailLine(a, b)) addTileOverlay(overlays, st.tile, color);
@@ -266,6 +289,10 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
     }
     if (!cmd) return;
     const CommandResult r = test(*cmd);
+    if (tool_ == Tool::BusStop || tool_ == Tool::TramStop || tool_ == Tool::Dock) {
+        const StopKind kind = tool_ == Tool::BusStop ? StopKind::Bus : tool_ == Tool::TramStop ? StopKind::Tram : StopKind::Dock;
+        addCatchmentOverlay(overlays, {hover_.tile}, catchmentRadius(kind), gfx::rgba(90, 170, 255, 45));
+    }
     if (tool_ != Tool::Raise && tool_ != Tool::Lower && tool_ != Tool::PickOrder)
         addTileOverlay(overlays, hover_.tile, r.ok ? kOk : kBad);
     showResult(r);
@@ -318,6 +345,12 @@ void App::drawToolbar() {
     if (ImGui::Button("Vehicles")) showVehicleList_ = !showVehicleList_;
     ImGui::SameLine();
     if (ImGui::Button("Finances")) showFinances_ = !showFinances_;
+    ImGui::SameLine();
+    if (ImGui::Button("Towns")) showTownList_ = !showTownList_;
+    ImGui::SameLine();
+    if (ImGui::Button("News")) showNews_ = !showNews_;
+    ImGui::SameLine();
+    if (ImGui::Button("Map")) showMinimap_ = !showMinimap_;
     const float mainHeight = ImGui::GetWindowHeight();
     ImGui::End();
 

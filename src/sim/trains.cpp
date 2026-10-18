@@ -238,7 +238,7 @@ void arriveAtPlatform(World& w, VehicleId id, StationId sid) {
     v.speed = 0;
     const i32 exchanged = passengers::exchangeAtStop(w, id, sid);
     v.loadingUntil = w.clock.tick + kBaseDwellTicks + exchanged / 3;
-    if (Station* s = w.stations.tryGet(sid)) s->lastVisitTick = w.clock.tick;
+    stations::recordVisit(w, sid, id);
 }
 
 void advance(World& w, VehicleId id, i32 move) {

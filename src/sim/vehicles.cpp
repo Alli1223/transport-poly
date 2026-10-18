@@ -165,7 +165,7 @@ void arriveAtStop(World& w, VehicleId id) {
     const StationId sid = o ? o->station : StationId{};
     const i32 exchanged = passengers::exchangeAtStop(w, id, sid);
     v.loadingUntil = w.clock.tick + kBaseDwellTicks + exchanged / 2;
-    if (Station* s = w.stations.tryGet(sid)) s->lastVisitTick = w.clock.tick;
+    stations::recordVisit(w, sid, id);
 }
 
 void finishLoading(World& w, VehicleId id) {

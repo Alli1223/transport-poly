@@ -4,6 +4,7 @@
 #include "render/camera.hpp"
 #include "sim/savegame.hpp"
 #include "render/picking.hpp"
+#include "render/minimap.hpp"
 #include "render/world_renderer.hpp"
 
 #include <deque>
@@ -98,6 +99,12 @@ private:
     void drawTownWindow();
     void drawFinanceWindow();
     void drawVehicleList();
+    void drawNews(double now);
+    void drawNewsWindow();
+    void drawMinimap(double now);
+    void drawTownList();
+    void addCatchmentOverlay(std::vector<gfx::OverlayQuad>& overlays, const std::vector<TilePos>& tiles, i32 radius,
+                             u32 color) const;
     std::string vehicleName(const Vehicle& v) const;
     std::string vehicleStatus(const Vehicle& v) const;
     void focusOn(TilePos t);
@@ -139,6 +146,20 @@ private:
     VehicleId followVehicle_;
     bool showFinances_ = false;
     bool showVehicleList_ = false;
+    bool showNews_ = false;
+    bool showMinimap_ = true;
+    bool showTownList_ = false;
+
+    // News: the newest item already announced, and the banner currently shown.
+    const void* newsSession_ = nullptr;
+    i64 lastNewsTick_ = -1;
+    std::optional<NewsItem> newsBanner_;
+    double newsBannerUntil_ = 0.0;
+
+    gfx::Minimap minimap_;
+    double minimapUpdated_ = -1.0;
+    glm::dvec2 minimapCentre_{0.0};
+    i32 minimapScale_ = 2;
     // Commands whose result should open a window (sequence number -> kind).
     u32 pendingBuySeq_ = 0;
 

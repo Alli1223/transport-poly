@@ -64,6 +64,18 @@ TownId nearestTown(const World& w, TilePos tile) {
     return best;
 }
 
+void recordVisit(World& w, StationId id, VehicleId vehicle) {
+    Station* s = w.stations.tryGet(id);
+    const Vehicle* v = w.vehicles.tryGet(vehicle);
+    if (!s || !v) return;
+    if (s->lastVisitTick < 0) {
+        std::string what(vehicleTypeName(v->info().type));
+        for (char& ch : what) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        w.addNews(NewsKind::Company, std::format("Citizens celebrate! First {} arrives at {}", what, s->name), s->sign);
+    }
+    s->lastVisitTick = w.clock.tick;
+}
+
 StationId create(World& w, CompanyId owner, TilePos tile, StopKind kind) {
     const StationId id = w.stations.create();
     Station& s = w.stations[id];
