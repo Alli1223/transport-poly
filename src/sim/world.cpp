@@ -53,6 +53,7 @@ void World::onNewMonth() {
             if (tile.type == TileType::Station) track += prices::kStationMaintenance;
             if (tile.type == TileType::Depot) track += prices::kDepotMaintenance;
             if (tile.type == TileType::Water) track += prices::kCanalMaintenance;
+            if (tile.span) track += 20;
             charge(tile.owner, track);
         }
     }

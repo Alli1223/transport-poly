@@ -22,8 +22,6 @@ bool isStopFor(const Tile& t, VehicleType type) {
     return type == VehicleType::Tram ? k == StopKind::Tram : k == StopKind::Bus;
 }
 
-Surface surfaceOf(const World& w, TilePos t, u8 pieces) { return roadSurface(w.map.slope(t), pieces); }
-
 } // namespace
 
 u8 drivablePieces(const World& w, TilePos t, VehicleType type, DepotId allowDepot) {
@@ -55,9 +53,7 @@ bool roadLinkOpen(const World& w, TilePos a, Dir d, VehicleType type, DepotId al
     const Tile* tb = w.map.tile(b);
     const u8 rpa = ta->type == TileType::Depot ? pa : static_cast<u8>(ta->road & kRoadPieceMask) | pa;
     const u8 rpb = tb->type == TileType::Depot ? pb : static_cast<u8>(tb->road & kRoadPieceMask) | pb;
-    const TileCorners ca = w.map.corners(a);
-    const TileCorners cb = w.map.corners(b);
-    return roadEdgeHalfLevels(ca, surfaceOf(w, a, rpa), d) == roadEdgeHalfLevels(cb, surfaceOf(w, b, rpb), od);
+    return transportEdgeHeight(w.map, a, rpa, d) == transportEdgeHeight(w.map, b, rpb, od);
 }
 
 std::optional<std::vector<u8>> findRoadPath(const World& w, TilePos start, Dir entry, const std::vector<TilePos>& goals,

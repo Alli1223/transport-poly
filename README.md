@@ -100,6 +100,14 @@ turns water into clear land; it protects ships, active sailing steps and dock /
 shipyard berths. Canals have company ownership and monthly maintenance. Raised
 waterways and locks are not yet implemented.
 
+Road and rail toolbars include **Bridge**, **Tunnel** and **Remove span**.
+Drag a straight span between clear, flat ends at the same height (3–64 tiles).
+Bridge interiors need lower terrain; tunnel interiors need higher terrain.
+Water under bridges remains navigable, with at least three height levels of
+clearance. Remove the entire structure with **Remove span** after all vehicles
+and reservations have cleared it. Spans reserve their footprint; surface junctions
+and buildings cannot share those tiles.
+
 New worlds include sea-level rivers and lakes. Older saves retain their original
 terrain generator so exploring beyond previously visited chunks remains seamless.
 Companies pay monthly property maintenance for their road and track pieces,

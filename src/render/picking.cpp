@@ -30,7 +30,9 @@ std::optional<double> intersect(const Ray& r, const glm::dvec3& a, const glm::dv
 }
 
 std::optional<double> intersectTile(const Map& map, const Ray& r, TilePos t) {
-    const TileCorners c = map.corners(t);
+    TileCorners c = map.corners(t);
+    if (const Tile* tile = map.tile(t); tile && (tile->span & 3) == kSpanBridge)
+        for (u8& height : c.h) height = tile->deckHeight;
     const double x0 = t.x, x1 = t.x + 1.0, z0 = t.y, z1 = t.y + 1.0;
     const glm::dvec3 nw(x0, c.h[0] * kHeightStep, z0), ne(x1, c.h[1] * kHeightStep, z0);
     const glm::dvec3 se(x1, c.h[2] * kHeightStep, z1), sw(x0, c.h[3] * kHeightStep, z1);

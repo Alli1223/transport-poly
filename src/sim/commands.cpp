@@ -72,6 +72,8 @@ std::string_view commandName(const CommandPayload& payload) {
                           [](const CmdCloneVehicle&) { return std::string_view("Clone vehicle"); },
                           [](const CmdUnshareOrders&) { return std::string_view("Unshare orders"); },
                           [](const CmdEditWater& c) { return std::string_view(c.water ? "Build canal" : "Reclaim water"); },
+                          [](const CmdBuildSpan& c) { return std::string_view(c.tunnel ? "Build tunnel" : "Build bridge"); },
+                          [](const CmdRemoveSpan&) { return std::string_view("Remove bridge / tunnel"); },
                       },
                       payload);
 }

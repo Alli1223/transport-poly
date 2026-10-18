@@ -45,7 +45,7 @@ Frustum extractFrustum(const glm::mat4& m) {
 }
 
 bool tileIsWater(const Map& map, TilePos t) {
-    if (const Tile* tile = map.tile(t)) return tile->type == TileType::Water;
+    if (const Tile* tile = map.tile(t)) return tile->type == TileType::Water || waterUnderBridge(*tile);
     const TerrainGenerator& g = map.generator();
     return g.rawHeight(t.x, t.y) < 0 && g.rawHeight(t.x + 1, t.y) < 0 && g.rawHeight(t.x + 1, t.y + 1) < 0 &&
            g.rawHeight(t.x, t.y + 1) < 0;

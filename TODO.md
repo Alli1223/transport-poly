@@ -96,7 +96,7 @@ relies on every peer computing exactly the same game state.
 - [x] 6.5 Level crossings (flat perpendicular road + rail, either build order; traffic lights, train reservations and road clearance)
 - [x] 6.6 Signals: block, path and one-way path signals; signal rendering (distinct block occupancy checks across all branches, path reservations, direction cycling and red / green lamps)
 - [x] 6.7 Tram tracks (on roads and tram-only)
-- [ ] 6.8 Bridges and tunnels for road / rail
+- [x] 6.8 Bridges and tunnels for road / rail (straight spans between level ends, separate deck height, navigable water below bridges, terrain-covered tunnels, maintenance and whole-span removal)
 - [x] 6.9 Canals and water tiles editing (sea-level flooding / reclamation tools, ownership, costs, maintenance and protection for ships and berths; elevated waterways / locks are not implemented)
 - [x] 6.10 Stations: bus stop, tram stop, rail station (platform length / count), dock; names; joining adjacent tiles; catchment radius
 - [x] 6.11 Depots: road, tram, rail, ship (shipyards on the shore)

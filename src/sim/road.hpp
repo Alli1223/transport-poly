@@ -36,6 +36,7 @@ Surface buildingSurface(const Slope& s);
 
 // Height, in half levels, of the road surface at the midpoint of the tile edge facing `d`.
 int roadEdgeHalfLevels(const TileCorners& c, Surface surface, Dir d);
+int transportEdgeHeight(const Map& map, TilePos tile, u8 roadBits, Dir d);
 // Height in levels of a flat surface (Flat / Foundation).
 u8 flatSurfaceLevel(const Slope& s, Surface surface);
 

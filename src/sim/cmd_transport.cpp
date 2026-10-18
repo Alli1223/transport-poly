@@ -52,6 +52,7 @@ u8 ownerByte(CompanyId c) { return c.value; }
 CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, const std::unordered_set<u64>& busy) {
     Tile* tile = w.map.tile(t);
     if (!tile) return CommandResult::failure("Area not explored");
+    if (tile->span) return CommandResult::failure("Use the remove bridge / tunnel tool");
     switch (tile->type) {
     case TileType::Clear: {
         Money cost = static_cast<Money>(tile->trees) * prices::kRemoveTree;
@@ -267,6 +268,7 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveRoad& x, bool ex
         Tile* t = w.map.tile(tiles[i]);
         if (!t) return CommandResult::failure("Area not explored");
         if (t->type != TileType::Road) continue;
+        if (t->span) return CommandResult::failure("Use the remove bridge / tunnel tool");
         u8 mask = 0;
         if (i + 1 < tiles.size()) mask |= dirBit(dir);
         if (i > 0) mask |= dirBit(opposite(dir));
@@ -300,6 +302,7 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRoadStop& x, bool
     Tile* t = w.map.tile(x.tile);
     if (!t) return CommandResult::failure("Area not explored");
     if (t->type != TileType::Road) return CommandResult::failure(x.tram ? "Build on a tram track" : "Build on a road");
+    if (t->span) return CommandResult::failure("Stops cannot be built on a bridge or tunnel");
     if (t->rail) return CommandResult::failure("Can't build a stop on a level crossing");
     const u8 pieces = layerPieces(*t, x.tram);
     if (!isStraight(pieces)) return CommandResult::failure("The road must be straight here");

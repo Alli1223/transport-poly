@@ -12,7 +12,7 @@ namespace tp {
 
 bool isWaterTile(const World& w, TilePos t) {
     const Tile* tile = w.map.tile(t);
-    return tile && tile->type == TileType::Water;
+    return tile && (tile->type == TileType::Water || waterUnderBridge(*tile));
 }
 
 bool canSail(const World& w, TilePos from, u8 heading) {

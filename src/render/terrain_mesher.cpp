@@ -263,7 +263,7 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
     for (i32 ly = -1; ly <= kChunkSize; ++ly) {
         for (i32 lx = -1; lx <= kChunkSize; ++lx) {
             const bool inside = lx >= 0 && lx < kChunkSize && ly >= 0 && ly < kChunkSize;
-            const bool w = inside ? chunk.tile(lx, ly).type == TileType::Water
+            const bool w = inside ? (chunk.tile(lx, ly).type == TileType::Water || waterUnderBridge(chunk.tile(lx, ly)))
                                   : waterOutside(TilePos{origin.x + lx, origin.y + ly});
             water[static_cast<usize>((ly + 1) * kRing + lx + 1)] = w ? 1 : 0;
         }
@@ -345,6 +345,11 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                                        : buildingSurface(slope);
                 if (top.surface == Surface::Invalid) top.surface = Surface::Foundation;
                 top.level = flatSurfaceLevel(slope, top.surface);
+                if (tile.span) {
+                    top.surface = Surface::Flat;
+                    top.level = tile.deckHeight;
+                    out.maxY = std::max(out.maxY, top.level * kHeightStep + 0.8f);
+                }
             }
 
             if (structure && top.surface == Surface::Foundation) {
@@ -363,6 +368,29 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                     ground.triangleUp(ne, sw, se, c1);
                 }
             }
+            if (structure && (tile.span & 3) == kSpanBridge) {
+                const float y = tile.deckHeight * kHeightStep;
+                ground.box({x0, y - 0.12f, z0}, {x0 + 1.0f, y, z0 + 1.0f}, kFoundation);
+                const bool axisX = tile.span & kSpanAxisX;
+                for (const float side : {0.07f, 0.93f}) {
+                    if (axisX) ground.box({x0, y, z0 + side - 0.025f}, {x1, y + 0.17f, z0 + side + 0.025f}, kSteel);
+                    else ground.box({x0 + side - 0.025f, y, z0}, {x0 + side + 0.025f, y + 0.17f, z1}, kSteel);
+                }
+                if (!waterUnderBridge(tile) && (tile.index & 0xFFFF) % 4 == 2) {
+                    const float bottom = std::min({nw.y, ne.y, se.y, sw.y});
+                    ground.box({x0 + 0.4f, bottom, z0 + 0.4f}, {x0 + 0.6f, y - 0.12f, z0 + 0.6f}, kFoundation);
+                }
+            }
+            if (structure && (tile.span & 3) == kSpanTunnel && spanPortal(tile)) {
+                const float y = tile.deckHeight * kHeightStep;
+                const bool axisX = tile.span & kSpanAxisX;
+                for (const float side : {0.08f, 0.82f}) {
+                    if (axisX) ground.box({x0 + 0.4f, y, z0 + side}, {x0 + 0.6f, y + 0.7f, z0 + side + 0.1f}, kFoundation);
+                    else ground.box({x0 + side, y, z0 + 0.4f}, {x0 + side + 0.1f, y + 0.7f, z0 + 0.6f}, kFoundation);
+                }
+                if (axisX) ground.box({x0 + 0.4f, y + 0.6f, z0 + 0.08f}, {x0 + 0.6f, y + 0.75f, z0 + 0.92f}, kFoundation);
+                else ground.box({x0 + 0.08f, y + 0.6f, z0 + 0.4f}, {x0 + 0.92f, y + 0.75f, z0 + 0.6f}, kFoundation);
+            }
             if (structure && roadLike)
                 addRoad(ground, top, x0, z0, roadPieces(tile), tramPieces(tile), tile.type == TileType::Station);
             if (structure && tile.type == TileType::Depot) {
@@ -375,7 +403,7 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 addPlatforms(ground, x0, z0, static_cast<float>(top.level) * kHeightStep, tile.rail);
             }
 
-            if (tile.type == TileType::Water) {
+            if (tile.type == TileType::Water || waterUnderBridge(tile)) {
                 const u32 wc = rgba(255, 255, 255);
                 waterMesh.triangleUp({x0, kWaterLevel, z0}, {x1, kWaterLevel, z1}, {x1, kWaterLevel, z0}, wc);
                 waterMesh.triangleUp({x0, kWaterLevel, z0}, {x0, kWaterLevel, z1}, {x1, kWaterLevel, z1}, wc);

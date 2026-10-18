@@ -190,6 +190,7 @@ i32 gapAhead(const World& w, VehicleId id) {
         for (const VehicleId oid : it->second) {
             if (oid == id) continue;
             const Vehicle& o = w.vehicles[oid];
+            if (o.info().type == VehicleType::Ship) continue; // boats may pass below a bridge
             if (o.entry == v.entry && o.exit == v.exit) {
                 if (o.progress > v.progress) best = std::min(best, o.progress - v.progress);
             } else if (o.exit == v.exit) {
@@ -205,6 +206,7 @@ i32 gapAhead(const World& w, VehicleId id) {
         for (const VehicleId oid : it->second) {
             if (oid == id) continue;
             const Vehicle& o = w.vehicles[oid];
+            if (o.info().type == VehicleType::Ship) continue;
             if (o.entry == ne) best = std::min(best, (len - v.progress) + o.progress);
         }
     }

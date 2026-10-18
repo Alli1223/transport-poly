@@ -15,6 +15,7 @@ bool tileAcceptsRoad(const Tile& t) {
 }
 
 bool crossingAllows(const Map& map, TilePos pos, const Tile& t, Dir d, bool tram) {
+    if (t.span) return !tram && t.type == TileType::Road && (roadPieces(t) & dirBit(d));
     if (!t.rail) return true;
     if (tram || !map.slope(pos).isFlat() || t.extra || t.extra2) return false;
     const u8 roadAxis = (t.rail == kTrackNS) ? axisBits(Dir::E) :
@@ -59,6 +60,11 @@ u8 flatSurfaceLevel(const Slope& s, Surface surface) {
     return static_cast<u8>(surface == Surface::Foundation ? s.base + 1 : s.base);
 }
 
+int transportEdgeHeight(const Map& map, TilePos tile, u8 roadBits, Dir d) {
+    if (const Tile* t = map.tile(tile); t && t->span) return 2 * t->deckHeight;
+    return roadEdgeHalfLevels(map.corners(tile), roadSurface(map.slope(tile), roadBits), d);
+}
+
 bool canConnectRoad(const Map& map, TilePos a, Dir d, bool tram) {
     const TilePos b = neighbour(a, d);
     const Tile* ta = map.tile(a);
@@ -81,7 +87,8 @@ bool canConnectRoad(const Map& map, TilePos a, Dir d, bool tram) {
     // Existing pieces must not change how the tile sits (ramp vs foundation).
     if (allRoadPieces(*ta) && roadSurface(sla, allRoadPieces(*ta)) != sa) return false;
     if (allRoadPieces(*tb) && roadSurface(slb, allRoadPieces(*tb)) != sb) return false;
-    return roadEdgeHalfLevels(ca, sa, d) == roadEdgeHalfLevels(cb, sb, od);
+    return (ta->span ? 2 * ta->deckHeight : roadEdgeHalfLevels(ca, sa, d)) ==
+           (tb->span ? 2 * tb->deckHeight : roadEdgeHalfLevels(cb, sb, od));
 }
 
 bool addRoadPiece(Map& map, TilePos t, Dir d, u8 owner, bool tram) {
@@ -94,7 +101,7 @@ bool addRoadPiece(Map& map, TilePos t, Dir d, u8 owner, bool tram) {
     const Slope s = map.slope(t);
     const Surface surf = roadSurface(s, all);
     if (surf == Surface::Invalid) return false;
-    if (allRoadPieces(*tile) && roadSurface(s, allRoadPieces(*tile)) != surf) return false;
+    if (!tile->span && allRoadPieces(*tile) && roadSurface(s, allRoadPieces(*tile)) != surf) return false;
     if (tile->type == TileType::Clear) {
         tile->type = TileType::Road;
         tile->trees = 0;

@@ -377,7 +377,8 @@ void tick(World& w, VehicleId id) {
     const i32 dist = std::max(0, reservedDistance(v) - kStopMargin);
     i32 desired = std::min<i32>(vmax, static_cast<i32>(isqrt(static_cast<u64>(2 * kDecel * dist))));
     desired = std::min(desired, trackSpeedLimit(v));
-    if (const auto up = w.map.slope(v.tile).rampUphill(); up && *up == v.exit && desired > vmax * 3 / 4)
+    if (const auto up = w.map.slope(v.tile).rampUphill(); up && *up == v.exit && desired > vmax * 3 / 4 &&
+        (!w.map.tile(v.tile) || !w.map.tile(v.tile)->span))
         desired = vmax * 3 / 4; // climbing
     if (v.speed < desired) v.speed = std::min(desired, v.speed + acceleration(v));
     else v.speed = std::max(desired, v.speed - kDecel * 2);

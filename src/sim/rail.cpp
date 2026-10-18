@@ -35,6 +35,7 @@ u8 railPieces(const Tile& t) {
 bool canAddTrack(const Map& map, TilePos t, u8 bit) {
     const Tile* tile = map.tile(t);
     if (!tile) return false;
+    if (tile->span) return false;
     if (tile->type == TileType::Road) {
         // Crossings are flat, perpendicular straight road and track. Tram tracks
         // cannot share the rail owner's slot and are deliberately excluded.
@@ -82,7 +83,8 @@ bool railLinkOpen(const World& w, TilePos a, Dir d) {
         return railSurface(w.map.slope(t), tile.rail);
     };
     const TileCorners ca = w.map.corners(a), cb = w.map.corners(b);
-    return roadEdgeHalfLevels(ca, surfaceOf(a, *ta), d) == roadEdgeHalfLevels(cb, surfaceOf(b, *tb), opposite(d));
+    return (ta->span ? 2 * ta->deckHeight : roadEdgeHalfLevels(ca, surfaceOf(a, *ta), d)) ==
+           (tb->span ? 2 * tb->deckHeight : roadEdgeHalfLevels(cb, surfaceOf(b, *tb), opposite(d)));
 }
 
 bool blockSignalClear(const World& w, TilePos signal, Dir travel, VehicleId ignore) {

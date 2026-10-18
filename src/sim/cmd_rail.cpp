@@ -102,6 +102,7 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveRail& x, bool ex
         Tile* t = w.map.tile(s.tile);
         if (!t) return CommandResult::failure("Area not explored");
         if ((t->type != TileType::Rail && t->type != TileType::Road) || !(t->rail & s.bit)) continue;
+        if (t->span) return CommandResult::failure("Use the remove bridge / tunnel tool");
         if (t->owner != c.company.value) return CommandResult::failure("Owned by another company");
         if (t->extra2 & s.bit) return CommandResult::failure("Train in the way");
         const u8 bits = t->rail & s.bit;
@@ -128,6 +129,7 @@ CommandResult handle(World& w, const Command& c, const CmdCycleSignal& x, bool e
     Tile* t = w.map.tile(x.tile);
     if (!t) return CommandResult::failure("Area not explored");
     if (t->type != TileType::Rail) return CommandResult::failure("Signals go on railway track");
+    if (t->span) return CommandResult::failure("Place signals outside the bridge or tunnel");
     if (t->owner != c.company.value) return CommandResult::failure("Owned by another company");
     if (!isStraightTrack(t->rail)) return CommandResult::failure("Signals need a single straight track");
     if (t->extra2) return CommandResult::failure("Train in the way");
@@ -170,7 +172,7 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRailStation& x, b
         if (!s.isFlat()) return CommandResult::failure("Land must be flat");
         if (level >= 0 && s.base != level) return CommandResult::failure("Land must be level");
         level = s.base;
-        const bool ownTrack = t->type == TileType::Rail && t->rail == bit && t->owner == c.company.value &&
+        const bool ownTrack = !t->span && t->type == TileType::Rail && t->rail == bit && t->owner == c.company.value &&
                               t->extra == 0 && t->extra2 == 0;
         if (t->type != TileType::Clear && !ownTrack) return CommandResult::failure(whyNoRail(w, p));
         cost += prices::kRailStationTile + (t->type == TileType::Clear ? t->trees * prices::kRemoveTree : 0);

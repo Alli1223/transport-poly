@@ -24,13 +24,15 @@ namespace {
 bool isDragTool(Tool t) {
     return t == Tool::Road || t == Tool::RemoveRoad || t == Tool::TramTrack || t == Tool::RemoveTram ||
            t == Tool::Clear || t == Tool::Trees || t == Tool::RailTrack || t == Tool::RemoveRail ||
-           t == Tool::RailStation || t == Tool::Canal || t == Tool::ReclaimWater;
+           t == Tool::RailStation || t == Tool::Canal || t == Tool::ReclaimWater ||
+           t == Tool::RoadBridge || t == Tool::RailBridge || t == Tool::RoadTunnel || t == Tool::RailTunnel;
 }
 
 // Tools dragged along a straight line.
 bool isRoadLikeTool(Tool t) {
     return t == Tool::Road || t == Tool::RemoveRoad || t == Tool::TramTrack || t == Tool::RemoveTram ||
-           t == Tool::RailStation;
+           t == Tool::RailStation || t == Tool::RoadBridge || t == Tool::RailBridge ||
+           t == Tool::RoadTunnel || t == Tool::RailTunnel;
 }
 
 // Tools dragged along a planned rail line (straight, then diagonal).
@@ -58,7 +60,9 @@ void App::addCatchmentOverlay(std::vector<gfx::OverlayQuad>& overlays, const std
 }
 
 void App::addTileOverlay(std::vector<gfx::OverlayQuad>& overlays, TilePos t, u32 color, double lift) const {
-    const TileCorners c = session_->world().map.corners(t);
+    TileCorners c = session_->world().map.corners(t);
+    if (const Tile* tile = session_->world().map.tile(t); tile && (tile->span & 3) == kSpanBridge)
+        for (u8& height : c.h) height = tile->deckHeight;
     const double x = t.x, z = t.y;
     overlays.push_back({{{x, c.h[0] * gfx::kHeightStep + lift, z},
                          {x + 1, c.h[1] * gfx::kHeightStep + lift, z},
@@ -80,6 +84,10 @@ std::optional<CommandPayload> App::dragCommand(TilePos a, TilePos b) const {
     case Tool::RailStation: return CmdBuildRailStation{a, straighten(a, b)};
     case Tool::Canal: return CmdEditWater{a, b, true};
     case Tool::ReclaimWater: return CmdEditWater{a, b, false};
+    case Tool::RoadBridge: return CmdBuildSpan{a, straighten(a, b), false, false};
+    case Tool::RailBridge: return CmdBuildSpan{a, straighten(a, b), true, false};
+    case Tool::RoadTunnel: return CmdBuildSpan{a, straighten(a, b), false, true};
+    case Tool::RailTunnel: return CmdBuildSpan{a, straighten(a, b), true, true};
     default: return std::nullopt;
     }
 }
@@ -239,6 +247,7 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
     }
     case Tool::Signal: cmd = CmdCycleSignal{hover_.tile}; break;
     case Tool::BlockSignal: cmd = CmdCycleSignal{hover_.tile, true}; break;
+    case Tool::RemoveSpan: cmd = CmdRemoveSpan{hover_.tile}; break;
     case Tool::RailDepot: {
         // Face track on the side of the tile the cursor is closest to, or any adjacent track.
         Dir facing = hover_.edge;
@@ -351,6 +360,9 @@ constexpr ToolInfo kTools[] = {
     {Tool::BusStop, ToolGroup::Road, ui::Icon::BusStop, "Bus stop", "Build a drive-through stop on a straight road",
      false},
     {Tool::RoadDepot, ToolGroup::Road, ui::Icon::Depot, "Depot", "Build a bus depot next to a road", false},
+    {Tool::RoadBridge, ToolGroup::Road, ui::Icon::Road, "Bridge", "Drag between equal-height flat banks across a valley or water", false},
+    {Tool::RoadTunnel, ToolGroup::Road, ui::Icon::Road, "Tunnel", "Drag between equal-height flat ends through a hill", false},
+    {Tool::RemoveSpan, ToolGroup::Road, ui::Icon::Bulldoze, "Remove span", "Remove an entire owned bridge or tunnel", true},
     {Tool::TramTrack, ToolGroup::Tram, ui::Icon::Track, "Track", "Drag to lay tram track, on roads or on its own",
      false},
     {Tool::RemoveTram, ToolGroup::Tram, ui::Icon::Track, "Remove", "Drag to remove tram track", true},
@@ -367,6 +379,9 @@ constexpr ToolInfo kTools[] = {
     {Tool::RailStation, ToolGroup::Rail, ui::Icon::Station, "Station",
      "Drag along flat ground or straight track to build platforms", false},
     {Tool::RailDepot, ToolGroup::Rail, ui::Icon::Depot, "Depot", "Build a train depot facing the track", false},
+    {Tool::RailBridge, ToolGroup::Rail, ui::Icon::Track, "Bridge", "Drag between equal-height flat banks across a valley or water", false},
+    {Tool::RailTunnel, ToolGroup::Rail, ui::Icon::Track, "Tunnel", "Drag between equal-height flat ends through a hill", false},
+    {Tool::RemoveSpan, ToolGroup::Rail, ui::Icon::Bulldoze, "Remove span", "Remove an entire owned bridge or tunnel", true},
     {Tool::Dock, ToolGroup::Water, ui::Icon::Anchor, "Dock",
      "Build a dock on the shore; ships moor at the water tile in front of it", false},
     {Tool::ShipDepot, ToolGroup::Water, ui::Icon::Shipyard, "Shipyard",

@@ -22,6 +22,10 @@ enum class TreeType : u8 { Deciduous, Conifer };
 // Owner values stored in tiles (company ids are 0..kMaxCompanies-1).
 inline constexpr u8 kOwnerNone = 0xFF;
 inline constexpr u8 kOwnerTown = 0xFE;
+inline constexpr u8 kSpanBridge = 1;
+inline constexpr u8 kSpanTunnel = 2;
+inline constexpr u8 kSpanAxisX = 4;
+inline constexpr u8 kSpanCanal = 8; // restore owned canal water when dismantling a bridge
 
 struct Tile {
     TileType type = TileType::Clear;
@@ -34,14 +38,22 @@ struct Tile {
     u8 roadOwner = kOwnerNone; // owner of the road pieces
     u8 extra = 0;              // type specific data (signals, depot direction, stop kind, ...)
     u8 extra2 = 0;
+    u8 span = 0; // kind in low two bits, axis in bit 2; index packs length / tile offset
+    u8 deckHeight = 0;
     u32 index = 0; // building / station / depot id depending on type
 
     template <class Ar>
     void serialize(Ar& ar) {
         ar(type, ground, trees, treeType, road, rail, owner, roadOwner, extra, extra2, index);
+        if (ar.version == 0 || ar.version >= 7) ar(span, deckHeight);
     }
     friend bool operator==(const Tile&, const Tile&) = default;
 };
+
+constexpr bool spanPortal(const Tile& t) {
+    return t.span && ((t.index & 0xFFFF) == 0 || (t.index & 0xFFFF) + 1 == (t.index >> 16));
+}
+constexpr bool waterUnderBridge(const Tile& t) { return (t.span & 3) == kSpanBridge && t.ground == Ground::Water; }
 
 static_assert(sizeof(Tile) <= 16, "keep tiles compact");
 

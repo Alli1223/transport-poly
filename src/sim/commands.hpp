@@ -284,12 +284,25 @@ struct CmdEditWater {
     void serialize(Ar& ar) { ar(a, b, water); }
 };
 
+struct CmdBuildSpan {
+    TilePos from;
+    TilePos to;
+    bool rail = false;
+    bool tunnel = false;
+    template <class Ar> void serialize(Ar& ar) { ar(from, to, rail, tunnel); }
+};
+
+struct CmdRemoveSpan {
+    TilePos tile;
+    template <class Ar> void serialize(Ar& ar) { ar(tile); }
+};
+
 using CommandPayload =
     std::variant<CmdActivateChunks, CmdCreateCompany, CmdSetLoan, CmdTerraform, CmdClearArea, CmdPlantTrees, CmdBuildRoad,
                  CmdRemoveRoad, CmdBuildRoadStop, CmdBuildRoadDepot, CmdBuyVehicle, CmdSellVehicle, CmdStartStopVehicle,
                  CmdSendToDepot, CmdSetOrders, CmdSkipOrder, CmdBuildRail, CmdRemoveRail, CmdCycleSignal,
                  CmdBuildRailStation, CmdBuildRailDepot, CmdAddCarriage, CmdRemoveCarriage, CmdBuildDock,
-                 CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater>;
+                 CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater, CmdBuildSpan, CmdRemoveSpan>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

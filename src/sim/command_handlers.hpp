@@ -36,6 +36,8 @@ CommandResult handle(World& w, const Command& c, const CmdBuildShipDepot& x, boo
 CommandResult handle(World& w, const Command& c, const CmdCloneVehicle& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdUnshareOrders& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdEditWater& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdBuildSpan& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdRemoveSpan& x, bool exec);
 
 // Tiles currently occupied by vehicles, computed directly from the vehicle pool so the result
 // never depends on derived caches (which differ right after loading a game).
