@@ -48,7 +48,7 @@ sudo apt install build-essential g++-14 cmake ninja-build git libgl1-mesa-dev xo
 Then:
 
 ```bash
-CC=gcc-14 CXX=g++-14 cmake --preset linux-gcc
+cmake --preset linux-gcc -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14
 cmake --build --preset linux-gcc-release
 ctest --preset linux-gcc-release
 ./build/linux-gcc/bin/RelWithDebInfo/transport-poly
@@ -56,6 +56,12 @@ ctest --preset linux-gcc-release
 
 To build only the dedicated server and tests (no X11/OpenGL needed) use the
 `linux-headless` preset.
+
+### Packaging
+
+`cpack --preset windows-msvc` (or `linux-gcc` / `linux-headless`) after a release
+build writes a self-contained zip / tar.gz with the game, the dedicated server and
+the font to `build/<preset>/packages/`.
 
 ## Running a multiplayer game
 

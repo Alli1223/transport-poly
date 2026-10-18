@@ -5,6 +5,7 @@
 #include "sim/map.hpp"
 #include "sim/terraform.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 
 using namespace tp;

@@ -57,6 +57,11 @@
     { "name": "linux-clang-release", "configurePreset": "linux-clang", "configuration": "RelWithDebInfo" },
     { "name": "linux-headless-release", "configurePreset": "linux-headless", "configuration": "RelWithDebInfo" }
   ],
+  "packagePresets": [
+    { "name": "windows-msvc", "configurePreset": "windows-msvc", "configurations": ["RelWithDebInfo"] },
+    { "name": "linux-gcc", "configurePreset": "linux-gcc", "configurations": ["RelWithDebInfo"] },
+    { "name": "linux-headless", "configurePreset": "linux-headless", "configurations": ["RelWithDebInfo"] }
+  ],
   "testPresets": [
     { "name": "windows-msvc-debug", "configurePreset": "windows-msvc", "configuration": "Debug", "output": { "outputOnFailure": true } },
     { "name": "windows-msvc-release", "configurePreset": "windows-msvc", "configuration": "RelWithDebInfo", "output": { "outputOnFailure": true } },

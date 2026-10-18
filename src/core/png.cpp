@@ -1,5 +1,6 @@
 #include "core/png.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <vector>

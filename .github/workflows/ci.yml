@@ -16,6 +16,12 @@ jobs:
         run: cmake --build --preset windows-msvc-release
       - name: Test
         run: ctest --preset windows-msvc-release
+      - name: Package
+        run: cpack --preset windows-msvc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transport-poly-windows
+          path: build/windows-msvc/packages/*.zip
 
   linux:
     runs-on: ubuntu-24.04
@@ -29,8 +35,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y g++-14 ninja-build libgl1-mesa-dev xorg-dev
       - name: Configure
-        run: cmake --preset linux-gcc
+        run: cmake --preset linux-gcc -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14
       - name: Build
         run: cmake --build --preset linux-gcc-release
       - name: Test
         run: ctest --preset linux-gcc-release
+      - name: Package
+        run: cpack --preset linux-gcc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transport-poly-linux
+          path: build/linux-gcc/packages/*.tar.gz

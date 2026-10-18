@@ -2,6 +2,7 @@
 
 #include "render/mesh.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace tp::gfx {

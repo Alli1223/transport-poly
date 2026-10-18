@@ -164,5 +164,5 @@ relies on every peer computing exactly the same game state.
 ## M12 — Polish & release
 - [~] 12.1 Performance pass (profiling, multithreaded meshing, LOD) (terrain LOD + skirts done)
 - [ ] 12.2 Sounds (optional)
-- [ ] 12.3 Packaging: CPack zip (Windows), tar.gz (Linux)
+- [x] 12.3 Packaging: CPack zip (Windows), tar.gz (Linux)
 - [ ] 12.4 AI competitors (optional)

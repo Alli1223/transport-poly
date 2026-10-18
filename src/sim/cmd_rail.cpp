@@ -6,6 +6,7 @@
 #include "sim/rail.hpp"
 #include "sim/world.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <format>
 

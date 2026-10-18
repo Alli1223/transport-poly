@@ -2,6 +2,7 @@
 
 #include "render/terrain_mesher.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <optional>
