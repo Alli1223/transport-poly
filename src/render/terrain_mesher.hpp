@@ -43,7 +43,7 @@ using WaterLookup = std::function<bool(TilePos)>;
 // lod 0 = one quad per tile; lod n merges 2^n x 2^n tiles per quad (no trees) for distant chunks.
 // `world` (optional) provides building information for ground colours under buildings.
 ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen, const WaterLookup& waterOutside,
-                                 int lod = 0, const World* world = nullptr);
+                                 int lod = 0, const World* world = nullptr, const std::function<bool(u32)>& residential = {});
 
 // Triangulation shared by the mesher and picking: true if the tile is split along NE-SW.
 bool tileSplitNESW(const TileCorners& c);

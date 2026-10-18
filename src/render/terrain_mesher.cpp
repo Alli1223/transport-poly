@@ -258,7 +258,7 @@ void addFoundation(MeshBuilder& mb, const TileCorners& c, float x0, float z0, fl
 } // namespace
 
 ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen, const WaterLookup& waterOutside,
-                                 int lod, const World* world) {
+                                 int lod, const World* world, const std::function<bool(u32)>& residential) {
     ChunkGeometry out;
     const TilePos origin = chunkOrigin(chunk.pos);
     const u64 seed = gen.seed();
@@ -320,7 +320,7 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 const float depth = std::min((nw.y + ne.y + se.y + sw.y) * 0.25f, 0.0f);
                 base = shade(base, std::max(0.45f, 1.0f + depth * 0.18f));
             } else if (tile.type == TileType::Building) {
-                base = lod == 0 ? buildingGround(tile, world) : kUrbanBuilding;
+                base = lod == 0 ? (residential ? (residential(tile.index) ? kGarden : kPlaza) : buildingGround(tile, world)) : kUrbanBuilding;
             } else if ((tile.type == TileType::Road || tile.type == TileType::Station) && lod > 0) {
                 base = kUrbanRoad;
             } else if (tile.type == TileType::Depot) {

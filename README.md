@@ -175,3 +175,64 @@ New worlds include sea-level rivers and lakes. Older saves retain their original
 terrain generator so exploring beyond previously visited chunks remains seamless.
 Companies pay monthly property maintenance for their road and track pieces,
 signals, station tiles and depots; town-owned roads are maintained by the town.
+
+## Freight, consists and visible loads
+
+Farms produce grain daily. Factories consume grain to make food; workshops
+consume food to make goods. Shops accept food and goods. These are the farms,
+factories, workshops and shops already generated in towns. Near the camera,
+labels show each provider's chain and inventory. Production begins on the next
+game day. Stocks are bounded at 4096 units per commodity and station queues are
+bounded by facility capacity; uncollected cargo expires after 30 days.
+
+Build stops within catchment of the provider and receiver and give a compatible
+vehicle station orders in both directions. Road freight uses ordinary road stops
+and depots; rail freight uses platforms; cargo ships use docks and shipyards.
+Choose grain lorries / hoppers / bulk coasters, food vans / refrigerated wagons /
+coasters, or goods lorries / box wagons / container coasters. Dispatch requires a
+complete operating route. Freight can transfer between compatible services; the
+company completing delivery earns distance-based income. No-loading, unload-only,
+pass-through and full-load orders apply to freight too.
+
+Inside a depot, **Add carriage** offers engines as well as passenger coaches and
+freight wagons. A consist can mix them, up to 12 vehicles, with a powered engine
+at its head. The vehicle window shows actual loads and capacities per wagon and
+per cargo type. The new catalogue also includes an electric locomotive, intercity
+coach, regional EMU and heavy freight diesel, subject to introduction dates.
+
+Every nearby walking, waiting, boarding, riding and alighting citizen is drawn
+individually. Occupied passenger vehicles use a nearby cutaway view to expose
+seated passengers. All 75 people on a train can leave as 75 separate pedestrians.
+Provider and station inventories and vehicle loads are drawn from simulation
+quantities, with grain loads, coloured crates and food / goods markings on closed
+vehicles. Station windows also show the freight queue by commodity.
+
+## Optional competitors and sounds
+
+In **Settings > Gameplay**, choose 0-3 AI competitors for new games and enable
+**Sounds** for local command confirmation and error tones. Both preferences are
+saved with the other settings. Missing audio hardware quietly disables playback.
+The dedicated server accepts `--ai 0-3`; headless builds require no audio library.
+
+AI companies build affordable two-stop bus routes over existing connected town
+roads. They expand daily into towns they do not yet serve, up to eight buses per
+company. They pay normal construction, vehicle, maintenance and finance costs,
+and can go bankrupt. This first AI operates buses; it does not build intercity
+roads, railways or freight services. Multiplayer clients cannot join AI companies.
+
+## Profiling and validation
+
+Press **F3** to see chunk meshing and worker wait timings. Terrain generation and
+meshing use immutable snapshots on up to four workers; OpenGL uploads stay on
+the render thread. The simulation remains on its deterministic tick loop.
+
+`transport-poly --seed 20261017 --goto-town 35 --demo-network --profile profile.csv`
+records simulation time, CPU frame work, meshing time, worker wait, chunk builds
+and visible people per frame. Combine it with `--screenshot smoke.png --frames 450`
+for a repeatable run that exits automatically. CPU frame work excludes the display
+swap / VSync wait and is not a GPU timing measurement.
+
+The CI workflow builds, tests and packages Windows and Ubuntu clients, and also
+builds a headless Ubuntu server with warnings as errors. It can be started manually
+after pushing the branch. Save format 17 retains compatibility with versions 1-16;
+protocol 20 requires matching client and server builds.

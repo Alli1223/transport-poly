@@ -37,6 +37,8 @@ struct RenderStats {
     usize vehiclesDrawn = 0;
     usize peopleDrawn = 0;
     usize trianglesDrawn = 0;
+    double meshWaitMs = 0;
+    double meshCpuMs = 0;
 };
 
 // Lighting and sky colours (linear) for a time of day.
@@ -110,7 +112,7 @@ private:
         std::vector<const ChunkMesh*> buildings;
     };
 
-    void buildChunkMesh(const World& world, ChunkPos pos, int lod, ChunkMesh& mesh);
+    void buildChunkMesh(const World& world, ChunkPos pos, int lod, ChunkMesh& mesh, const ChunkGeometry* prepared = nullptr);
     void ensureShadowTarget();
     void drawChunks(const DrawLists& lists, const glm::dvec3& origin, bool shadowPass);
     void collectVehicles(const World& world, const glm::dvec3& origin, const glm::dvec3& focus, double radius,

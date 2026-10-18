@@ -316,6 +316,7 @@ void App::drawMainMenu() {
                 ws.interestPercent = preferences_.interestPercent;
                 ws.inflation = preferences_.inflation;
                 ws.recessions = preferences_.recessions;
+                ws.aiCompetitors = preferences_.aiCompetitors;
                 startSession(std::make_unique<LocalSession>(ws, companyName_));
             }
             break;
@@ -359,6 +360,7 @@ void App::drawMainMenu() {
                 ws.interestPercent = preferences_.interestPercent;
                 ws.inflation = preferences_.inflation;
                 ws.recessions = preferences_.recessions;
+                ws.aiCompetitors = preferences_.aiCompetitors;
                 auto hosted = std::make_unique<World>(ws);
                 Command create;
                 create.client = kLocalClientId;
@@ -576,6 +578,7 @@ void App::autosave() {
 }
 
 void App::applyPreferences() {
+    audio_.setEnabled(preferences_.sounds);
     preferences_.clamp();
     renderer_.settings.shadows = preferences_.shadows;
     renderer_.settings.maxViewDistance = static_cast<float>(preferences_.viewDistance);
@@ -617,6 +620,8 @@ void App::drawSettings() {
                 changed |= ImGui::SliderInt("New game interest", &preferences_.interestPercent, 0, 20, "%d%%");
                 changed |= ImGui::Checkbox("New game inflation (about 2% per year)", &preferences_.inflation);
                 changed |= ImGui::Checkbox("New game recessions", &preferences_.recessions);
+                changed |= ImGui::SliderInt("New game AI competitors", &preferences_.aiCompetitors, 0, 3);
+                changed |= ImGui::Checkbox("Sounds", &preferences_.sounds);
                 ImGui::TextWrapped("Year, interest and economy events apply when starting a new world.");
                 ImGui::EndTabItem();
             }

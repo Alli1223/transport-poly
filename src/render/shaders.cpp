@@ -101,8 +101,11 @@ in vec3 vWorldPos;
 in vec3 vNormal;
 in vec3 vColor;
 in float vNightEmission;
+in float vLocalHeight;
+flat in float vCutaway;
 out vec4 fragColor;
 void main() {
+    if (vCutaway > 0.5 && vLocalHeight > 0.12) discard;
     vec3 n = normalize(vNormal);
     vec3 c = litColor(vColor, n, vWorldPos);
     // Night emission bypasses sun/shadow lighting, while still receiving distance fog.
@@ -126,11 +129,15 @@ out vec3 vWorldPos;
 out vec3 vNormal;
 out vec3 vColor;
 out float vNightEmission;
+out float vLocalHeight;
+flat out float vCutaway;
 void main() {
     vec4 p = vec4(aPos, 1.0);
     vec3 wp = vec3(dot(iRow0, p), dot(iRow1, p), dot(iRow2, p)) + uOffset;
     vec3 n = vec3(dot(iRow0.xyz, aNormal.xyz), dot(iRow1.xyz, aNormal.xyz), dot(iRow2.xyz, aNormal.xyz));
     vNormal = normalize(n);
+    vLocalHeight = aPos.y;
+    vCutaway = abs(iTint.a * 255.0 - 253.0) < 0.25 ? 1.0 : 0.0;
     // Vertices with alpha 0 are tintable: they take the instance colour scaled by their red channel.
     vec3 c = aColor.a < 0.5 ? iTint.rgb * (aColor.r * 2.0) : aColor.rgb;
     vColor = toLinear(c);

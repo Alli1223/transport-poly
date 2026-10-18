@@ -288,6 +288,10 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveCarriage& x, boo
     if (!v) return CommandResult::failure(error);
     if (x.index == 0 || x.index >= v->cars.size())
         return CommandResult::failure("Sell the whole train to remove its engine");
+    const auto& removed = vehicleModel(v->cars[x.index]);
+    if (removed.cargoCapacity && cargo::quantity(v->cargo, removed.cargoType) >
+        v->cargoCapacity(removed.cargoType) - removed.cargoCapacity)
+        return CommandResult::failure("Unload the freight before removing this wagon");
     Money baseValue = 0;
     for (const u16 car : v->cars) baseValue += vehicleModel(car).price;
     const Money refund = baseValue > 0 ? v->value * vehicleModel(v->cars[x.index]).price / baseValue * 3 / 4 : 0;

@@ -3,6 +3,7 @@
 
 #include "core/types.hpp"
 #include "sim/coords.hpp"
+#include "sim/cargo.hpp"
 #include "sim/ids.hpp"
 #include "sim/track.hpp"
 
@@ -45,6 +46,7 @@ struct Station {
     i64 builtTick = 0;
     // Passengers waiting here, grouped by the station they want to travel to next.
     std::map<StationId, std::vector<PersonId>> waiting;
+    std::vector<CargoBatch> cargoWaiting;
     i64 lastVisitTick = -1; // last time a vehicle stopped here
     i32 boardedThisMonth = 0;
     i32 boardedLastMonth = 0;
@@ -65,6 +67,7 @@ struct Station {
     void serialize(Ar& ar) {
         ar(name, owner, town, sign, tiles, facilities, catchment, builtTick, waiting, lastVisitTick, boardedThisMonth,
            boardedLastMonth, rating);
+        if (ar.version == 0 || ar.version >= 17) ar(cargoWaiting);
     }
 };
 

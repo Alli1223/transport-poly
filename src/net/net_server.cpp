@@ -143,7 +143,8 @@ void NetServer::handle(Client& c, const Packet& p) {
             c.company = CompanyId{};
             c.conn.send(PacketType::CompanyAssigned, CompanyAssignedMsg{c.company});
             broadcastClientList();
-        } else if (server_.world().companies.contains(CompanyId(msg.company))) {
+        } else if (server_.world().companies.contains(CompanyId(msg.company)) &&
+                   !server_.world().companies[CompanyId(msg.company)].aiControlled) {
             c.company = CompanyId(msg.company);
             c.conn.send(PacketType::CompanyAssigned, CompanyAssignedMsg{c.company});
             broadcastClientList();

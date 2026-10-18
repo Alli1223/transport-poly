@@ -6,6 +6,8 @@ namespace tp {
 // Local presentation / control preferences, deliberately outside the simulation state.
 struct ClientPreferences {
     bool shadows = true;
+    bool sounds = false;
+    int aiCompetitors = 0;
     bool vsync = true;
     bool daylightOnly = false;
     int viewDistance = 460;

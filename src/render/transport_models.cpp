@@ -354,6 +354,48 @@ void person(MeshBuilder& mb) {
 
 void buildTransportModels(MeshBuilder& out, ModelId id) {
     switch (id) {
+    case models::kCrate:
+        out.box({-0.035f, 0, -0.035f}, {0.035f, 0.07f, 0.035f}, tintable(1.0f));
+        out.box({-0.037f, 0.025f, -0.037f}, {0.037f, 0.035f, 0.037f}, rgba(90, 65, 42));
+        break;
+    case models::kGrain:
+        out.icosphere({0, 0.025f, 0}, 0.04f, rgba(220, 183, 87));
+        break;
+    case models::kFoodLogo:
+        // White cross on green: refrigerated food freight.
+        out.box({-0.06f, 0, -0.003f}, {0.06f, 0.1f, 0.003f}, rgba(48, 146, 80));
+        out.box({-0.01f, 0.015f, -0.005f}, {0.01f, 0.085f, 0.005f}, kWhite);
+        out.box({-0.04f, 0.04f, -0.005f}, {0.04f, 0.06f, 0.005f}, kWhite);
+        break;
+    case models::kGoodsLogo:
+        out.box({-0.06f, 0, -0.003f}, {0.06f, 0.1f, 0.003f}, rgba(55, 107, 190));
+        out.box({-0.03f, 0.02f, -0.005f}, {0.03f, 0.08f, 0.005f}, rgba(226, 180, 94));
+        break;
+    case models::bus(4): case models::bus(5): case models::bus(6): {
+        wheels(out, -0.23f, 0.23f, 0.11f);
+        out.box({-0.34f, 0.06f, -0.11f}, {0.34f, 0.1f, 0.11f}, kLiveryDark);
+        out.box({0.17f, 0.1f, -0.11f}, {0.34f, 0.28f, 0.11f}, kLivery);
+        windowBand(out, 0.19f, 0.30f, 0.19f, 0.25f, 0.11f);
+        if (id != models::bus(4)) out.box({-0.33f, 0.1f, -0.105f}, {0.14f, 0.30f, 0.105f}, kWhite);
+        else for (const float z : {-0.11f, 0.10f}) out.box({-0.33f, 0.1f, z}, {0.14f, 0.17f, z+0.01f}, kLivery);
+        break;
+    }
+    case models::train(10): case models::train(11): case models::train(12): {
+        wheels(out, -0.21f, 0.21f, 0.11f);
+        out.box({-0.30f, 0.07f, -0.11f}, {0.30f, 0.12f, 0.11f}, kLiveryDark);
+        if (id != models::train(10)) out.box({-0.29f, 0.12f, -0.11f}, {0.29f, 0.32f, 0.11f}, kWhite);
+        else {
+            for (const float z : {-0.11f, 0.10f}) out.box({-0.30f, 0.12f, z}, {0.30f, 0.22f, z+0.01f}, kLivery);
+            for (const float x : {-0.30f, 0.29f}) out.box({x, 0.12f, -0.11f}, {x+0.01f, 0.22f, 0.11f}, kLivery);
+        }
+        break;
+    }
+    case models::ship(3): case models::ship(4): case models::ship(5):
+        out.box({-0.67f, 0.02f, -0.23f}, {0.60f, 0.16f, 0.23f}, kLiveryDark);
+        out.box({0.38f, 0.16f, -0.2f}, {0.59f, 0.42f, 0.2f}, kWhite);
+        windowBand(out, 0.40f, 0.56f, 0.30f, 0.36f, 0.2f);
+        if (id != models::ship(3)) out.box({-0.62f, 0.16f, -0.21f}, {0.30f, 0.32f, 0.21f}, kLivery);
+        break;
     case models::kStreetLamp: {
         constexpr u32 metal = rgba(64, 72, 78);
         out.prism({0, 0, 0}, 0.025f, 0.85f, 5, metal);

@@ -32,8 +32,36 @@ std::optional<PersonPose> personPose(const World& w, const Person& p, double fra
         return glm::dvec2(centre.x * 0.5, centre.y * 0.5);
     };
     if (p.state == PersonState::Riding) {
-        if (const Vehicle* v = w.vehicles.tryGet(p.vehicle))
-            if (const auto pose = vehiclePose(w, *v, fraction)) return PersonPose{pose->pos, pose->yaw, false};
+        if (const Vehicle* v = w.vehicles.tryGet(p.vehicle)) {
+            usize seat = 0;
+            for (const auto pid : v->passengers) {
+                const auto* rider = w.people.tryGet(pid);
+                if (rider && rider->serial == p.serial) break;
+                ++seat;
+            }
+            auto pose = vehiclePose(w, *v, fraction);
+            u32 seats = v->info().capacity;
+            if (v->info().type == VehicleType::Rail) {
+                std::vector<CarPose> cars;
+                trainCarPoses(w, *v, fraction, cars);
+                usize index = 0;
+                while (index < v->cars.size() && seat >= vehicleModel(v->cars[index]).capacity) {
+                    seat -= vehicleModel(v->cars[index]).capacity; ++index;
+                }
+                pose.reset();
+                for (const auto& car : cars) if (car.index == index) { pose = car.pose; seats = vehicleModel(car.model).capacity; break; }
+            }
+            if (pose) {
+                const double length = std::max(0.3, v->info().length / 16.0);
+                const usize rows = std::max<usize>(1, (seats + 3) / 4);
+                const double x = (static_cast<double>(seat / 4) / rows - 0.45) * length * 0.75;
+                const double z = (static_cast<int>(seat % 4) - 1.5) * 0.035;
+                const double cs = std::cos(pose->yaw), sn = std::sin(pose->yaw);
+                // Seated citizens remain visible through the window band and on ship decks.
+                return PersonPose{pose->pos + glm::dvec3(cs*x + sn*z, 0.14, -sn*x + cs*z), pose->yaw, true};
+            }
+        }
+        return std::nullopt;
     }
     glm::dvec2 from(p.tripFrom2.x * 0.5, p.tripFrom2.y * 0.5);
     glm::dvec2 to(p.tripTo2.x * 0.5, p.tripTo2.y * 0.5);

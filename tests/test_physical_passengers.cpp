@@ -31,6 +31,14 @@ TEST_CASE("passengers: all 75 real people alight, walk and reach their destinati
         manifest.push_back(id); w.vehicles[train].passengers.push_back(id);
     }
     CHECK_EQ(w.vehicles[train].passengers.size(), 75u);
+#ifdef TP_TEST_RENDERING
+    int seated = 0;
+    for (const auto id : manifest) {
+        const auto pose = gfx::personPose(w, w.people[id]);
+        seated += pose && pose->visible;
+    }
+    CHECK_EQ(seated, 75);
+#endif
     CHECK_EQ(passengers::exchangeAtStop(w, train, b), 75);
     CHECK(w.vehicles[train].passengers.empty());
     int walking = 0;

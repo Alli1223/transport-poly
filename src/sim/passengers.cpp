@@ -99,8 +99,28 @@ TilePos stationPos2(const World& w, StationId id, TilePos fallback2) {
 
 // The person reached a station they get off at: pay, then transfer or walk on.
 // Door position of the carriage containing this seat, in half-tile coordinates.
-TilePos doorPosition2(const Vehicle& v, usize seat) {
+TilePos doorPosition2(const World& w, const Vehicle& v, usize seat) {
     TilePos tile = v.tile;
+    if (v.freeTrack && !v.runs.empty()) {
+        i32 back = 0;
+        for (const u16 model : v.cars) {
+            const auto& car = vehicleModel(model);
+            if (seat < car.capacity) { back += car.length * 8; break; }
+            seat -= std::min<usize>(seat, car.capacity);
+            back += car.length * 16 + 4;
+        }
+        i32 distance = v.progress - back;
+        for (usize i = 0; i < v.runs.size(); ++i) {
+            const auto run = v.runs[i];
+            const auto* edge = w.trackEdges.tryGet(run.edge);
+            if (!edge) break;
+            if (i > 0) distance += edge->length;
+            if (distance >= 0) {
+                const auto sample = track::pointOn(*edge, run.forward, distance);
+                return {floorDiv(sample.p.x * 2, kTrackUnits), floorDiv(sample.p.z * 2, kTrackUnits)};
+            }
+        }
+    }
     if (v.info().type == VehicleType::Rail && !v.trail.empty()) {
         i32 offset = 0;
         for (const u16 model : v.cars) {
@@ -139,7 +159,7 @@ void alight(World& w, PersonId pid, StationId at, Vehicle& v, usize seat, i32 se
     p.vehicle = VehicleId{};
     p.station = at;
     p.transitMotion = 2;
-    p.transitFrom2 = doorPosition2(v, seat);
+    p.transitFrom2 = doorPosition2(w, v, seat);
     p.transitTo2 = p.transitFrom2;
     // Walk sideways onto the platform / kerb (or up the dock gangway).
     if (v.info().type == VehicleType::Ship && to) p.transitTo2 = {to->sign.x * 2 + 1, to->sign.y * 2 + 1};
@@ -178,7 +198,7 @@ void updateRouting(World& w) {
     };
     std::map<std::pair<u32, u32>, Agg> links;
     for (const auto [vid, v] : w.vehicles) {
-        if (v.stopped && v.state == VehicleState::InDepot) continue;
+        if ((v.stopped && v.state == VehicleState::InDepot) || v.capacity() == 0) continue;
         const std::vector<StationId> stops = stationOrders(w, v);
         if (stops.size() < 2) continue;
         const i32 speed = std::max(1, speedUnits(v.info().maxSpeedKmh));
@@ -289,7 +309,7 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
     Vehicle& v = w.vehicles[vid];
     Station* station = w.stations.tryGet(sid);
     if (!station) return 0;
-    i32 moved = 0;
+    i32 moved = cargo::exchangeAtStop(w, vid, sid);
     const auto o = v.currentOrder();
     if (o && o->passThrough()) return 0;
     // Unload.
@@ -330,7 +350,7 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
         p->nextEvent = -1;
         p->transitMotion = 1;
         p->transitFrom2 = {station->sign.x * 2 + 1, station->sign.y * 2 + 1};
-        p->transitTo2 = doorPosition2(v, v.passengers.size());
+        p->transitTo2 = doorPosition2(w, v, v.passengers.size());
         p->transitBegin = w.clock.tick + moved * 2;
         p->transitEnd = p->transitBegin + 8;
         v.passengers.push_back(pid);

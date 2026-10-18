@@ -26,7 +26,7 @@ if(TP_BUILD_CLIENT)
     # --- transport-poly: the game client -----------------------------------
     file(GLOB_RECURSE TP_CLIENT_SOURCES CONFIGURE_DEPENDS client/*.cpp client/*.hpp)
     add_executable(transport-poly ${TP_CLIENT_SOURCES})
-    target_link_libraries(transport-poly PRIVATE tp_render tp_net tp_imgui glfw)
+    target_link_libraries(transport-poly PRIVATE tp_render tp_net tp_imgui glfw tp_audio)
     # Ship the UI font next to the executable.
     add_custom_command(TARGET transport-poly POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:transport-poly>/fonts
@@ -64,6 +64,7 @@ endif()
 if(TP_BUILD_CLIENT)
     install(TARGETS transport-poly RUNTIME DESTINATION ${TP_INSTALL_BINDIR})
     install(FILES ${TP_IMGUI_FONT_DIR}/Roboto-Medium.ttf DESTINATION ${TP_INSTALL_BINDIR}/fonts)
+    install(FILES ${miniaudio_SOURCE_DIR}/LICENSE DESTINATION licenses RENAME miniaudio.txt)
 endif()
 if(TP_BUILD_SERVER)
     install(TARGETS transport-poly-server RUNTIME DESTINATION ${TP_INSTALL_BINDIR})

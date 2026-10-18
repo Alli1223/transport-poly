@@ -18,7 +18,7 @@ relies on every peer computing exactly the same game state.
 - [x] 0.4 Minimal OpenGL 3.3 core function loader (no code generator required)
 - [x] 0.5 Target layout: tp_core, tp_sim, tp_net, tp_render, transport-poly (client), transport-poly-server (dedicated), tp_tests
 - [x] 0.6 Tiny unit test framework + CTest integration
-- [~] 0.7 GitHub Actions CI: build + test on Windows and Ubuntu (workflow written; runs once the repo is pushed)
+- [x] 0.7 GitHub Actions CI: Windows and Ubuntu client builds, tests and packages; Ubuntu headless build with warnings as errors; manual dispatch (remote runs require pushing the branch)
 - [x] 0.8 README with build instructions; docs/ARCHITECTURE.md
 
 ## M1 — Core library
@@ -58,7 +58,7 @@ relies on every peer computing exactly the same game state.
 - [x] 3.11 Clock-driven day / night sky and sun, warm emissive building windows and town street lamps; local daylight-only toggle
 - [x] 3.12 Mouse picking: ray vs heightfield, tile / corner hit info
 - [x] 3.13 Procedural low poly model library (houses, apartments, offices, shops, factories, trees, stations, depots, buses, trams, trains, ships and people)
-- [x] 3.14 Instanced renderers for trees, buildings, vehicles, people (visible pedestrians and waiting passengers culled around the camera, bounded at 2048 instances)
+- [x] 3.14 Instanced renderers for trees, buildings, vehicles, people (visible pedestrians and waiting passengers culled around the camera, culled by distance; every nearby traveller is instanced)
 - [x] 3.15 Selection highlight + ghost previews for build tools
 - [x] 3.16 Screenshot key
 
@@ -125,9 +125,9 @@ relies on every peer computing exactly the same game state.
 - [x] 8.5 Fare payment by distance & travel time (per leg, per company)
 - [x] 8.6 Passengers giving up after long waits ⇒ rating penalty
 - [x] 8.7 Optional inflation for construction, vehicles, upkeep and fares; deterministic 6–12 month recessions with reduced fares / town growth, recovery news, saved state and new-world settings
-- [ ] 8.8 Freight milestone: industries, cargo chains, trucks / freight wagons / cargo ships
-- [ ] 8.9 Physical passenger and cargo presentation: show every nearby traveller boarding, riding / alighting and walking to their destination; visible provider and station crates, loading / unloading, and vehicle loads matching their cargo type and quantity (e.g. all 75 passengers leave a train as individual people)
-- [ ] 7.13 Expanded train catalogue and consist customisation: choose engines and a mix of passenger coaches, open freight wagons with visible loads, and closed freight wagons with cargo-type logos; show each wagon's capacity and actual load
+- [x] 8.8 Freight milestone: farms produce grain, factories turn grain into food, workshops turn food into goods, shops consume food / goods; compatible truck / wagon / ship services, transfers, bounded inventories and delivery income
+- [x] 8.9 Physical passenger and cargo presentation: show every nearby traveller boarding, riding / alighting and walking to their destination; visible provider and station crates, loading / unloading, and vehicle loads matching their cargo type and quantity (e.g. all 75 passengers leave a train as individual people)
+- [x] 7.13 Expanded train catalogue and consist customisation: choose engines and a mix of passenger coaches, open freight wagons with visible loads, and closed freight wagons with cargo-type logos; show each wagon's capacity and actual load
 
 ## M9 — Save / Load
 - [x] 9.1 Full world serialisation (versioned)
@@ -164,10 +164,10 @@ relies on every peer computing exactly the same game state.
 - [x] 11.15 Citizen inspector (town / name / ID search, home / work / shop, schedule, vehicle / station links, activity log and camera follow)
 
 ## M12 — Polish & release
-- [~] 12.1 Performance pass (profiling, multithreaded meshing, LOD) (terrain LOD + skirts done)
-- [ ] 12.2 Sounds (optional)
+- [x] 12.1 Performance pass: immutable terrain snapshots meshed on up to four workers, main-thread GPU uploads, LOD / skirts, F3 timings and CSV profiling
+- [x] 12.2 Sounds (optional): synthesized command confirmation / error cues, native Windows / Linux playback via miniaudio, persisted local toggle and silent fallback without an audio device
 - [x] 12.3 Packaging: CPack zip (Windows), tar.gz (Linux)
-- [ ] 12.4 AI competitors (optional)
+- [x] 12.4 AI competitors (optional): 0-3 deterministic bus operators, validated affordable routes on existing town roads, daily expansion to unserved towns, fleet limits, normal finances / bankruptcy, saved state and multiplayer company protection
 
 ## M13 — Transport Fever style terrain and track
 - [x] 13.1 Smooth terrain: fine height steps, rolling hills and ridged mountains with varied inclines; structures snap their ground to whole levels

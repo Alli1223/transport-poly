@@ -565,7 +565,7 @@ void App::drawDepotWindow() {
                     dl->AddRectFilled(p, ImVec2(p.x + w0, p.y + h), ui::withAlpha(c, 0.15f), 6.0f * s);
                     dl->AddText(ImVec2(p.x + 8.0f * s, p.y + 4.0f * s), k == 0 ? ui::col::kRail : ui::col::kText, cm.name.data());
                     if (ImGui::IsItemHovered())
-                        ui::tooltip({cm.name.data(), std::format("{} seats, {} km/h", cm.capacity, cm.maxSpeedKmh).c_str()});
+                        ui::tooltip({cm.name.data(), std::format("{} / {} {}, {} km/h", v.carLoad(k), cm.cargoCapacity ? cm.cargoCapacity : cm.capacity, cargoName(cm.cargoType), cm.maxSpeedKmh).c_str()});
                     if (removable) {
                         const ImVec2 back = ImGui::GetCursorScreenPos();
                         ImGui::SetCursorScreenPos(ImVec2(p.x + w0 - 18.0f * s, p.y + (h - 16.0f * s) * 0.5f));
@@ -584,11 +584,11 @@ void App::drawDepotWindow() {
                     if (ui::button("Add carriage", ui::Icon::Plus, ui::Btn::Ghost)) ImGui::OpenPopup("addcar");
                     if (ImGui::BeginPopup("addcar")) {
                         ui::FontScope f(ui::fonts().small);
-                        ui::mutedText("CARRIAGES");
+                        ui::mutedText("ENGINES AND WAGONS");
                         for (u16 i = 0; i < models.size(); ++i) {
                             const VehicleModel& m = models[i];
-                            if (m.type != VehicleType::Rail || m.powered || m.introYear > year) continue;
-                            const std::string item = std::format("{}   {} seats  {} km/h  {}", m.name, m.capacity,
+                            if (m.type != VehicleType::Rail || m.introYear > year) continue;
+                            const std::string item = std::format("{}   {} {}  {} km/h  {}", m.name, m.cargoCapacity ? m.cargoCapacity : m.capacity, cargoName(m.cargoType),
                                                                  m.maxSpeedKmh, formatMoney(w.inflated(m.price)));
                             if (ImGui::Selectable(item.c_str())) session_->submit(CmdAddCarriage{id, i});
                         }
@@ -620,8 +620,8 @@ void App::drawDepotWindow() {
                 dl->AddRectFilled(p, ImVec2(p.x + avail, p.y + h), ui::col::kCard, 10.0f * s);
                 ui::drawIcon(dl, vehicleIcon(m.type), ImVec2(p.x + 22.0f * s, p.y + h * 0.5f), 22.0f * s, typeColour(m.type));
                 dl->AddText(ImVec2(p.x + 44.0f * s, p.y + 8.0f * s), ui::col::kText, m.name.data());
-                const std::string spec2 = m.capacity > 0
-                                              ? std::format("{} seats  -  {} km/h  -  {}/yr", m.capacity, m.maxSpeedKmh,
+                const std::string spec2 = (m.capacity > 0 || m.cargoCapacity > 0)
+                                              ? std::format("{} {}  -  {} km/h  -  {}/yr", m.cargoCapacity ? m.cargoCapacity : m.capacity, cargoName(m.cargoType), m.maxSpeedKmh,
                                                             formatMoney(w.inflated(m.runningCost)))
                                               : std::format("{} km/h  -  {}/yr", m.maxSpeedKmh, formatMoney(w.inflated(m.runningCost)));
                 ImFont* sf = ui::fonts().small;
@@ -682,6 +682,18 @@ void App::drawVehicleWindow() {
         const float cw = ui::columnWidth(3);
         const std::string speed = std::format("{} km/h", displayKmh(v->speed));
         const std::string load = std::format("{} / {}", v->passengers.size(), v->capacity());
+        for (usize c = 0; c < kCargoTypes; ++c) {
+            const auto type = static_cast<CargoType>(c);
+            if (v->cargoCapacity(type)) ui::statRow(cargoName(type).data(),
+                std::format("{} / {} units", cargo::quantity(v->cargo, type), v->cargoCapacity(type)).c_str());
+        }
+        if (v->info().type == VehicleType::Rail) {
+            for (usize k = 0; k < v->cars.size(); ++k) {
+                const auto& carModel = vehicleModel(v->cars[k]);
+                ui::statRow(carModel.name.data(), std::format("{} / {} {}", v->carLoad(k),
+                    carModel.cargoCapacity ? carModel.cargoCapacity : carModel.capacity, cargoName(carModel.cargoType)).c_str());
+            }
+        }
         const std::string profit = formatMoney(v->profitThisYear);
         ui::statCard(ui::Icon::Gauge, speed.c_str(), "Speed", ui::col::kBlue, cw);
         ImGui::SameLine();
@@ -935,6 +947,11 @@ void App::drawStationWindow() {
         ui::statRow("Catchment radius", std::format("{} tiles", st->catchment).c_str());
         ui::statRow("Stop tiles", std::format("{}", st->tiles.size()).c_str());
         ui::statRow("Waiting capacity", std::format("{} / {}", st->waitingCount(), st->waitingCapacity()).c_str());
+        ui::sectionHeader("Freight waiting");
+        for (usize cargoIndex = 0; cargoIndex < kCargoTypes; ++cargoIndex) {
+            const auto type = static_cast<CargoType>(cargoIndex);
+            ui::statRow(cargoName(type).data(), std::format("{} units", cargo::quantity(st->cargoWaiting, type)).c_str());
+        }
         ui::sectionHeader("Waiting for");
         if (st->waiting.empty()) ui::emptyState(ui::Icon::People, "Nobody is waiting");
         usize most = 1;

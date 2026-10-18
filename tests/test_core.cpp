@@ -33,6 +33,8 @@ TEST_CASE("preferences: validated settings round trip and malformed files leave 
     original.panPercent = 180;
     original.autosaveMonths = 3;
     original.inflation = true;
+    original.sounds = true;
+    original.aiCompetitors = 3;
     original.recessions = false;
     REQUIRE(original.save(path));
     ClientPreferences copy;
@@ -42,6 +44,8 @@ TEST_CASE("preferences: validated settings round trip and malformed files leave 
     CHECK_EQ(copy.panPercent, 180);
     CHECK_EQ(copy.autosaveMonths, 3);
     CHECK(copy.inflation);
+    CHECK(copy.sounds);
+    CHECK_EQ(copy.aiCompetitors, 3);
     CHECK(!copy.recessions);
     { std::ofstream out(path); out << "bad settings"; }
     CHECK(!copy.load(path));

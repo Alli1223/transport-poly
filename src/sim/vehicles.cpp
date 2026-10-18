@@ -166,6 +166,7 @@ void arriveAtStop(World& w, VehicleId id) {
     const auto o = targetOrder(v);
     const StationId sid = o ? o->station : StationId{};
     const i32 exchanged = passengers::exchangeAtStop(w, id, sid);
+    v.loadingStartTick = w.clock.tick;
     v.loadingUntil = w.clock.tick + kBaseDwellTicks + exchanged * 2 + 8;
     stations::recordVisit(w, sid, id);
 }
@@ -173,12 +174,12 @@ void arriveAtStop(World& w, VehicleId id) {
 void finishLoading(World& w, VehicleId id) {
     Vehicle& v = w.vehicles[id];
     const auto o = targetOrder(v);
-    if (o && (o->flags & kOrderFullLoad) && v.passengers.size() < v.capacity() &&
-        w.clock.tick < v.loadingUntil + 8 * kTicksPerHour) {
+    if (o && (o->flags & kOrderFullLoad) && !v.full() &&
+        w.clock.tick < v.loadingStartTick + 8 * kTicksPerHour) {
         // Keep boarding newcomers while waiting for a full load (gives up after eight hours).
         const i32 n = passengers::exchangeAtStop(w, id, o->station);
         if (n > 0) v.loadingUntil = w.clock.tick + n * 2 + 8;
-        if (v.passengers.size() < v.capacity() || n > 0) return;
+        if (!v.full() || n > 0) return;
     }
     v.state = VehicleState::Driving;
     v.stopAtMiddle = false;

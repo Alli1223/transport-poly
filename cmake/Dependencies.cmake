@@ -31,7 +31,22 @@ if(TP_BUILD_CLIENT)
         GIT_TAG v1.91.9b
         GIT_SHALLOW TRUE)
 
-    FetchContent_MakeAvailable(glfw glm imgui)
+    # Optional local sound output; miniaudio uses native Windows / Linux backends.
+    FetchContent_Declare(miniaudio
+        GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+        GIT_TAG 0.11.23
+        GIT_SHALLOW TRUE
+        SOURCE_SUBDIR _header_only_no_cmake)
+    FetchContent_MakeAvailable(glfw glm imgui miniaudio)
+    add_library(tp_audio STATIC ${PROJECT_SOURCE_DIR}/src/audio/audio.cpp)
+    target_include_directories(tp_audio PUBLIC ${PROJECT_SOURCE_DIR}/src)
+    target_include_directories(tp_audio SYSTEM PRIVATE ${miniaudio_SOURCE_DIR})
+    target_link_libraries(tp_audio PRIVATE tp_options ${CMAKE_DL_LIBS})
+    if(UNIX)
+        find_package(Threads REQUIRED)
+        target_link_libraries(tp_audio PRIVATE Threads::Threads m)
+    endif()
+    set_target_properties(tp_audio PROPERTIES FOLDER "Libraries")
 
     add_library(tp_glm INTERFACE)
     target_include_directories(tp_glm SYSTEM INTERFACE ${glm_SOURCE_DIR})

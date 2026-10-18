@@ -28,7 +28,7 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 16;
+inline constexpr u32 kSaveVersion = 17;
 inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
@@ -39,6 +39,7 @@ struct WorldSettings {
     i32 interestPercent = 4;
     i32 maxActiveChunks = 20'000;
     i32 maxChunksPerCommand = 64;
+    i32 aiCompetitors = 0;
     bool waterways = true;
     bool inflation = false;
     bool recessions = true;
@@ -47,6 +48,7 @@ struct WorldSettings {
     template <class Ar>
     void serialize(Ar& ar) {
         ar(seed, startYear, initialLoan, maxLoan, interestPercent, maxActiveChunks, maxChunksPerCommand);
+        if (ar.version == 0 || ar.version >= 17) ar(aiCompetitors);
         if (ar.version == 0 || ar.version >= 5)
             ar(waterways);
         else if constexpr (Ar::kReading)
@@ -93,6 +95,7 @@ public:
     u32 nextSerial = 0;               // serial numbers for buildings / people
     std::deque<NewsItem> news;
     Economy economy;
+    std::vector<Industry> industries;
 
     Money inflated(Money base) const { return base / 10'000 * economy.priceIndex + (base % 10'000 * economy.priceIndex + 5000) / 10'000; }
     Money fareIncome(Money base) const { return inflated(base) * (economy.recessionMonths > 0 ? 70 : 100) / 100; }
@@ -132,12 +135,15 @@ public:
            nextSerial, news);
         if (ar.version == 0 || ar.version >= 10) ar(economy);
         if (ar.version == 0 || ar.version >= 13) ar(trackNodes, trackEdges);
+        if (ar.version == 0 || ar.version >= 17) ar(industries);
         if constexpr (Ar::kReading) {
             for (auto [id, c] : companies)
                 if (!c.thisMonth.month) {
                     c.thisMonth.year = clock.date().year;
                     c.thisMonth.month = static_cast<u8>(clock.date().month);
                 }
+            if (ar.version != 0 && ar.version < 17)
+                for (auto [id, v] : vehicles) v.loadingStartTick = clock.tick;
             people::rebuildEvents(*this);
             stations::rebuildIndex(*this);
             routing = RoutingTable{};

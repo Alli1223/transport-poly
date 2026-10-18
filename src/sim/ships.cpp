@@ -63,6 +63,7 @@ void arriveAtDock(World& w, VehicleId id, StationId sid) {
     v.state = VehicleState::Loading;
     v.speed = 0;
     const i32 exchanged = passengers::exchangeAtStop(w, id, sid);
+    v.loadingStartTick = w.clock.tick;
     v.loadingUntil = w.clock.tick + kBaseDwellTicks + exchanged * 2 + 8;
     stations::recordVisit(w, sid, id);
 }

@@ -6,6 +6,7 @@
 #include "core/hash.hpp"
 #include "core/serialize.hpp"
 #include "sim/prices.hpp"
+#include "sim/ai.hpp"
 
 namespace tp {
 
@@ -18,6 +19,7 @@ World::World(const WorldSettings& s) : settings(s), rng(s.seed, 0x5EED), map(s.s
 
 void World::tick() {
     ++clock.tick;
+    if (clock.tick == 1) ai::daily(*this);
     if (clock.isNewDay()) onNewDay();
     passengers::updateRouting(*this);
     people::process(*this);
@@ -32,6 +34,8 @@ void World::onNewDay() {
     }
     towns::growAll(*this);
     vehicles::daily(*this);
+    cargo::daily(*this);
+    ai::daily(*this);
 }
 
 void World::onNewMonth() {

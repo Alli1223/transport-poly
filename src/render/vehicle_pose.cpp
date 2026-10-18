@@ -176,7 +176,9 @@ void trainCarPoses(const World& w, const Vehicle& v, double tickFraction, std::v
     double offset = 0.0;
     const std::vector<u16> single{v.model};
     const std::vector<u16>& cars = v.cars.empty() ? single : v.cars;
+    usize index = 0;
     for (const u16 m : cars) {
+        const usize carIndex = index++;
         const double len = vehicleModel(m).length * 16.0;
         const double centre = offset + len * 0.5;
         const auto front = v.freeTrack ? freeTrackPoint(w, v, head, centre - len * 0.4) : trainPoint(w, v, head, centre - len * 0.4);
@@ -186,6 +188,7 @@ void trainCarPoses(const World& w, const Vehicle& v, double tickFraction, std::v
         const glm::dvec3 d = *front - *rear;
         CarPose cp;
         cp.model = m;
+        cp.index = carIndex;
         cp.pose.pos = (*front + *rear) * 0.5;
         cp.pose.yaw = static_cast<float>(std::atan2(-d.z, d.x));
         cp.pose.pitch = static_cast<float>(std::atan2(d.y, std::max(1e-6, std::sqrt(d.x * d.x + d.z * d.z))));

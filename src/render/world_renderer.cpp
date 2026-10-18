@@ -3,6 +3,10 @@
 #include "core/hash.hpp"
 #include "core/log.hpp"
 #include "render/shaders.hpp"
+#include "render/picking.hpp"
+#include <future>
+#include <chrono>
+#include <set>
 #include "render/vehicle_pose.hpp"
 #include "render/person_pose.hpp"
 #include "sim/rail.hpp"
@@ -179,17 +183,19 @@ void WorldRenderer::ensureShadowTarget() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
-void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, ChunkMesh& mesh) {
+void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, ChunkMesh& mesh, const ChunkGeometry* prepared) {
     const Map& map = world.map;
     const Chunk* active = map.chunk(pos);
     const Chunk* source = active;
     Chunk generated;
-    if (!source) {
+    if (!source && !prepared) {
         map.generator().generateChunk(pos, generated);
         source = &generated;
     }
-    const ChunkGeometry geo = buildChunkGeometry(
+    ChunkGeometry generatedGeo;
+    if (!prepared) generatedGeo = buildChunkGeometry(
         *source, map.generator(), [&](TilePos t) { return tileIsWater(map, t); }, lod, &world);
+    const ChunkGeometry& geo = prepared ? *prepared : generatedGeo;
     mesh.pos = pos;
     mesh.lod = lod;
     mesh.ground.upload(geo.ground);
@@ -338,6 +344,77 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
         const glm::vec3 p = glm::vec3(pose.pos - origin) + glm::vec3(0.0f, 0.42f, 0.0f);
         dynamic_.add(models::kSmoke, makeInstance(p, static_cast<float>(ticksLeft) * 0.05f, s));
     };
+    const auto cargoTint = [](CargoType type) {
+        return type == CargoType::Grain ? rgba(220,183,87) : type == CargoType::Food ? rgba(75,170,98) : rgba(70,120,210);
+    };
+    const auto addLoad = [&](const Vehicle& v, usize index, const VehiclePose& pose, u16 model) {
+        const auto& m = vehicleModel(model);
+        if (!m.cargoCapacity) return;
+        const auto matrix = poseMatrix(pose);
+        if (!m.openCargo) {
+            for (const float side : {-1.0f, 1.0f}) {
+                auto logo = glm::translate(matrix, glm::vec3(0, 0.17f, side * (m.type == VehicleType::Ship ? 0.235f : 0.115f)));
+                dynamic_.add(m.cargoType == CargoType::Food ? models::kFoodLogo : models::kGoodsLogo, makeInstance(logo));
+            }
+        }
+        const u32 count = v.carLoad(index);
+        const int columns = m.type == VehicleType::Ship ? 6 : 2;
+        const int rows = m.type == VehicleType::Ship ? 12 : 6;
+        for (u32 n = 0; n < count; ++n) {
+            const float x = (static_cast<int>(n / columns) % rows - (rows - 1)*0.5f)*0.07f - 0.05f;
+            const float z = (static_cast<int>(n % columns) - (columns - 1)*0.5f)*0.07f;
+            float y = (m.openCargo ? 0.12f : 0.33f) + (n / (columns*rows))*0.055f;
+            auto load = glm::translate(matrix, glm::vec3(x, y, z));
+            dynamic_.add(m.cargoType == CargoType::Grain ? models::kGrain : models::kCrate,
+                         makeInstance(load, cargoTint(m.cargoType)));
+        }
+        if (v.state == VehicleState::Loading && v.cargoExchangeTick >= 0) {
+            const double elapsed = world.clock.tick + tickFraction - v.cargoExchangeTick;
+            if (elapsed >= 0 && elapsed < v.cargoExchangeUnits * 2 + 8) {
+                u32 before = 0;
+                for (usize k = 0; k < index && k < v.cars.size(); ++k) {
+                    const auto& car = vehicleModel(v.cars[k]);
+                    if (car.cargoType == m.cargoType) before += car.cargoCapacity;
+                }
+                const usize commodity = static_cast<usize>(m.cargoType);
+                for (const bool boarding : {false, true}) {
+                    const u32 total = boarding ? v.cargoLoaded[commodity] : v.cargoUnloaded[commodity];
+                    const u32 units = std::min<u32>(m.cargoCapacity, total > before ? total - before : 0);
+                    const i32 first = std::max(0, static_cast<i32>((elapsed-8)/2));
+                    for (u32 n = static_cast<u32>(first); n < units && n*2 <= elapsed; ++n) {
+                        const float phase = static_cast<float>((elapsed - n*2)/8.0);
+                        if (phase > 1) continue;
+                        const float side = boarding ? 1.0f-phase : phase;
+                        auto motion = glm::translate(matrix, glm::vec3(0, 0.15f, 0.1f + side * 0.5f));
+                        dynamic_.add(m.cargoType == CargoType::Grain ? models::kGrain : models::kCrate,
+                                     makeInstance(motion, cargoTint(m.cargoType)));
+                    }
+                }
+            }
+        }
+    };
+    const auto addStock = [&](TilePos at, const std::array<u32, kCargoTypes>& stock) {
+        const double dx = at.x - focus.x, dz = at.y - focus.z;
+        if (dx*dx + dz*dz > std::min(radius*radius, 10000.0)) return;
+        const float ground = static_cast<float>(terrainHeightAt(world.map, at.x + 0.5, at.y + 0.5));
+        u32 offset = 0;
+        for (usize c = 0; c < kCargoTypes; ++c) {
+            for (u32 n = 0; n < stock[c]; ++n) {
+                const u32 slot = offset++;
+                const glm::vec3 p = glm::vec3(glm::dvec3(at.x+0.1, ground, at.y+0.1) - origin) +
+                    glm::vec3((slot%10)*0.075f, (slot/100)*0.07f, ((slot/10)%10)*0.075f);
+                dynamic_.add(c == 0 ? models::kGrain : models::kCrate, makeInstance(p, 0, 1, cargoTint(static_cast<CargoType>(c))));
+            }
+        }
+    };
+    for (const auto& industry : world.industries)
+        if (const auto* b = world.buildings.tryGet(industry.building.id); b && b->serial == industry.building.serial)
+            addStock({b->pos.x, b->pos.y + b->info().size}, industry.stock);
+    for (const auto [sid, station] : world.stations) {
+        std::array<u32, kCargoTypes> stock{};
+        for (usize c = 0; c < kCargoTypes; ++c) stock[c] = cargo::quantity(station.cargoWaiting, static_cast<CargoType>(c));
+        addStock(station.sign, stock);
+    }
     std::vector<CarPose> cars;
     for (const auto [id, v] : world.vehicles) {
         if (v.state == VehicleState::InDepot) continue;
@@ -347,15 +424,22 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
             cars.clear();
             trainCarPoses(world, v, tickFraction, cars);
             const u32 tint = companyTint(world, v.owner);
-            for (const CarPose& c : cars)
-                dynamic_.add(vehicleModelId(vehicleModel(c.model)), makeInstance(poseMatrix(c.pose), tint));
+            for (const CarPose& c : cars) {
+                const auto& info = vehicleModel(c.model);
+                const u32 carTint = info.capacity && v.carLoad(c.index) && dx*dx + dz*dz < 10000 ? (tint & 0x00ffffffu) | (253u << 24) : tint;
+                dynamic_.add(vehicleModelId(info), makeInstance(poseMatrix(c.pose), carTint));
+                addLoad(v, c.index, c.pose, c.model);
+            }
             if (v.breakdownTicks > 0 && !cars.empty()) addSmoke(cars.front().pose, v.breakdownTicks);
             ++stats_.vehiclesDrawn;
             continue;
         }
         const auto pose = vehiclePose(world, v, tickFraction);
         if (!pose) continue;
-        dynamic_.add(vehicleModelId(v.info()), makeInstance(poseMatrix(*pose), companyTint(world, v.owner)));
+        u32 tint = companyTint(world, v.owner);
+        if (!v.passengers.empty() && dx*dx + dz*dz < 10000) tint = (tint & 0x00ffffffu) | (253u << 24);
+        dynamic_.add(vehicleModelId(v.info()), makeInstance(poseMatrix(*pose), tint));
+        addLoad(v, 0, *pose, v.model);
         if (v.breakdownTicks > 0) addSmoke(*pose, v.breakdownTicks);
         ++stats_.vehiclesDrawn;
     }
@@ -365,7 +449,13 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
     for (const auto [id, person] : world.people) {
         if (person.state != PersonState::Walking && person.state != PersonState::ToStop &&
             person.state != PersonState::FromStop && person.state != PersonState::Waiting &&
-            !(person.state == PersonState::Riding && person.transitEnd > world.clock.tick)) continue;
+            person.state != PersonState::Riding) continue;
+        if (person.state == PersonState::Riding) {
+            const auto* vehicle = world.vehicles.tryGet(person.vehicle);
+            if (!vehicle) continue;
+            const double dx = vehicle->tile.x - focus.x, dz = vehicle->tile.y - focus.z;
+            if (dx*dx + dz*dz > std::min(radius*radius, 10000.0)) continue;
+        }
         const auto pose = personPose(world, person, tickFraction);
         if (!pose || !pose->visible) continue;
         const double dx = pose->pos.x - focus.x, dz = pose->pos.z - focus.z;
@@ -488,6 +578,49 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     std::sort(candidates.begin(), candidates.end(),
               [](const Candidate& a, const Candidate& b) { return a.dist2 < b.dist2; });
 
+    // Workers own snapshots, including border water and building classifications.
+    // Only the render thread accesses the live world or uploads GL resources.
+    std::unordered_map<u64, std::future<ChunkGeometry>> jobs;
+    const auto meshStart = std::chrono::steady_clock::now();
+    for (const auto& cand : candidates) {
+        if (jobs.size() >= static_cast<usize>(std::clamp(settings.meshBuildsPerFrame, 1, 4))) break;
+        const auto cached = meshes_.find(cand.pos.key());
+        const auto* active = map.chunk(cand.pos);
+        const u32 wanted = active ? active->revision + 1 : 0;
+        const auto lodFor = [](double d) { return d < 150 ? 0 : d < 300 ? 1 : 2; };
+        const double dist = std::sqrt(cand.dist2);
+        int lod = lodFor(dist);
+        if (cached != meshes_.end() && cached->second.lod != lod &&
+            (lodFor(dist + 16) == cached->second.lod || lodFor(dist - 16) == cached->second.lod)) lod = cached->second.lod;
+        if (cached != meshes_.end() && cached->second.revision == wanted && cached->second.lod == lod) continue;
+        const auto o = chunkOrigin(cand.pos);
+        const float minY = cached != meshes_.end() ? cached->second.minY : -4.0f;
+        const float maxY = cached != meshes_.end() ? cached->second.maxY : 30.0f;
+        const glm::vec3 mn(static_cast<float>(o.x-origin.x), minY, static_cast<float>(o.y-origin.z));
+        if (!frustum.intersects(mn, {mn.x+kChunkSize, maxY, mn.z+kChunkSize}) &&
+            !(settings.shadows && cand.dist2 < (shadowRadius+24)*(shadowRadius+24))) continue;
+        std::optional<Chunk> snapshot;
+        std::set<u32> residential;
+        if (active) {
+            snapshot = *active;
+            for (const auto& tile : active->tiles) if (tile.type == TileType::Building) {
+                const auto* b = world.buildings.tryGet(BuildingId(tile.index));
+                if (!b || b->info().category == BuildingCategory::Residential) residential.insert(tile.index);
+            }
+        }
+        std::map<TilePos, bool> border;
+        for (i32 n = -1; n <= kChunkSize; ++n) {
+            for (const auto t : {TilePos{o.x+n,o.y-1}, TilePos{o.x+n,o.y+kChunkSize},
+                                 TilePos{o.x-1,o.y+n}, TilePos{o.x+kChunkSize,o.y+n}}) border[t] = tileIsWater(map,t);
+        }
+        jobs.emplace(cand.pos.key(), std::async(std::launch::async,
+            [snapshot = std::move(snapshot), residential = std::move(residential), border = std::move(border),
+             gen = map.generator(), pos = cand.pos, lod]() mutable {
+                if (!snapshot) { snapshot.emplace(); gen.generateChunk(pos, *snapshot); }
+                return buildChunkGeometry(*snapshot, gen, [&](TilePos t) { return border.at(t); }, lod, nullptr,
+                    [&](u32 id) { return residential.contains(id); });
+            }));
+    }
     DrawLists main, shadow;
     int builds = 0;
     for (const Candidate& cand : candidates) {
@@ -510,9 +643,12 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
             (lodFor(dist + 16.0) == it->second.lod || lodFor(dist - 16.0) == it->second.lod))
             lod = it->second.lod;
         if ((it == meshes_.end() || it->second.revision != wanted || it->second.lod != lod) &&
-            builds < settings.meshBuildsPerFrame) {
+            jobs.contains(cand.pos.key())) {
             ChunkMesh& mesh = meshes_[cand.pos.key()];
-            buildChunkMesh(world, cand.pos, lod, mesh);
+            const auto waitStart = std::chrono::steady_clock::now();
+            const auto geometry = jobs.at(cand.pos.key()).get();
+            stats_.meshWaitMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-waitStart).count();
+            buildChunkMesh(world, cand.pos, lod, mesh, &geometry);
             ++builds;
             it = meshes_.find(cand.pos.key());
         }
@@ -532,6 +668,7 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
             shadow.buildings.push_back(&mesh);
         }
     }
+    stats_.meshCpuMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-meshStart).count();
     stats_.meshesBuilt = builds;
     stats_.chunksVisible = static_cast<int>(main.terrain.size());
     if (frame_ % 60 == 0) {

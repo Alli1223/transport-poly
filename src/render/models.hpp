@@ -41,6 +41,10 @@ inline constexpr ModelId kVehicleBase = kBuildingBase + kMaxBuildingTypes * kBui
 inline constexpr ModelId kEffectBase = kVehicleBase + 48;
 inline constexpr ModelId kSmoke = kEffectBase;
 inline constexpr ModelId kStreetLamp = kEffectBase + 1;
+inline constexpr ModelId kCrate = kEffectBase + 2;
+inline constexpr ModelId kGrain = kEffectBase + 3;
+inline constexpr ModelId kFoodLogo = kEffectBase + 4;
+inline constexpr ModelId kGoodsLogo = kEffectBase + 5;
 inline constexpr ModelId kCount = kEffectBase + 8;
 
 constexpr ModelId building(u16 type, u8 variant) {

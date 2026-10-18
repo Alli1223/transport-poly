@@ -28,6 +28,7 @@ float roadSurfaceY(const World& w, TilePos tile, float u, float v);
 struct CarPose {
     VehiclePose pose;
     u16 model;
+    usize index = 0;
 };
 
 // Poses of every visible car of a train (cars still inside a depot are skipped).

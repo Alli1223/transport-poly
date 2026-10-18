@@ -4,6 +4,7 @@
 #include "core/money.hpp"
 #include "core/types.hpp"
 #include "sim/coords.hpp"
+#include "sim/cargo.hpp"
 #include "sim/ids.hpp"
 #include "sim/track.hpp"
 
@@ -33,6 +34,9 @@ struct VehicleModel {
     i32 lifeYears;
     u8 visual;       // rendering model variant
     bool powered = false; // trains: locomotives and multiple units can lead a train
+    CargoType cargoType = CargoType::None;
+    u16 cargoCapacity = 0;
+    bool openCargo = false;
 };
 
 std::span<const VehicleModel> vehicleModels();
@@ -137,7 +141,12 @@ struct Vehicle {
     u8 orderIndex = 0;
 
     std::vector<PersonId> passengers;
+    std::vector<CargoBatch> cargo;
+    i64 cargoExchangeTick = -1;
+    u32 cargoExchangeUnits = 0;
+    std::array<u32, kCargoTypes> cargoLoaded{}, cargoUnloaded{};
     i64 loadingUntil = 0;
+    i64 loadingStartTick = 0;
 
     // Trains only.
     std::vector<u16> cars;       // consist, cars[0] leads (its model is also `model`)
@@ -179,6 +188,28 @@ struct Vehicle {
         for (const u16 m : cars) c += vehicleModel(m).capacity;
         return c;
     }
+    u32 cargoCapacity(CargoType type) const {
+        if (cars.empty()) return info().cargoType == type ? info().cargoCapacity : 0;
+        u32 n = 0;
+        for (const auto m : cars) if (vehicleModel(m).cargoType == type) n += vehicleModel(m).cargoCapacity;
+        return n;
+    }
+    u32 carLoad(usize index) const {
+        const auto& m = vehicleModel(cars.empty() ? model : cars[index]);
+        u32 before = 0;
+        for (usize k = 0; k < index && k < cars.size(); ++k) {
+            const auto& prev = vehicleModel(cars[k]);
+            before += m.cargoType == CargoType::None ? prev.capacity : prev.cargoType == m.cargoType ? prev.cargoCapacity : 0;
+        }
+        const u32 total = m.cargoType == CargoType::None ? static_cast<u32>(passengers.size()) : cargo::quantity(cargo, m.cargoType);
+        return std::min<u32>(total > before ? total - before : 0, m.cargoType == CargoType::None ? m.capacity : m.cargoCapacity);
+    }
+    bool full() const {
+        if (passengers.size() < capacity()) return false;
+        for (usize c = 0; c < kCargoTypes; ++c)
+            if (cargo::quantity(cargo, static_cast<CargoType>(c)) < cargoCapacity(static_cast<CargoType>(c))) return false;
+        return true;
+    }
     Money runningCost() const {
         if (cars.empty()) return info().runningCost;
         Money c = 0;
@@ -197,6 +228,7 @@ struct Vehicle {
         if (ar.version == 0 || ar.version >= 4)
             ar(reliability, lastServiceTick, breakdownTicks, breakdownsSinceService, goingForService, orderGroup);
         if (ar.version == 0 || ar.version >= 14) ar(freeTrack, runs, runsAhead);
+        if (ar.version == 0 || ar.version >= 17) ar(cargo, cargoExchangeTick, cargoExchangeUnits, loadingStartTick, cargoLoaded, cargoUnloaded);
     }
 };
 

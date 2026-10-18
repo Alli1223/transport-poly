@@ -2,6 +2,7 @@
 
 #include "net/session.hpp"
 #include "core/preferences.hpp"
+#include "audio/audio.hpp"
 #include "render/camera.hpp"
 #include "sim/savegame.hpp"
 #include "render/picking.hpp"
@@ -149,6 +150,7 @@ private:
     bool showGameMenu_ = false;
     bool showSettings_ = false;
     ClientPreferences preferences_;
+    Audio audio_;
     std::string settingsError_;
     bool showChat_ = false;
     bool showClients_ = false;
@@ -234,6 +236,7 @@ private:
     // Command line automation: render a number of frames, save a screenshot and quit.
     std::optional<std::string> autoScreenshot_;
     int autoFrames_ = 90;
+    std::string profilePath_;
     std::optional<glm::dvec4> startCamera_; // x, z, distance, yaw (deg)
     double startPitchDeg_ = -1.0;
     bool pendingScreenshot_ = false;

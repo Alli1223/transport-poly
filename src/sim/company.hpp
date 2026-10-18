@@ -68,6 +68,7 @@ struct Company {
     MonthLedger thisMonth;
     std::vector<MonthLedger> monthlyHistory;
     bool bankrupt = false;
+    bool aiControlled = false;
 
     void spend(Expense category, Money amount); // amount > 0 is subtracted from money
     void earn(Expense category, Money amount);  // amount > 0 is added to money
@@ -77,6 +78,7 @@ struct Company {
         ar(name, colour, money, loan, foundedTick, quartersInDebt, thisYear, history, passengersThisYear,
            passengersLastYear);
         if (ar.version == 0 || ar.version >= 8) ar(thisMonth, monthlyHistory, bankrupt);
+        if (ar.version == 0 || ar.version >= 17) ar(aiControlled);
     }
 };
 

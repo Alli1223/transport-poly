@@ -28,6 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <format>
 #include <string_view>
 #include <vector>
@@ -455,6 +456,8 @@ bool App::parseArgs(int argc, char** argv) {
         const auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : nullptr; };
         if (arg == "--screenshot") {
             if (const char* v = next()) autoScreenshot_ = v;
+        } else if (arg == "--profile") {
+            if (const char* v = next()) profilePath_ = v;
         } else if (arg == "--frames") {
             if (const char* v = next()) autoFrames_ = std::max(1, std::atoi(v));
         } else if (arg == "--seed") {
@@ -534,6 +537,7 @@ void App::captureScreenshot(const std::string& path) {
 
 bool App::init() {
     preferences_.load("settings.cfg");
+    audio_.setEnabled(preferences_.sounds);
     renderer_.settings.shadows = preferences_.shadows;
     renderer_.settings.maxViewDistance = static_cast<float>(preferences_.viewDistance);
     daylightOnly_ = preferences_.daylightOnly;
@@ -609,6 +613,7 @@ void App::newGame(u64 seed) {
     settings.interestPercent = preferences_.interestPercent;
     settings.inflation = preferences_.inflation;
     settings.recessions = preferences_.recessions;
+    settings.aiCompetitors = preferences_.aiCompetitors;
     settings.seed = seed;
     startSession(std::make_unique<LocalSession>(settings));
 }
@@ -753,6 +758,7 @@ void App::processFeedback(double now) {
     const ImVec2 mouse = ImGui::GetIO().MousePos;
     const bool mouseValid = mouse.x > -1000.0f && mouse.y > -1000.0f;
     for (const CommandFeedback& f : session_->takeFeedback()) {
+        if (f.name != "Explore") audio_.play(f.result.ok);
         if (f.result.ok) {
             if (f.seq == pendingBuySeq_ && f.result.createdId != 0xFFFFFFFFu) {
                 selVehicle_ = VehicleId(f.result.createdId);
@@ -857,6 +863,19 @@ void App::drawTownLabels() {
     }
     // Station signs when zoomed in.
     if (camera_.distance > 110.0) return;
+    if (camera_.distance < 100) for (const auto& industry : w.industries) {
+        const auto* b = w.buildings.tryGet(industry.building.id);
+        if (!b || b->serial != industry.building.serial) continue;
+        const double dx = b->pos.x-camera_.target.x, dz = b->pos.y-camera_.target.z;
+        if (dx*dx + dz*dz > 10000) continue;
+        const double y = gfx::terrainHeightAt(w.map, b->pos.x+0.5, b->pos.y+0.5)+1.5;
+        const auto sp = worldToScreen({b->pos.x+0.5, y, b->pos.y+0.5});
+        if (!sp) continue;
+        const char* chain = b->type == 12 ? "Produces grain" : b->type == 11 ? "Grain -> food" :
+                            b->type == 10 ? "Food -> goods" : "Accepts food / goods";
+        const auto detail = std::format("{} | G:{} F:{} C:{}", chain, industry.stock[0], industry.stock[1], industry.stock[2]);
+        ui::worldLabel(dl, {sp->x,sp->y}, b->info().name.data(), detail.c_str(), ui::col::kLeaf, 0.8f);
+    }
     const double stationDist = camera_.distance * 2.0 + 40.0;
     for (const auto [id, st] : w.stations) {
         const double dx = st.sign.x + 0.5 - camera_.target.x;
@@ -1021,6 +1040,7 @@ void App::drawDebugUi() {
     ImGui::Text("%.1f FPS (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
     ImGui::Text("Camera %.1f, %.1f  dist %.0f", camera_.target.x, camera_.target.z, camera_.distance);
     ImGui::Text("Chunks: %d visible, %d cached, %d built", st.chunksVisible, st.chunksCached, st.meshesBuilt);
+    ImGui::Text("Meshing: %.2f ms, worker wait %.2f ms", st.meshCpuMs, st.meshWaitMs);
     ImGui::Text("Triangles: %zu  Trees: %zu  Buildings: %zu", st.trianglesDrawn, st.treesDrawn, st.buildingsDrawn);
     ImGui::Text("Towns %zu  people %zu  buildings %zu", w.towns.size(), w.people.size(), w.buildings.size());
     ImGui::Text("Tick %lld  explored chunks %zu", static_cast<long long>(w.clock.tick), w.map.activeChunks().size());
@@ -1083,6 +1103,11 @@ int App::run(int argc, char** argv) {
         if (startPitchDeg_ > 0.0) camera_.pitchGoal = glm::radians(startPitchDeg_);
         camera_.snapToGoals();
     }
+    std::ofstream profile;
+    if (!profilePath_.empty()) {
+        profile.open(profilePath_);
+        profile << "frame,simulation_ms,cpu_frame_ms,meshing_ms,worker_wait_ms,chunks_built,people_drawn\n";
+    }
     int frameCount = 0;
     double last = glfwGetTime();
     while (!glfwWindowShouldClose(window_)) {
@@ -1092,8 +1117,11 @@ int App::run(int argc, char** argv) {
         last = now;
         timeSeconds_ += dt;
 
+        const auto cpuStart = std::chrono::steady_clock::now();
+        double simulationMs = 0;
         if (session_) {
             session_->update(dt);
+            simulationMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-cpuStart).count();
             if (session_->ready()) processFeedback(now);
         }
 
@@ -1328,6 +1356,12 @@ int App::run(int argc, char** argv) {
         drawSettings();
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        if (profile) {
+            const auto& st = renderer_.stats();
+            const auto cpuMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-cpuStart).count();
+            profile << frameCount << ',' << simulationMs << ',' << cpuMs << ',' << st.meshCpuMs << ',' << st.meshWaitMs
+                    << ',' << st.meshesBuilt << ',' << st.peopleDrawn << '\n';
+        }
         ++frameCount;
         if (pendingScreenshot_) {
             pendingScreenshot_ = false;
