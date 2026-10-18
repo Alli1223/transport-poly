@@ -55,7 +55,7 @@ relies on every peer computing exactly the same game state.
 - [x] 3.8 Directional sun + hemispheric ambient lighting, distance fog, sky gradient
 - [x] 3.9 Low poly animated water
 - [x] 3.10 Shadow mapping (directional, PCF)
-- [~] 3.11 Day / night cycle bound to the game clock, lit windows and street lights at night (sky + sun follow the clock; lit windows later)
+- [x] 3.11 Clock-driven day / night sky and sun, warm emissive building windows and town street lamps; local daylight-only toggle
 - [x] 3.12 Mouse picking: ray vs heightfield, tile / corner hit info
 - [x] 3.13 Procedural low poly model library (houses, apartments, offices, shops, factories, trees, stations, depots, buses, trams, trains, ships and people)
 - [x] 3.14 Instanced renderers for trees, buildings, vehicles, people (visible pedestrians and waiting passengers culled around the camera, bounded at 2048 instances)

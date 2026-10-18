@@ -227,6 +227,12 @@ void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, Ch
             for (i32 lx = 0; lx < kChunkSize; ++lx) {
                 const Tile& t = active->tile(lx, ly);
                 const TilePos wp{o.x + lx, o.y + ly};
+                if (t.type == TileType::Road && t.roadOwner == kOwnerTown && !t.span && !t.rail &&
+                    ((static_cast<u32>(wp.x) + static_cast<u32>(wp.y)) & 3u) == 0) {
+                    const float y = roadSurfaceY(world, wp, 0.08f, 0.08f) + 0.02f;
+                    items.emplace_back(models::kStreetLamp, makeInstance({lx + 0.08f, y, ly + 0.08f}, 0.0f, 1.0f));
+                    mesh.maxY = std::max(mesh.maxY, y + 1.0f);
+                }
                 if (t.type == TileType::Station &&
                     (static_cast<StopKind>(t.extra) == StopKind::Bus || static_cast<StopKind>(t.extra) == StopKind::Tram)) {
                     const Station* st = world.stations.tryGet(StationId(t.index));
@@ -520,7 +526,7 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     const glm::dvec3 eye = cam.eye() - origin;
     fu.cameraPos = glm::vec4(glm::vec3(eye), static_cast<float>(timeSeconds));
     fu.sunDir = glm::vec4(sky_.sunDir, sky_.sunStrength);
-    fu.sunColor = glm::vec4(sky_.sunColor, 1.0f);
+    fu.sunColor = glm::vec4(sky_.sunColor, sky_.night);
     fu.zenithColor = glm::vec4(sky_.zenith, 1.0f);
     fu.horizonColor = glm::vec4(sky_.horizon, 1.0f);
     fu.ambientSky = glm::vec4(sky_.ambientSky, 1.0f);

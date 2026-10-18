@@ -15,7 +15,7 @@ namespace tp::gfx {
 struct Vertex {
     glm::vec3 pos;
     u32 normal; // GL_INT_2_10_10_10_REV, normalised
-    u32 color;  // RGBA8; alpha 0 marks "tintable" vertices that take the instance colour
+    u32 color;  // RGBA8; alpha 0 = tintable, 254 = warm night emission, 255 = ordinary opaque
 };
 static_assert(sizeof(Vertex) == 20);
 

@@ -354,6 +354,14 @@ void person(MeshBuilder& mb) {
 
 void buildTransportModels(MeshBuilder& out, ModelId id) {
     switch (id) {
+    case models::kStreetLamp: {
+        constexpr u32 metal = rgba(64, 72, 78);
+        out.prism({0, 0, 0}, 0.025f, 0.85f, 5, metal);
+        out.box({-0.05f, 0.82f, -0.05f}, {0.05f, 0.95f, 0.05f}, rgba(232, 219, 164, 254));
+        out.box({-0.07f, 0.95f, -0.07f}, {0.07f, 0.98f, 0.07f}, metal);
+        out.box({-0.05f, 0.0f, -0.05f}, {0.05f, 0.06f, 0.05f}, metal);
+        break;
+    }
     case models::kBusStop: busStopShelter(out); break;
     case models::kRoadDepot: depotBuilding(out, false); break;
     case models::kTramDepot: depotBuilding(out, true); break;

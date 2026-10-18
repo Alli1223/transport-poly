@@ -100,10 +100,13 @@ std::string modelFS() {
 in vec3 vWorldPos;
 in vec3 vNormal;
 in vec3 vColor;
+in float vNightEmission;
 out vec4 fragColor;
 void main() {
     vec3 n = normalize(vNormal);
     vec3 c = litColor(vColor, n, vWorldPos);
+    // Night emission bypasses sun/shadow lighting, while still receiving distance fog.
+    c = mix(c, vec3(1.0, 0.62, 0.22), vNightEmission * uSunColor.w);
     fragColor = vec4(toSrgb(applyFog(c, vWorldPos)), 1.0);
 }
 )"});
@@ -122,6 +125,7 @@ uniform vec3 uOffset;
 out vec3 vWorldPos;
 out vec3 vNormal;
 out vec3 vColor;
+out float vNightEmission;
 void main() {
     vec4 p = vec4(aPos, 1.0);
     vec3 wp = vec3(dot(iRow0, p), dot(iRow1, p), dot(iRow2, p)) + uOffset;
@@ -130,6 +134,7 @@ void main() {
     // Vertices with alpha 0 are tintable: they take the instance colour scaled by their red channel.
     vec3 c = aColor.a < 0.5 ? iTint.rgb * (aColor.r * 2.0) : aColor.rgb;
     vColor = toLinear(c);
+    vNightEmission = abs(aColor.a * 255.0 - 254.0) < 0.25 ? 1.0 : 0.0;
     vWorldPos = wp;
     gl_Position = uViewProj * vec4(wp, 1.0);
 }

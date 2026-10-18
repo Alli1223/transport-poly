@@ -86,6 +86,8 @@ Click the clock in the top bar to toggle **Always daylight**. Lighting stays at
 midday while the simulation clock and citizens' schedules continue normally.
 Click again to restore the day / night cycle. This preference is local to the
 client, including in multiplayer.
+Building windows and town street lamps light up at dusk and fade back to their
+daytime appearance at dawn.
 
 Build a straight road across straight railway track (or railway across a road)
 on flat land to create a level crossing. Road traffic waits at red crossing lights
