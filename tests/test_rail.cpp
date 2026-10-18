@@ -260,46 +260,50 @@ TEST_CASE("crossings: road vehicles wait at reserved rail even after gridlock ti
 }
 
 TEST_CASE("rail: a train shuttles between two terminus stations") {
-    RailWorld rw;
-    REQUIRE(rw.run(CmdBuildRailStation{{5, 16}, {8, 16}}).ok);
-    REQUIRE(rw.run(CmdBuildRail{{4, 16}, {9, 16}}).ok == false || true); // overlaps the platform; may fail
-    REQUIRE(rw.run(CmdBuildRail{{9, 16}, {54, 16}}).ok);
-    REQUIRE(rw.run(CmdBuildRailStation{{55, 16}, {58, 16}}).ok);
-    rw.lay({4, 16}, kTrackEW);
-    const CommandResult dep = rw.run(CmdBuildRailDepot{{3, 16}, Dir::E});
-    REQUIRE(dep.ok);
-    const DepotId depot(dep.createdId);
-    const CommandResult buy = rw.run(CmdBuyVehicle{depot, 7}); // Kirby Tank Engine
-    REQUIRE(buy.ok);
-    const VehicleId train(buy.createdId);
-    REQUIRE(rw.run(CmdAddCarriage{train, 11}).ok);
-    REQUIRE(rw.run(CmdAddCarriage{train, 11}).ok);
-    CHECK(!rw.run(CmdBuyVehicle{depot, 11}).ok); // coaches cannot run on their own
-    const StationId a(rw.w.map.tile({5, 16})->index);
-    const StationId b(rw.w.map.tile({55, 16})->index);
-    CHECK(a != b);
-    Order oa, ob;
-    oa.station = a;
-    ob.station = b;
-    REQUIRE(rw.run(CmdSetOrders{train, {oa, ob}}).ok);
-    REQUIRE(rw.run(CmdStartStopVehicle{train}).ok);
-    i64 lastA = -1, lastB = -1, visitsA = 0, visitsB = 0;
-    for (i64 t = 0; t < kTicksPerDay; ++t) {
-        rw.w.tick();
-        if (rw.w.stations[a].lastVisitTick != lastA) {
-            lastA = rw.w.stations[a].lastVisitTick;
-            ++visitsA;
+    for (int layout = 0; layout < 3; ++layout) {
+        RailWorld rw;
+        REQUIRE(rw.run(CmdBuildRailStation{{5, 16}, {8, 16}}).ok);
+        REQUIRE(rw.run(CmdBuildRail{{4, 16}, {9, 16}}).ok == false || true); // overlaps the platform; may fail
+        REQUIRE(rw.run(CmdBuildRail{{9, 16}, {54, 16}}).ok);
+        REQUIRE(rw.run(CmdBuildRailStation{{55, 16}, {58, 16}}).ok);
+        rw.lay({4, 16}, kTrackEW);
+        const CommandResult dep = rw.run(CmdBuildRailDepot{{3, 16}, Dir::E});
+        REQUIRE(dep.ok);
+        const DepotId depot(dep.createdId);
+        const CommandResult buy = rw.run(CmdBuyVehicle{depot, 7}); // Kirby Tank Engine
+        REQUIRE(buy.ok);
+        const VehicleId train(buy.createdId);
+        REQUIRE(rw.run(CmdAddCarriage{train, 11}).ok);
+        REQUIRE(rw.run(CmdAddCarriage{train, 11}).ok);
+        if (layout == 1) REQUIRE(rw.run(CmdReorderConsist{train,{1,2,0}}).ok);
+        if (layout == 2) REQUIRE(rw.run(CmdAddCarriage{train,7}).ok);
+        CHECK(!rw.run(CmdBuyVehicle{depot, 11}).ok); // coaches cannot run on their own
+        const StationId a(rw.w.map.tile({5, 16})->index);
+        const StationId b(rw.w.map.tile({55, 16})->index);
+        CHECK(a != b);
+        Order oa, ob;
+        oa.station = a;
+        ob.station = b;
+        REQUIRE(rw.run(CmdSetOrders{train, {oa, ob}}).ok);
+        REQUIRE(rw.run(CmdStartStopVehicle{train}).ok);
+        i64 lastA = -1, lastB = -1, visitsA = 0, visitsB = 0;
+        for (i64 t = 0; t < kTicksPerDay; ++t) {
+            rw.w.tick();
+            if (rw.w.stations[a].lastVisitTick != lastA) {
+                lastA = rw.w.stations[a].lastVisitTick;
+                ++visitsA;
+            }
+            if (rw.w.stations[b].lastVisitTick != lastB) {
+                lastB = rw.w.stations[b].lastVisitTick;
+                ++visitsB;
+            }
         }
-        if (rw.w.stations[b].lastVisitTick != lastB) {
-            lastB = rw.w.stations[b].lastVisitTick;
-            ++visitsB;
-        }
+        const Vehicle& v = rw.w.vehicles[train];
+        CHECK(!v.lost);
+        CHECK_EQ(v.capacity(), 72u);
+        CHECK(visitsA >= 3);
+        CHECK(visitsB >= 3);
     }
-    const Vehicle& v = rw.w.vehicles[train];
-    CHECK(!v.lost);
-    CHECK_EQ(v.capacity(), 72u);
-    CHECK(visitsA >= 3);
-    CHECK(visitsB >= 3);
 }
 
 TEST_CASE("rail: two trains share a signalled loop safely") {

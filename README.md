@@ -194,9 +194,13 @@ complete operating route. Freight can transfer between compatible services; the
 company completing delivery earns distance-based income. No-loading, unload-only,
 pass-through and full-load orders apply to freight too.
 
-Inside a depot, **Add carriage** offers engines as well as passenger coaches and
-freight wagons. A consist can mix them, up to 12 vehicles, with a powered engine
-at its head. The vehicle window shows actual loads and capacities per wagon and
+Inside a depot, **Add engine / wagon** offers engines, passenger coaches and
+freight wagons. The 2D diagram runs from front on the left to rear on the right.
+Drag a vehicle onto another position, or click it and use **Move toward front** /
+**Move toward rear**. Engines may go between wagons or at the rear, and trains
+can have engines at both ends. **Remove selected** can remove any vehicle while
+keeping at least one engine. Stop the train inside its depot before editing. A consist can mix them, up to 12 vehicles, with a powered engine
+anywhere in the consist. The vehicle window shows actual loads and capacities per wagon and
 per cargo type. The new catalogue also includes an electric locomotive, intercity
 coach, regional EMU and heavy freight diesel, subject to introduction dates.
 
@@ -235,4 +239,4 @@ swap / VSync wait and is not a GPU timing measurement.
 The CI workflow builds, tests and packages Windows and Ubuntu clients, and also
 builds a headless Ubuntu server with warnings as errors. It can be started manually
 after pushing the branch. Save format 17 retains compatibility with versions 1-16;
-protocol 20 requires matching client and server builds.
+protocol 21 requires matching client and server builds.

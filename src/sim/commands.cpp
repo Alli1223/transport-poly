@@ -77,6 +77,7 @@ std::string_view commandName(const CommandPayload& payload) {
                           [](const CmdCycleSignal&) { return std::string_view("Signal"); },
                           [](const CmdBuildRailStation&) { return std::string_view("Build railway station"); },
                           [](const CmdBuildRailDepot&) { return std::string_view("Build train depot"); },
+                          [](const CmdReorderConsist&) { return std::string_view("Reorder train"); },
                           [](const CmdAddCarriage&) { return std::string_view("Add carriage"); },
                           [](const CmdRemoveCarriage&) { return std::string_view("Remove carriage"); },
                           [](const CmdBuildDock&) { return std::string_view("Build dock"); },

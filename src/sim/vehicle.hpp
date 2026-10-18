@@ -149,7 +149,7 @@ struct Vehicle {
     i64 loadingStartTick = 0;
 
     // Trains only.
-    std::vector<u16> cars;       // consist, cars[0] leads (its model is also `model`)
+    std::vector<u16> cars;       // physical order from front to rear; `model` identifies a powered unit anywhere in it
     std::deque<TrackSeg> trail;  // pieces under the train, head first
     std::deque<TrackSeg> ahead;  // pieces reserved in front of the head, in driving order
     i32 retryTicks = 0;

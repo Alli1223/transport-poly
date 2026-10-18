@@ -20,6 +20,7 @@
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/_deps/glfw-build/src/glfw.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/tp_imgui.vcxproj" />
+      <BuildDependency Project="build/windows-vs2026/tp_audio.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/tp_core.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/tp_sim.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/tp_net.vcxproj" />
@@ -33,6 +34,9 @@
     </Project>
   </Folder>
   <Folder Name="/Libraries/">
+    <Project Path="build/windows-vs2026/tp_audio.vcxproj" Id="af89bdd5-61ab-3325-bf56-e959dd4f4949">
+      <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
+    </Project>
     <Project Path="build/windows-vs2026/src/tp_core.vcxproj" Id="1649533e-e67d-35e2-8438-ce72bf415be9">
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
     </Project>

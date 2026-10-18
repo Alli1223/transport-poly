@@ -430,7 +430,11 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
                 dynamic_.add(vehicleModelId(info), makeInstance(poseMatrix(c.pose), carTint));
                 addLoad(v, c.index, c.pose, c.model);
             }
-            if (v.breakdownTicks > 0 && !cars.empty()) addSmoke(cars.front().pose, v.breakdownTicks);
+            if (v.breakdownTicks > 0)
+                for (const auto& car : cars) if (vehicleModel(car.model).powered) {
+                    addSmoke(car.pose, v.breakdownTicks);
+                    break;
+                }
             ++stats_.vehiclesDrawn;
             continue;
         }

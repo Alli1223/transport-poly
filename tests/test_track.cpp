@@ -208,62 +208,66 @@ StationId stationAt(const World& w, TPoint p) {
 } // namespace
 
 TEST_CASE("track: a train shuttles between two stations on free track") {
-    TrackWorld tw;
-    // Station A, track east, station B; a depot behind A.
-    REQUIRE(tw.run(CmdBuildTrackStation{freeAnchor(at(8, 16)), at(14, 16)}).ok);
-    REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(tw.w, at(14, 16), TDir{kDirOne, 0}), freeAnchor(at(40, 18))}).ok);
-    const TrackNodeId bEnd = track::nodeNear(tw.w, at(40, 18), 40);
-    REQUIRE(bEnd.valid());
-    TrackAnchor bStart;
-    bStart.node = bEnd;
-    REQUIRE(tw.run(CmdBuildTrackStation{bStart, at(46, 20)}).ok);
-    const CommandResult dep = tw.run(CmdBuildTrackDepot{track::nodeNear(tw.w, at(8, 16), 40)});
-    REQUIRE(dep.ok);
-    const DepotId depot(dep.createdId);
-    const StationId a = stationAt(tw.w, at(11, 16));
-    const StationId b = stationAt(tw.w, at(43, 19));
-    REQUIRE(a.valid());
-    REQUIRE(b.valid());
-    CHECK(a != b);
+    for (int layout = 0; layout < 3; ++layout) {
+        TrackWorld tw;
+        // Station A, track east, station B; a depot behind A.
+        REQUIRE(tw.run(CmdBuildTrackStation{freeAnchor(at(8, 16)), at(14, 16)}).ok);
+        REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(tw.w, at(14, 16), TDir{kDirOne, 0}), freeAnchor(at(40, 18))}).ok);
+        const TrackNodeId bEnd = track::nodeNear(tw.w, at(40, 18), 40);
+        REQUIRE(bEnd.valid());
+        TrackAnchor bStart;
+        bStart.node = bEnd;
+        REQUIRE(tw.run(CmdBuildTrackStation{bStart, at(46, 20)}).ok);
+        const CommandResult dep = tw.run(CmdBuildTrackDepot{track::nodeNear(tw.w, at(8, 16), 40)});
+        REQUIRE(dep.ok);
+        const DepotId depot(dep.createdId);
+        const StationId a = stationAt(tw.w, at(11, 16));
+        const StationId b = stationAt(tw.w, at(43, 19));
+        REQUIRE(a.valid());
+        REQUIRE(b.valid());
+        CHECK(a != b);
 
-    const CommandResult buy = tw.run(CmdBuyVehicle{depot, 7});
-    REQUIRE(buy.ok);
-    const VehicleId train(buy.createdId);
-    CHECK(tw.w.vehicles[train].freeTrack);
-    REQUIRE(tw.run(CmdAddCarriage{train, 11}).ok);
-    Order oa, ob;
-    oa.station = a;
-    ob.station = b;
-    REQUIRE(tw.run(CmdSetOrders{train, {oa, ob}}).ok);
-    REQUIRE(tw.run(CmdStartStopVehicle{train}).ok);
-    i64 lastA = -1, lastB = -1, visitsA = 0, visitsB = 0;
-    for (i64 t = 0; t < kTicksPerDay; ++t) {
-        tw.w.tick();
-        if (tw.w.stations[a].lastVisitTick != lastA) {
-            lastA = tw.w.stations[a].lastVisitTick;
-            ++visitsA;
+        const CommandResult buy = tw.run(CmdBuyVehicle{depot, 7});
+        REQUIRE(buy.ok);
+        const VehicleId train(buy.createdId);
+        CHECK(tw.w.vehicles[train].freeTrack);
+        REQUIRE(tw.run(CmdAddCarriage{train, 11}).ok);
+        if (layout == 1) REQUIRE(tw.run(CmdReorderConsist{train,{1,0}}).ok);
+        if (layout == 2) REQUIRE(tw.run(CmdAddCarriage{train,7}).ok);
+        Order oa, ob;
+        oa.station = a;
+        ob.station = b;
+        REQUIRE(tw.run(CmdSetOrders{train, {oa, ob}}).ok);
+        REQUIRE(tw.run(CmdStartStopVehicle{train}).ok);
+        i64 lastA = -1, lastB = -1, visitsA = 0, visitsB = 0;
+        for (i64 t = 0; t < kTicksPerDay; ++t) {
+            tw.w.tick();
+            if (tw.w.stations[a].lastVisitTick != lastA) {
+                lastA = tw.w.stations[a].lastVisitTick;
+                ++visitsA;
+            }
+            if (tw.w.stations[b].lastVisitTick != lastB) {
+                lastB = tw.w.stations[b].lastVisitTick;
+                ++visitsB;
+            }
         }
-        if (tw.w.stations[b].lastVisitTick != lastB) {
-            lastB = tw.w.stations[b].lastVisitTick;
-            ++visitsB;
-        }
+        const Vehicle& v = tw.w.vehicles[train];
+        CHECK(!v.lost);
+        CHECK(v.state != VehicleState::InDepot);
+        CHECK(visitsA >= 3);
+        CHECK(visitsB >= 3);
+        // Track a train holds cannot be pulled up.
+        bool held = false;
+        for (const auto [id, e] : tw.w.trackEdges)
+            if (e.reservedBy == train) held = held || !tw.run(CmdRemoveTrack{id}).ok;
+        CHECK(held);
+
+        // Send it home: it drives into the depot and stops there.
+        REQUIRE(tw.run(CmdSendToDepot{train}).ok);
+        for (i64 t = 0; t < kTicksPerDay && tw.w.vehicles[train].state != VehicleState::InDepot; ++t) tw.w.tick();
+        CHECK(tw.w.vehicles[train].state == VehicleState::InDepot);
+        for (const auto [id, e] : tw.w.trackEdges) CHECK(!e.reservedBy.valid());
     }
-    const Vehicle& v = tw.w.vehicles[train];
-    CHECK(!v.lost);
-    CHECK(v.state != VehicleState::InDepot);
-    CHECK(visitsA >= 3);
-    CHECK(visitsB >= 3);
-    // Track a train holds cannot be pulled up.
-    bool held = false;
-    for (const auto [id, e] : tw.w.trackEdges)
-        if (e.reservedBy == train) held = held || !tw.run(CmdRemoveTrack{id}).ok;
-    CHECK(held);
-
-    // Send it home: it drives into the depot and stops there.
-    REQUIRE(tw.run(CmdSendToDepot{train}).ok);
-    for (i64 t = 0; t < kTicksPerDay && tw.w.vehicles[train].state != VehicleState::InDepot; ++t) tw.w.tick();
-    CHECK(tw.w.vehicles[train].state == VehicleState::InDepot);
-    for (const auto [id, e] : tw.w.trackEdges) CHECK(!e.reservedBy.valid());
 }
 
 TEST_CASE("track: two trains share a signalled loop safely, and saves continue identically") {

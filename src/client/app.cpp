@@ -133,7 +133,8 @@ void buildDemoNetwork(World& w, CompanyId company) {
 
 // Builds a short railway with two terminus stations near the biggest town and starts a train on
 // it. Returns the first station's tile (used for automated screenshots / smoke tests).
-std::optional<TilePos> buildDemoRailway(World& w, CompanyId company) {
+std::optional<TilePos> buildDemoRailway(World& w, CompanyId company, bool parked = false) {
+    if (parked) w.companies[company].money = 10'000'000;
     const Town* town = nullptr;
     for (const auto [id, t] : w.towns)
         if (!town || t.population > town->population) town = &t;
@@ -182,7 +183,11 @@ std::optional<TilePos> buildDemoRailway(World& w, CompanyId company) {
             oa.station = StationId(w.map.tile(a)->index);
             ob.station = StationId(w.map.tile(b)->index);
             run(CmdSetOrders{train, {ob, oa}});
-            run(CmdStartStopVehicle{train});
+            if (parked) {
+                run(CmdAddCarriage{train,19});
+                run(CmdAddCarriage{train,7});
+                run(CmdReorderConsist{train,{0,1,3,2,4}});
+            } else run(CmdStartStopVehicle{train});
             return a;
         }
     }
@@ -488,6 +493,11 @@ bool App::parseArgs(int argc, char** argv) {
             demoRail_ = true;
         } else if (arg == "--demo-track") {
             demoTrack_ = true;
+        } else if (arg == "--preview-consist" || arg == "--preview-consist-popup") {
+            previewConsist_ = true;
+            previewConsistPopup_ = arg == "--preview-consist-popup";
+            demoRail_ = true;
+            openWindows_ = "depot";
         } else if (arg == "--preview-station") {
             previewStation_ = true;
         } else if (arg == "--preview-orders") {
@@ -1176,7 +1186,7 @@ int App::run(int argc, char** argv) {
                 // Retried until a town has been founded near the camera.
                 demoRail_ = false;
                 if (auto* local = dynamic_cast<LocalSession*>(session_.get())) {
-                    if (const auto at = buildDemoRailway(local->world(), local->localCompany())) {
+                    if (const auto at = buildDemoRailway(local->world(), local->localCompany(), previewConsist_)) {
                         camera_.targetGoal = glm::dvec3(at->x + 2.0, 0.0, at->y + 0.5);
                         camera_.targetGoal.y =
                             gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);

@@ -147,6 +147,8 @@ private:
     char saveName_[64] = "my-game";
     char chatBuf_[256] = "";
     int port_ = 3979;
+    VehicleId consistVehicle_;
+    u16 consistCar_ = 0;
     bool showGameMenu_ = false;
     bool showSettings_ = false;
     ClientPreferences preferences_;
@@ -248,6 +250,8 @@ private:
     bool demoShips_ = false;        // automation: build a demo ferry line on the nearest coast
     bool demoTrack_ = false;        // automation: lay curved free-form track near the camera
     bool previewStation_ = false;   // automation: show the station tool placing a platform
+    bool previewConsist_ = false;
+    bool previewConsistPopup_ = false;
     bool previewOrders_ = false;    // automation: show the order picker over a platform
     std::optional<TrackStructure> demoStructure_; // automation: build a line needing a bridge or tunnel
     bool demoCrossing_ = false;     // automation: build a line across a road

@@ -362,6 +362,13 @@ struct CmdUpdateCompany {
     template <class Ar> void serialize(Ar& ar) { ar(name, colour); }
 };
 
+// A permutation of current car indices, so repeated wagon models remain distinct.
+struct CmdReorderConsist {
+    VehicleId vehicle;
+    std::vector<u16> order;
+    template <class Ar> void serialize(Ar& ar) { ar(vehicle, order); }
+};
+
 using CommandPayload =
     std::variant<CmdActivateChunks, CmdCreateCompany, CmdSetLoan, CmdTerraform, CmdClearArea, CmdPlantTrees, CmdBuildRoad,
                  CmdRemoveRoad, CmdBuildRoadStop, CmdBuildRoadDepot, CmdBuyVehicle, CmdSellVehicle, CmdStartStopVehicle,
@@ -369,7 +376,7 @@ using CommandPayload =
                  CmdBuildRailStation, CmdBuildRailDepot, CmdAddCarriage, CmdRemoveCarriage, CmdBuildDock,
                  CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater, CmdBuildSpan, CmdRemoveSpan,
                  CmdUpdateCompany, CmdTerraformBrush, CmdBuildTrack, CmdRemoveTrack, CmdBuildTrackStation,
-                 CmdBuildTrackDepot, CmdTrackSignal>;
+                 CmdBuildTrackDepot, CmdTrackSignal, CmdReorderConsist>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

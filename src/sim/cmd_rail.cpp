@@ -265,6 +265,29 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRailDepot& x, boo
     return r;
 }
 
+CommandResult handle(World& w, const Command& c, const CmdReorderConsist& x, bool exec) {
+    std::string error;
+    Vehicle* v = ownedTrainInDepot(w, c, x.vehicle, error);
+    if (!v) return CommandResult::failure(error);
+    if (x.order.size() != v->cars.size() || x.order.empty() || x.order.size() > 12)
+        return CommandResult::failure("The order must include every vehicle exactly once");
+    std::vector<bool> used(v->cars.size());
+    std::vector<u16> cars;
+    for (const u16 index : x.order) {
+        if (index >= v->cars.size() || used[index]) return CommandResult::failure("Invalid train order");
+        used[index] = true;
+        cars.push_back(v->cars[index]);
+    }
+    if (std::ranges::none_of(cars, [](u16 model) { return vehicleModel(model).powered; }))
+        return CommandResult::failure("The train needs an engine");
+    if (exec) {
+        v->cars = std::move(cars);
+        for (const u16 model : v->cars) if (vehicleModel(model).powered) { v->model = model; break; }
+        passengers::markDirty(w);
+    }
+    return CommandResult::success();
+}
+
 CommandResult handle(World& w, const Command& c, const CmdAddCarriage& x, bool exec) {
     std::string error;
     Vehicle* v = ownedTrainInDepot(w, c, x.vehicle, error);
@@ -286,8 +309,10 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveCarriage& x, boo
     std::string error;
     Vehicle* v = ownedTrainInDepot(w, c, x.vehicle, error);
     if (!v) return CommandResult::failure(error);
-    if (x.index == 0 || x.index >= v->cars.size())
-        return CommandResult::failure("Sell the whole train to remove its engine");
+    if (x.index >= v->cars.size()) return CommandResult::failure("No such wagon");
+    if (v->cars.size() <= 1) return CommandResult::failure("Sell the whole train to remove its last vehicle");
+    if (vehicleModel(v->cars[x.index]).powered && std::ranges::count_if(v->cars, [](u16 m) { return vehicleModel(m).powered; }) <= 1)
+        return CommandResult::failure("The train must keep at least one engine");
     const auto& removed = vehicleModel(v->cars[x.index]);
     if (removed.cargoCapacity && cargo::quantity(v->cargo, removed.cargoType) >
         v->cargoCapacity(removed.cargoType) - removed.cargoCapacity)
@@ -298,6 +323,7 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveCarriage& x, boo
     if (exec) {
         v->value = std::max<Money>(0, v->value - refund);
         v->cars.erase(v->cars.begin() + x.index);
+        for (const u16 model : v->cars) if (vehicleModel(model).powered) { v->model = model; break; }
         passengers::markDirty(w);
     }
     return CommandResult::success(-refund, Expense::NewVehicles);

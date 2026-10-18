@@ -520,7 +520,7 @@ void App::drawDepotWindow() {
     bool open = true;
     ui::PanelSpec spec;
     spec.pos = viewportPoint(0.0f, 0.0f, 20.0f, 80.0f);
-    spec.width = 440.0f;
+    spec.width = rail ? 620.0f : 440.0f;
     spec.accent = depotColour(d->kind);
     spec.subtitle = sub.c_str();
     if (ui::beginPanel("###depotPanel", kind, d->kind == DepotKind::Ship ? ui::Icon::Shipyard : ui::Icon::Depot, &open,
@@ -547,57 +547,114 @@ void App::drawDepotWindow() {
                 if (ui::miniButton("##sell", ui::Icon::Trash, ui::col::kRed, "Sell")) session_->submit(CmdSellVehicle{id});
             }
             if (rail) {
-                // Consist: the engine followed by its carriages, which can be detached while stopped.
+                const bool editable = mine && v.stopped;
+                const auto reorder = [&](u16 from, u16 to) {
+                    if (from == to || from >= v.cars.size() || to >= v.cars.size()) return;
+                    std::vector<u16> order;
+                    for (u16 k = 0; k < v.cars.size(); ++k) order.push_back(k);
+                    const u16 moved = order[from];
+                    order.erase(order.begin() + from);
+                    order.insert(order.begin() + to, moved);
+                    session_->submit(CmdReorderConsist{id, std::move(order)});
+                    consistVehicle_ = id; consistCar_ = to;
+                };
+                ui::mutedText("FRONT  <   Drag vehicles to change their order   >  REAR");
+                ImGui::BeginChild("##consist", ImVec2(0, 116.0f*s), ImGuiChildFlags_Borders,
+                                  ImGuiWindowFlags_HorizontalScrollbar);
                 ImDrawList* dl = ImGui::GetWindowDrawList();
-                for (usize k = 0; k < v.cars.size(); ++k) {
-                    const VehicleModel& cm = vehicleModel(v.cars[k]);
-                    ImGui::PushID(static_cast<int>(k));
-                    if (k > 0) ImGui::SameLine(0, 4.0f * s);
-                    ui::FontScope f(ui::fonts().small);
-                    const ImVec2 ts = ImGui::CalcTextSize(cm.name.data());
-                    const bool removable = mine && k > 0 && v.stopped;
-                    const float w0 = ts.x + 16.0f * s + (removable ? 16.0f * s : 0.0f);
-                    if (ImGui::GetContentRegionAvail().x < w0 && k > 0) ImGui::NewLine();
+                struct CarDrag { u32 vehicle; u16 index; };
+                for (u16 k = 0; k < v.cars.size(); ++k) {
+                    const auto& car = vehicleModel(v.cars[k]);
+                    ImGui::PushID(k);
+                    if (k) ImGui::SameLine(0, 4.0f*s);
                     const ImVec2 p = ImGui::GetCursorScreenPos();
-                    const float h = ts.y + 8.0f * s;
-                    ImGui::Dummy(ImVec2(w0, h));
-                    const ImU32 c = k == 0 ? ui::col::kRail : ui::col::kTextMuted;
-                    dl->AddRectFilled(p, ImVec2(p.x + w0, p.y + h), ui::withAlpha(c, 0.15f), 6.0f * s);
-                    dl->AddText(ImVec2(p.x + 8.0f * s, p.y + 4.0f * s), k == 0 ? ui::col::kRail : ui::col::kText, cm.name.data());
-                    if (ImGui::IsItemHovered())
-                        ui::tooltip({cm.name.data(), std::format("{} / {} {}, {} km/h", v.carLoad(k), cm.cargoCapacity ? cm.cargoCapacity : cm.capacity, cargoName(cm.cargoType), cm.maxSpeedKmh).c_str()});
-                    if (removable) {
-                        const ImVec2 back = ImGui::GetCursorScreenPos();
-                        ImGui::SetCursorScreenPos(ImVec2(p.x + w0 - 18.0f * s, p.y + (h - 16.0f * s) * 0.5f));
-                        if (ImGui::InvisibleButton("##rm", ImVec2(16.0f * s, 16.0f * s)))
-                            session_->submit(CmdRemoveCarriage{id, static_cast<u16>(k)});
-                        ui::drawIcon(dl, ui::Icon::Close, ImVec2(p.x + w0 - 10.0f * s, p.y + h * 0.5f), 9.0f * s,
-                                     ImGui::IsItemHovered() ? ui::col::kRed : ui::col::kTextMuted);
-                        ImGui::SetCursorScreenPos(back);
+                    const float width = 82.0f*s;
+                    if (ImGui::InvisibleButton("##car", ImVec2(width, 80.0f*s))) {
+                        consistVehicle_ = id; consistCar_ = k;
+                    }
+                    const bool selected = consistVehicle_ == id && consistCar_ == k;
+                    const ImU32 color = car.powered ? ui::col::kRail : car.cargoCapacity ? ui::col::kGreen : ui::col::kTeal;
+                    dl->AddRectFilled(p, ImVec2(p.x+width,p.y+80.0f*s), ui::withAlpha(color, selected ? 0.25f : 0.08f), 5.0f*s);
+                    if (selected) dl->AddRect(p, ImVec2(p.x+width,p.y+80.0f*s), color, 5.0f*s, 0, 2.0f*s);
+                    // Side elevation: engine cab, coach windows or freight body, wheels and couplers.
+                    const float top = p.y + (car.powered ? 18.0f : 25.0f)*s;
+                    dl->AddRectFilled(ImVec2(p.x+8*s,top), ImVec2(p.x+width-8*s,p.y+49*s), color, 3*s);
+                    if (car.powered) {
+                        dl->AddRectFilled(ImVec2(p.x+10*s,p.y+22*s),ImVec2(p.x+25*s,p.y+33*s),ui::col::kCard,2*s);
+                        dl->AddRectFilled(ImVec2(p.x+50*s,p.y+13*s),ImVec2(p.x+58*s,p.y+20*s),color);
+                    } else if (car.capacity) {
+                        for (int window = 0; window < 4; ++window)
+                            dl->AddRectFilled(ImVec2(p.x+(14+window*14)*s,p.y+30*s),
+                                              ImVec2(p.x+(23+window*14)*s,p.y+40*s),ui::col::kCard,1*s);
+                    } else if (car.openCargo) {
+                        dl->AddRectFilled(ImVec2(p.x+12*s,p.y+25*s),ImVec2(p.x+width-12*s,p.y+32*s),ui::col::kCard);
+                    }
+                    for (float wheel : {20.0f, 62.0f}) {
+                        dl->AddCircleFilled(ImVec2(p.x+wheel*s,p.y+51*s),5*s,ui::col::kCard);
+                        dl->AddCircle(ImVec2(p.x+wheel*s,p.y+51*s),5*s,ui::col::kTextMuted);
+                    }
+                    dl->AddLine(ImVec2(p.x,p.y+45*s), ImVec2(p.x+width,p.y+45*s),color,2*s);
+                    const auto caption = std::format("{} {}", k+1, car.powered ? "Engine" : car.capacity ? "Coach" : cargoName(car.cargoType));
+                    dl->AddText(ui::fonts().small,ui::fonts().small->FontSize,ImVec2(p.x+5*s,p.y+61*s),ui::col::kText,caption.c_str());
+                    if (ImGui::IsItemHovered()) ui::tooltip({car.name.data(),
+                        std::format("{} / {} {} | {} km/h. {}", v.carLoad(k), car.cargoCapacity ? car.cargoCapacity : car.capacity,
+                                    cargoName(car.cargoType), car.maxSpeedKmh, editable ? "Drag to another position, or select and use the move buttons." : "Stop in the depot to edit.").c_str()});
+                    if (editable && ImGui::BeginDragDropSource()) {
+                        const CarDrag drag{id.value,k};
+                        ImGui::SetDragDropPayload("TP_CONSIST_CAR", &drag, sizeof(drag));
+                        ImGui::TextUnformatted(car.name.data());
+                        ImGui::EndDragDropSource();
+                    }
+                    if (editable && ImGui::BeginDragDropTarget()) {
+                        if (const auto* payload = ImGui::AcceptDragDropPayload("TP_CONSIST_CAR")) {
+                            if (payload->DataSize == sizeof(CarDrag)) {
+                                const auto drag = *static_cast<const CarDrag*>(payload->Data);
+                                if (drag.vehicle == id.value) reorder(drag.index,k);
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
                     }
                     ImGui::PopID();
                 }
-                const std::string seats = std::format("{} seats", v.capacity());
-                ui::mutedText(seats.c_str());
-                if (mine && v.stopped) {
-                    ImGui::SameLine();
-                    if (ui::button("Add carriage", ui::Icon::Plus, ui::Btn::Ghost)) ImGui::OpenPopup("addcar");
+                ImGui::EndChild();
+                ui::mutedText(std::format("{} vehicles | {} seats | Engines may push from the rear", v.cars.size(),v.capacity()).c_str());
+                if (!consistVehicle_.valid() && !v.cars.empty()) { consistVehicle_ = id; consistCar_ = 0; }
+                if (consistVehicle_ == id && consistCar_ >= v.cars.size()) consistCar_ = 0;
+                if (consistVehicle_ == id && consistCar_ < v.cars.size()) {
+                    ui::mutedText(vehicleModel(v.cars[consistCar_]).name.data());
+                    ImGui::BeginDisabled(!editable || consistCar_ == 0);
+                    if (ImGui::Button("Move toward front")) reorder(consistCar_,consistCar_-1);
+                    ImGui::EndDisabled(); ImGui::SameLine();
+                    ImGui::BeginDisabled(!editable || consistCar_+1 >= v.cars.size());
+                    if (ImGui::Button("Move toward rear")) reorder(consistCar_,consistCar_+1);
+                    ImGui::EndDisabled(); ImGui::SameLine();
+                    const auto engines = std::ranges::count_if(v.cars, [](u16 m) { return vehicleModel(m).powered; });
+                    const bool lastEngine = vehicleModel(v.cars[consistCar_]).powered && engines <= 1;
+                    ImGui::BeginDisabled(!editable || lastEngine || v.cars.size() == 1);
+                    if (ImGui::Button("Remove selected")) session_->submit(CmdRemoveCarriage{id,consistCar_});
+                    ImGui::EndDisabled();
+                    if (lastEngine) ui::mutedText("Keep at least one engine. Buy another before removing this one.");
+                }
+                if (editable) {
+                    if (ui::button("Add engine / wagon", ui::Icon::Plus, ui::Btn::Ghost)) ImGui::OpenPopup("addcar");
+                    if (previewConsistPopup_) ImGui::OpenPopup("addcar");
                     if (ImGui::BeginPopup("addcar")) {
-                        ui::FontScope f(ui::fonts().small);
-                        ui::mutedText("ENGINES AND WAGONS");
-                        for (u16 i = 0; i < models.size(); ++i) {
-                            const VehicleModel& m = models[i];
-                            if (m.type != VehicleType::Rail || m.introYear > year) continue;
-                            const std::string item = std::format("{}   {} {}  {} km/h  {}", m.name, m.cargoCapacity ? m.cargoCapacity : m.capacity, cargoName(m.cargoType),
-                                                                 m.maxSpeedKmh, formatMoney(w.inflated(m.price)));
-                            if (ImGui::Selectable(item.c_str())) session_->submit(CmdAddCarriage{id, i});
+                        {
+                            // Restore this popup's font before EndPopup changes the current window.
+                            ui::FontScope font(ui::fonts().small);
+                            ui::mutedText("ENGINES AND WAGONS - ADDED AT THE REAR");
+                            for (u16 i = 0; i < models.size(); ++i) {
+                                const auto& m = models[i];
+                                if (m.type != VehicleType::Rail || m.introYear > year) continue;
+                                const auto item = std::format("{}   {} {}  {} km/h  {}", m.name,
+                                    m.cargoCapacity ? m.cargoCapacity : m.capacity,cargoName(m.cargoType),
+                                    m.maxSpeedKmh,formatMoney(w.inflated(m.price)));
+                                if (ImGui::Selectable(item.c_str())) session_->submit(CmdAddCarriage{id,i});
+                            }
                         }
                         ImGui::EndPopup();
                     }
-                } else if (mine) {
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(stop the train to change carriages)");
-                }
+                } else if (mine) ui::mutedText("Stop the train in its depot to edit its consist.");
             }
             ImGui::Dummy(ImVec2(0, 2.0f * s));
             ImGui::PopID();
