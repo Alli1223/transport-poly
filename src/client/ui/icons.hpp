@@ -21,6 +21,8 @@ enum class Icon : unsigned char {
     Ship,
     Raise,
     Lower,
+    Level,
+    Smooth,
     Bulldoze,
     Tree,
     Track,

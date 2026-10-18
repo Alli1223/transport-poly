@@ -52,6 +52,18 @@ TilePos findLandNear(const TerrainGenerator& gen, TilePos start) {
     return start;
 }
 
+// High ground near `s0`, for automated screenshots of mountains.
+std::optional<TilePos> findMountainNear(const TerrainGenerator& g, TilePos s0) {
+    for (i32 r = 0; r < 30000; r += 32) {
+        for (i32 i = 0; i < 64; ++i) {
+            const double a = i * 6.2831853 / 64.0;
+            const TilePos p{s0.x + static_cast<i32>(std::cos(a) * r), s0.y + static_cast<i32>(std::sin(a) * r)};
+            if (g.cornerHeight(p.x, p.y) >= 40) return p;
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<TilePos> findCoastNear(const TerrainGenerator& g, TilePos s0) {
     for (i32 r = 0; r < 20000; r += 16) {
         for (i32 i = 0; i < 64; ++i) {
@@ -269,6 +281,8 @@ bool App::parseArgs(int argc, char** argv) {
             if (const char* v = next()) gotoTownDistance_ = std::max(6.0, std::atof(v));
         } else if (arg == "--goto-water") {
             gotoWater_ = true;
+        } else if (arg == "--goto-mountain") {
+            gotoMountain_ = true;
         } else if (arg == "--open") {
             if (const char* v = next()) openWindows_ = v;
         } else if (arg == "--follow") {
@@ -840,6 +854,12 @@ int App::run(int argc, char** argv) {
     if (!init()) {
         shutdown();
         return EXIT_FAILURE;
+    }
+    if (gotoMountain_) {
+        const TilePos s0{static_cast<i32>(camera_.target.x), static_cast<i32>(camera_.target.z)};
+        if (const auto peak = findMountainNear(world().map.generator(), s0))
+            startCamera_ = glm::dvec4(peak->x, peak->y, startCamera_ ? startCamera_->z : 90.0,
+                                      startCamera_ ? startCamera_->w : 35.0);
     }
     if (gotoWater_) {
         const TilePos s0{static_cast<i32>(camera_.target.x), static_cast<i32>(camera_.target.z)};

@@ -54,6 +54,7 @@ std::string_view commandName(const CommandPayload& payload) {
                           [](const CmdCreateCompany&) { return std::string_view("Create company"); },
                           [](const CmdSetLoan&) { return std::string_view("Change loan"); },
                           [](const CmdTerraform&) { return std::string_view("Terraform"); },
+                          [](const CmdTerraformBrush&) { return std::string_view("Terraform"); },
                           [](const CmdClearArea&) { return std::string_view("Clear area"); },
                           [](const CmdPlantTrees&) { return std::string_view("Plant trees"); },
                           [](const CmdBuildRoad& c) { return std::string_view(c.tram ? "Build tram track" : "Build road"); },

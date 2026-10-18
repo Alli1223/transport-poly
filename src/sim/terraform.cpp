@@ -85,3 +85,11 @@ void applyTerraform(Map& map, const TerraformPlan& plan) {
 }
 
 } // namespace tp
+
+namespace tp {
+
+void applyBrush(Map& map, const BrushPlan& plan) {
+    for (const FineChange& c : plan.changes) map.setCornerFine(c.cx, c.cy, c.to);
+}
+
+} // namespace tp

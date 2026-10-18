@@ -25,6 +25,8 @@ enum class Tool {
     None,
     Raise,
     Lower,
+    Level,
+    Smooth,
     Clear,
     Trees,
     Road,
@@ -158,6 +160,9 @@ private:
     float dockHeight_ = 0.0f;  // height of the bottom dock, for placing things above it
     Tool tool_ = Tool::None;
     ToolGroup toolGroup_ = ToolGroup::None;
+    i32 brushRadius_ = 3;      // terraform brush size, tiles
+    double lastBrush_ = 0.0;   // when the brush last applied (held mouse repeats)
+    u16 levelTarget_ = 0;      // fine height the Level brush flattens to
     std::optional<TilePos> dragStart_;
 
     // Open windows / selection.
@@ -225,6 +230,7 @@ private:
     double startPitchDeg_ = -1.0;
     bool pendingScreenshot_ = false;
     bool gotoWater_ = false;
+    bool gotoMountain_ = false; // automation: start near high ground
     double gotoTownDistance_ = 0.0; // > 0: jump to the biggest town at this zoom (automation)
     bool demoNetwork_ = false;      // automation: build a demo bus line in the biggest town
     bool demoRail_ = false;         // automation: build a demo railway next to the biggest town

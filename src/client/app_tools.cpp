@@ -10,6 +10,7 @@
 #include "render/vehicle_pose.hpp"
 #include "sim/rail.hpp"
 #include "sim/road.hpp"
+#include "sim/terraform.hpp"
 #include "sim/water_path.hpp"
 
 #include <algorithm>
@@ -216,14 +217,38 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
     std::optional<CommandPayload> cmd;
     switch (tool_) {
     case Tool::Raise:
-    case Tool::Lower: {
-        const double cx = hover_.corner.x, cz = hover_.corner.y;
-        const double cyy = w.map.cornerHeight(hover_.corner.x, hover_.corner.y) * gfx::kHeightStep + 0.05;
-        const double r = 0.18;
-        overlays.push_back({{{cx - r, cyy, cz - r}, {cx + r, cyy, cz - r}, {cx + r, cyy, cz + r}, {cx - r, cyy, cz + r}},
-                            gfx::rgba(255, 220, 60, 200)});
-        cmd = CmdTerraform{hover_.corner, static_cast<i8>(tool_ == Tool::Raise ? 1 : -1)};
-        break;
+    case Tool::Lower:
+    case Tool::Level:
+    case Tool::Smooth: {
+        // Brush preview: tiles fade out towards the edge of the brush.
+        const i32 r = brushRadius_;
+        for (i32 dy = -r; dy < r; ++dy)
+            for (i32 dx = -r; dx < r; ++dx) {
+                const double ox = dx + 0.5, oy = dy + 0.5;
+                const double k = 1.0 - (ox * ox + oy * oy) / (r * r);
+                if (k <= 0.0) continue;
+                addTileOverlay(overlays, {hover_.corner.x + dx, hover_.corner.y + dy},
+                               gfx::rgba(255, 210, 70, static_cast<u8>(30 + 120 * k * k)), 0.05);
+            }
+        if (tool_ == Tool::Level && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            levelTarget_ = w.map.cornerFine(hover_.corner.x, hover_.corner.y);
+        const BrushMode mode = tool_ == Tool::Raise   ? BrushMode::Raise
+                               : tool_ == Tool::Lower ? BrushMode::Lower
+                               : tool_ == Tool::Level ? BrushMode::Level
+                                                      : BrushMode::Smooth;
+        const u16 target = tool_ == Tool::Level && ImGui::IsMouseDown(ImGuiMouseButton_Left)
+                               ? levelTarget_
+                               : w.map.cornerFine(hover_.corner.x, hover_.corner.y);
+        const CmdTerraformBrush brush{hover_.corner, static_cast<u8>(r), static_cast<u8>(mode), target};
+        const CommandResult br = test(brush);
+        showResult(br);
+        // Holding the mouse keeps shaping the land.
+        const double now = ImGui::GetTime();
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && br.ok && now - lastBrush_ > 0.12) {
+            session_->submit(brush);
+            lastBrush_ = now;
+        }
+        return;
     }
     case Tool::BusStop: cmd = CmdBuildRoadStop{hover_.tile, false}; break;
     case Tool::TramStop: cmd = CmdBuildRoadStop{hover_.tile, true}; break;
@@ -358,8 +383,11 @@ struct ToolInfo {
 };
 
 constexpr ToolInfo kTools[] = {
-    {Tool::Raise, ToolGroup::Land, ui::Icon::Raise, "Raise", "Click a corner to raise the land", false},
-    {Tool::Lower, ToolGroup::Land, ui::Icon::Lower, "Lower", "Click a corner to lower the land", false},
+    {Tool::Raise, ToolGroup::Land, ui::Icon::Raise, "Raise", "Hold the mouse to raise the land under the brush", false},
+    {Tool::Lower, ToolGroup::Land, ui::Icon::Lower, "Lower", "Hold the mouse to lower the land under the brush", false},
+    {Tool::Level, ToolGroup::Land, ui::Icon::Level, "Level",
+     "Click to pick a height, then hold and move to flatten the land to it", false},
+    {Tool::Smooth, ToolGroup::Land, ui::Icon::Smooth, "Smooth", "Hold the mouse to smooth out bumps and edges", false},
     {Tool::Clear, ToolGroup::Land, ui::Icon::Bulldoze, "Bulldoze", "Drag to demolish everything in an area", false},
     {Tool::Trees, ToolGroup::Land, ui::Icon::Tree, "Trees", "Drag to plant trees", false},
     {Tool::Road, ToolGroup::Road, ui::Icon::Road, "Road", "Drag to build a straight road", false},
@@ -478,6 +506,23 @@ void App::drawToolbar() {
                 dragStart_.reset();
             }
             ImGui::PopID();
+        }
+        if (toolGroup_ == ToolGroup::Land) {
+            // Brush size for the terraform tools.
+            ImGui::SameLine(0, 14.0f * s);
+            ImGui::BeginGroup();
+            ImGui::Dummy(ImVec2(0, 6.0f * s));
+            ui::fieldLabel("Brush size");
+            static constexpr ui::Segment kSizes[] = {{"S", ui::Icon::None, "1 tile"},
+                                                     {"M", ui::Icon::None, "3 tiles"},
+                                                     {"L", ui::Icon::None, "5 tiles"},
+                                                     {"XL", ui::Icon::None, "8 tiles"}};
+            static constexpr i32 kRadii[] = {1, 3, 5, 8};
+            int current = -1;
+            for (int i = 0; i < 4; ++i)
+                if (brushRadius_ == kRadii[i]) current = i;
+            if (const int clicked = ui::segmented("##brush", kSizes, current); clicked >= 0) brushRadius_ = kRadii[clicked];
+            ImGui::EndGroup();
         }
         hintBottom = ImGui::GetWindowPos().y - 10.0f * s;
         ui::endBar();

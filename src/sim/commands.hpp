@@ -59,6 +59,18 @@ struct CmdTerraform {
     }
 };
 
+// Smooth terrain brush around a corner (see BrushMode in terraform.hpp).
+struct CmdTerraformBrush {
+    TilePos corner;
+    u8 radius = 3;
+    u8 mode = 0;     // BrushMode
+    u16 target = 0;  // fine height for BrushMode::Level
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(corner, radius, mode, target);
+    }
+};
+
 // Bulldoze a rectangular area (inclusive corners).
 struct CmdClearArea {
     TilePos a;
@@ -309,7 +321,7 @@ using CommandPayload =
                  CmdSendToDepot, CmdSetOrders, CmdSkipOrder, CmdBuildRail, CmdRemoveRail, CmdCycleSignal,
                  CmdBuildRailStation, CmdBuildRailDepot, CmdAddCarriage, CmdRemoveCarriage, CmdBuildDock,
                  CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater, CmdBuildSpan, CmdRemoveSpan,
-                 CmdUpdateCompany>;
+                 CmdUpdateCompany, CmdTerraformBrush>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

@@ -82,7 +82,7 @@ float roadSurfaceY(const World& w, TilePos tile, float u, float v) {
     const Tile* t = w.map.tile(tile);
     const TileCorners c = w.map.corners(tile);
     const Slope s = computeSlope(c);
-    if (!t) return tileSurfaceLevel(c, u, v) * kHeightStep;
+    if (!t || t->type == TileType::Clear) return tileSurfaceLevel(w.map.fineCorners(tile), u, v) * kHeightStep;
     if (t->span) return t->deckHeight * kHeightStep;
     u8 pieces = allRoadPieces(*t);
     if (t->type == TileType::Depot) pieces = 0;

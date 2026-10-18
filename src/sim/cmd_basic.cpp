@@ -119,6 +119,50 @@ CommandResult handle(World& w, const Command& c, const CmdTerraform& x, bool exe
     return CommandResult::success(cost, Expense::Construction);
 }
 
+CommandResult handle(World& w, const Command& c, const CmdTerraformBrush& x, bool exec) {
+    if (!w.companies.contains(c.company)) return CommandResult::failure("Only companies can terraform");
+    if (x.mode > static_cast<u8>(BrushMode::Smooth)) return CommandResult::failure("Unknown terraform mode");
+    if (x.radius < 1 || x.radius > 12) return CommandResult::failure("Brush too large");
+    // A corner may move only if none of its four tiles holds anything (or owned water).
+    const auto locked = [&](i32 cx, i32 cy) {
+        for (const TilePos t : {TilePos{cx - 1, cy - 1}, TilePos{cx, cy - 1}, TilePos{cx - 1, cy}, TilePos{cx, cy}}) {
+            const Tile* tile = w.map.tile(t);
+            if (!tile) return true;
+            if (tile->type == TileType::Water ? tile->owner != kOwnerNone : tile->type != TileType::Clear) return true;
+        }
+        return false;
+    };
+    const BrushPlan plan = planBrush(w.map, x.corner, x.radius, static_cast<BrushMode>(x.mode), x.target, locked);
+    if (plan.changes.empty()) return CommandResult::failure("Nothing to change here");
+    const Money cost = std::max<Money>(1, plan.volume * prices::kTerraformPerCorner / kSubLevels);
+    if (exec) {
+        applyBrush(w.map, plan);
+        std::vector<TilePos> tiles;
+        for (const FineChange& ch : plan.changes)
+            for (const TilePos t : {TilePos{ch.cx - 1, ch.cy - 1}, TilePos{ch.cx, ch.cy - 1}, TilePos{ch.cx - 1, ch.cy},
+                                    TilePos{ch.cx, ch.cy}})
+                tiles.push_back(t);
+        std::sort(tiles.begin(), tiles.end());
+        tiles.erase(std::unique(tiles.begin(), tiles.end()), tiles.end());
+        for (const TilePos t : tiles) {
+            Tile* tile = w.map.tile(t);
+            if (!tile) continue;
+            const FineCorners fc = w.map.fineCorners(t);
+            if (tile->type == TileType::Water && tile->owner == kOwnerNone && fc.max() > 0) {
+                tile->type = TileType::Clear;
+                tile->ground = Ground::Sand;
+            }
+            if (tile->type == TileType::Clear) {
+                const bool steep = fc.max() - fc.min() >= 2 * kSubLevels + kSubLevels / 2;
+                if (steep && tile->ground != Ground::Snow) tile->ground = Ground::Rock;
+                else if (tile->ground == Ground::Rock && !steep) tile->ground = Ground::Rough;
+            }
+            w.map.touch(t);
+        }
+    }
+    return CommandResult::success(cost, Expense::Construction);
+}
+
 CommandResult handle(World& w, const Command& c, const CmdClearArea& x, bool exec) {
     if (!w.companies.contains(c.company)) return CommandResult::failure("Only companies can clear land");
     const Rect r = normalise(x.a, x.b);

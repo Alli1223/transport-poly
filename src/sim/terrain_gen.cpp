@@ -69,7 +69,40 @@ constexpr i64 flatten(i64 h) {
 
 } // namespace
 
-i64 TerrainGenerator::rawHeight(i32 x, i32 y) const {
+i64 TerrainGenerator::rawHeight(i32 x, i32 y) const { return smooth_ ? smoothHeight(x, y) : legacyHeight(x, y); }
+
+// Smooth terrain: broad lowlands, rolling hills and steep ridged mountains whose inclines vary
+// continuously. Slopes reach a little over two levels per tile on the steepest mountainsides.
+i64 TerrainGenerator::smoothHeight(i32 x, i32 y) const {
+    const i64 c1 = valueNoise(seed_, kContinentLow, x, y, 10);
+    const i64 c2 = valueNoise(seed_, kContinentHigh, x, y, 8);
+    const i64 continent = (72 * (6 * c1 + 4 * c2)) / 10 - 28 * kOne;
+
+    const i64 hillMask = valueNoise(seed_, kHillMask, x, y, 9);
+    const i64 hills = ((16 * valueNoise(seed_, kHills, x, y, 7) + 5 * valueNoise(seed_, kHills + 100, x, y, 5)) * hillMask) >> 16;
+
+    const i64 mm = std::clamp<i64>((valueNoise(seed_, kMountainMask, x, y, 10) - (kOne * 48) / 100) * 3, 0, kOne);
+    i64 mountains = 0;
+    if (mm > 0) {
+        const auto ridged = [&](u32 salt, int shift) {
+            const i64 n = valueNoise(seed_, salt, x, y, shift);
+            return kOne - (2 * n - kOne < 0 ? kOne - 2 * n : 2 * n - kOne);
+        };
+        const i64 big = ridged(kRidges, 7);
+        const i64 small = ridged(kRidges + 100, 5);
+        // Ridges sharpen with height: squaring keeps valleys broad and peaks pointed.
+        const i64 r = ((big * big) >> 16) * 46 + ((small * small) >> 16) * 11;
+        mountains = (r * ((mm * mm) >> 16)) >> 16;
+    }
+
+    const i64 detail = ((3 * valueNoise(seed_, kDetail, x, y, 3) + 2 * valueNoise(seed_, kDetail + 100, x, y, 5)) * hillMask) >> 17;
+
+    const i64 terrain = flatten(continent) + hills + mountains + detail;
+    if (!waterways_) return terrain;
+    return std::min(terrain, waterBed(x, y));
+}
+
+i64 TerrainGenerator::legacyHeight(i32 x, i32 y) const {
     const i64 c1 = valueNoise(seed_, kContinentLow, x, y, 10);
     const i64 c2 = valueNoise(seed_, kContinentHigh, x, y, 8);
     const i64 continent = (72 * (6 * c1 + 4 * c2)) / 10 - 28 * kOne;
@@ -89,10 +122,13 @@ i64 TerrainGenerator::rawHeight(i32 x, i32 y) const {
 
     const i64 terrain = flatten(continent) + hills + mountains + detail;
     if (!waterways_) return terrain; // preserve exploration boundaries in pre-waterway saves
+    // Taking the minimum of slope-bounded fields preserves the adjacent-corner rule.
+    return std::min(terrain, waterBed(x, y));
+}
 
-    // Sea-level waterways are carved into the height field itself. Taking the minimum
-    // of slope-bounded fields preserves the adjacent-corner rule, including at banks.
-    // Rivers run across the world, with smooth bends independent of chunk activation.
+// Sea-level waterways are carved into the height field itself. Rivers run across the world,
+// with smooth bends independent of chunk activation.
+i64 TerrainGenerator::waterBed(i32 x, i32 y) const {
     const i64 bend = 128 * valueNoise(seed_, kRiverBend, x, 0, 9);
     const i64 phase = static_cast<i64>(hashCoords(seed_, 0, 0, kRiverBend) % 1024) * kOne;
     constexpr i64 period = 1024 * kOne;
@@ -117,7 +153,7 @@ i64 TerrainGenerator::rawHeight(i32 x, i32 y) const {
             waterBed = std::min(waterBed, (distance - radius) * kOne / 2);
         }
     }
-    return std::min(terrain, waterBed);
+    return waterBed;
 }
 
 u8 TerrainGenerator::quantise(i64 raw) {
@@ -125,13 +161,21 @@ u8 TerrainGenerator::quantise(i64 raw) {
     return static_cast<u8>(std::min<i64>(raw >> 16, kMaxHeight));
 }
 
-u8 TerrainGenerator::cornerHeight(i32 cx, i32 cy) const { return quantise(rawHeight(cx, cy)); }
+u16 TerrainGenerator::quantiseFine(i64 raw) {
+    if (raw <= 0) return 0;
+    return static_cast<u16>(std::min<i64>((raw * kSubLevels + kOne / 2) >> 16, kMaxSmoothHeight * kSubLevels));
+}
+
+u16 TerrainGenerator::cornerFine(i32 cx, i32 cy) const {
+    const i64 raw = rawHeight(cx, cy);
+    return smooth_ ? quantiseFine(raw) : fineOf(quantise(raw));
+}
 
 i64 TerrainGenerator::forestDensity(i32 x, i32 y) const {
     return (7 * valueNoise(seed_, kForest, x, y, 7) + 3 * valueNoise(seed_, kForestDetail, x, y, 5)) / 10;
 }
 
-Tile TerrainGenerator::generateTile(TilePos t, const i64 raw[4], const u8 h[4]) const {
+Tile TerrainGenerator::generateTile(TilePos t, const i64 raw[4], const u16 fine[4]) const {
     Tile tile;
     const bool allWet = raw[0] < 0 && raw[1] < 0 && raw[2] < 0 && raw[3] < 0;
     if (allWet) {
@@ -139,16 +183,21 @@ Tile TerrainGenerator::generateTile(TilePos t, const i64 raw[4], const u8 h[4]) 
         tile.ground = Ground::Water;
         return tile;
     }
-    const u8 lo = std::min(std::min(h[0], h[1]), std::min(h[2], h[3]));
-    const u8 hi = std::max(std::max(h[0], h[1]), std::max(h[2], h[3]));
+    const u16 fineLo = std::min(std::min(fine[0], fine[1]), std::min(fine[2], fine[3]));
+    const u16 fineHi = std::max(std::max(fine[0], fine[1]), std::max(fine[2], fine[3]));
+    const i32 lo = fineLo / kSubLevels;
+    // Rock where the ground is steep: two levels across a tile (stepped terrain) or a little
+    // more than that on smooth terrain.
+    const bool steep = smooth_ ? fineHi - fineLo >= 2 * kSubLevels + kSubLevels / 2 : fineHi - fineLo >= 2 * kSubLevels;
     const bool nearSea = raw[0] < kOne / 2 || raw[1] < kOne / 2 || raw[2] < kOne / 2 || raw[3] < kOne / 2;
     const u32 jitter = hashCoords(seed_, t.x, t.y, kGroundJitter);
 
-    if (lo >= kSnowLine) {
+    const i32 snowLine = smooth_ ? kSnowLine + 16 : kSnowLine;
+    if (lo >= snowLine) {
         tile.ground = Ground::Snow;
-    } else if (hi - lo >= 2) {
+    } else if (steep) {
         tile.ground = Ground::Rock;
-    } else if (lo >= kSnowLine - 5 && jitter % 3 == 0) {
+    } else if (lo >= snowLine - 5 && jitter % 3 == 0) {
         tile.ground = Ground::Rock;
     } else if (nearSea) {
         tile.ground = Ground::Sand;
@@ -159,7 +208,7 @@ Tile TerrainGenerator::generateTile(TilePos t, const i64 raw[4], const u8 h[4]) 
     }
 
     if (tile.ground == Ground::Grass || tile.ground == Ground::Rough ||
-        (tile.ground == Ground::Snow && lo < kSnowLine + 3)) {
+        (tile.ground == Ground::Snow && lo < snowLine + 3)) {
         const i64 forest = forestDensity(t.x, t.y);
         const u32 treeHash = hashCoords(seed_, t.x, t.y, kTreeJitter);
         constexpr i64 kForestStart = (kOne * 56) / 100;
@@ -186,15 +235,15 @@ void TerrainGenerator::generateChunk(ChunkPos pos, Chunk& chunk) const {
         for (i32 lx = 0; lx < kChunkCorners; ++lx) {
             const i64 r = rawHeight(origin.x + lx, origin.y + ly);
             raw[static_cast<usize>(ly * kChunkCorners + lx)] = r;
-            chunk.height(lx, ly) = quantise(r);
+            chunk.fine(lx, ly) = smooth_ ? quantiseFine(r) : fineOf(quantise(r));
         }
     }
     const auto rawAt = [&](i32 lx, i32 ly) { return raw[static_cast<usize>(ly * kChunkCorners + lx)]; };
     for (i32 ly = 0; ly < kChunkSize; ++ly) {
         for (i32 lx = 0; lx < kChunkSize; ++lx) {
             const i64 r[4] = {rawAt(lx, ly), rawAt(lx + 1, ly), rawAt(lx + 1, ly + 1), rawAt(lx, ly + 1)};
-            const u8 h[4] = {chunk.height(lx, ly), chunk.height(lx + 1, ly), chunk.height(lx + 1, ly + 1),
-                             chunk.height(lx, ly + 1)};
+            const u16 h[4] = {chunk.fine(lx, ly), chunk.fine(lx + 1, ly), chunk.fine(lx + 1, ly + 1),
+                              chunk.fine(lx, ly + 1)};
             chunk.tile(lx, ly) = generateTile({origin.x + lx, origin.y + ly}, r, h);
         }
     }

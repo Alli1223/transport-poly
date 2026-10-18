@@ -136,6 +136,8 @@ std::optional<Network> buildLine(World& w) {
 World makeWorld() {
     WorldSettings s;
     s.seed = 20261017;
+    // These tests exercise vehicles and passengers on a known town layout.
+    s.smoothTerrain = false;
     return World(s);
 }
 

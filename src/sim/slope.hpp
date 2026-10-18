@@ -9,7 +9,31 @@
 
 namespace tp {
 
-// Corner heights of one tile in the order NW, NE, SE, SW.
+// Terrain heights are stored in fine units: kSubLevels per height level. Structures (roads,
+// buildings, stations...) always sit on whole levels; untouched terrain can take any height,
+// which gives hills smooth, varying inclines.
+inline constexpr i32 kSubLevels = 16;
+
+constexpr u8 levelOf(u16 fine) { return static_cast<u8>(std::min<i32>((fine + kSubLevels / 2) / kSubLevels, 255)); }
+constexpr u16 fineOf(u8 level) { return static_cast<u16>(level * kSubLevels); }
+
+// Fine corner heights of one tile in the order NW, NE, SE, SW.
+struct FineCorners {
+    u16 h[4] = {0, 0, 0, 0};
+
+    constexpr u16 min() const { return std::min(std::min(h[0], h[1]), std::min(h[2], h[3])); }
+    constexpr u16 max() const { return std::max(std::max(h[0], h[1]), std::max(h[2], h[3])); }
+    // Tiles are drawn as two triangles; this picks the diagonal (true = NE-SW) consistently
+    // for rendering, picking and anything standing on the ground.
+    constexpr bool splitNESW() const {
+        const i32 a = h[1] > h[3] ? h[1] - h[3] : h[3] - h[1];
+        const i32 b = h[0] > h[2] ? h[0] - h[2] : h[2] - h[0];
+        return a < b;
+    }
+    friend constexpr bool operator==(const FineCorners&, const FineCorners&) = default;
+};
+
+// Corner heights of one tile in whole levels, in the order NW, NE, SE, SW.
 struct TileCorners {
     u8 h[4] = {0, 0, 0, 0};
 

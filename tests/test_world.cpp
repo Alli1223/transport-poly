@@ -194,11 +194,13 @@ TEST_CASE("world: old saves retain their original terrain when exploring") {
     WorldSettings settings;
     settings.seed = 12345;
     settings.waterways = false;
+    settings.smoothTerrain = false; // worlds saved before version 12 had stepped terrain
     World original(settings);
     original.map.activate({-1, -1});
     World loaded;
     fromBytes(toBytes(original, 4), loaded, 4);
     CHECK(!loaded.settings.waterways);
+    CHECK(!loaded.settings.smoothTerrain);
     original.map.activate({0, -1});
     loaded.map.activate({0, -1});
     CHECK(original.map.chunk({0, -1})->heights == loaded.map.chunk({0, -1})->heights);
@@ -207,6 +209,7 @@ TEST_CASE("world: old saves retain their original terrain when exploring") {
     World resaved;
     fromBytes(toBytes(loaded, kSaveVersion), resaved, kSaveVersion);
     CHECK(!resaved.settings.waterways);
+    CHECK(!resaved.settings.smoothTerrain);
     CHECK_EQ(resaved.map.generator().cornerHeight(700, -30), original.map.generator().cornerHeight(700, -30));
 }
 

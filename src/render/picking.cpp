@@ -30,14 +30,15 @@ std::optional<double> intersect(const Ray& r, const glm::dvec3& a, const glm::dv
 }
 
 std::optional<double> intersectTile(const Map& map, const Ray& r, TilePos t) {
-    TileCorners c = map.corners(t);
+    FineCorners c = map.fineCorners(t);
     if (const Tile* tile = map.tile(t); tile && (tile->span & 3) == kSpanBridge)
-        for (u8& height : c.h) height = tile->deckHeight;
+        for (u16& height : c.h) height = fineOf(tile->deckHeight);
     const double x0 = t.x, x1 = t.x + 1.0, z0 = t.y, z1 = t.y + 1.0;
-    const glm::dvec3 nw(x0, c.h[0] * kHeightStep, z0), ne(x1, c.h[1] * kHeightStep, z0);
-    const glm::dvec3 se(x1, c.h[2] * kHeightStep, z1), sw(x0, c.h[3] * kHeightStep, z1);
+    constexpr double k = kHeightStep / kSubLevels;
+    const glm::dvec3 nw(x0, c.h[0] * k, z0), ne(x1, c.h[1] * k, z0);
+    const glm::dvec3 se(x1, c.h[2] * k, z1), sw(x0, c.h[3] * k, z1);
     std::optional<double> a, b;
-    if (!tileSplitNESW(c)) {
+    if (!c.splitNESW()) {
         a = intersect(r, nw, se, ne);
         b = intersect(r, nw, sw, se);
     } else {
@@ -54,7 +55,7 @@ TerrainHit pickTerrain(const Map& map, const Ray& rayIn, int maxTiles) {
     TerrainHit hit;
     Ray ray = rayIn;
     // Skip down to the highest possible terrain height.
-    const double top = (kMaxHeight + 1) * kHeightStep;
+    const double top = (kMaxSmoothHeight + 1) * kHeightStep;
     if (ray.origin.y > top) {
         if (ray.dir.y >= 0.0) return hit;
         const double t = (ray.origin.y - top) / -ray.dir.y;
@@ -104,7 +105,7 @@ TerrainHit pickTerrain(const Map& map, const Ray& rayIn, int maxTiles) {
 double terrainHeightAt(const Map& map, double x, double z) {
     const i32 tx = static_cast<i32>(std::floor(x));
     const i32 tz = static_cast<i32>(std::floor(z));
-    const TileCorners c = map.corners({tx, tz});
+    const FineCorners c = map.fineCorners({tx, tz});
     return tileSurfaceLevel(c, static_cast<float>(x - tx), static_cast<float>(z - tz)) * kHeightStep;
 }
 

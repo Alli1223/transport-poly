@@ -47,7 +47,9 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
 
 // Triangulation shared by the mesher and picking: true if the tile is split along NE-SW.
 bool tileSplitNESW(const TileCorners& c);
+bool tileSplitNESW(const FineCorners& c);
 // Height (in levels) of the tile surface at fractional position (fx, fy) in [0,1].
 float tileSurfaceLevel(const TileCorners& c, float fx, float fy);
+float tileSurfaceLevel(const FineCorners& c, float fx, float fy);
 
 } // namespace tp::gfx

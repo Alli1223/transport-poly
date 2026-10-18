@@ -6,6 +6,7 @@
 #include "sim/terraform.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 
 using namespace tp;
@@ -189,4 +190,75 @@ TEST_CASE("terraform: raising propagates and keeps the height rule") {
     CHECK_EQ(down.changes.size(), 1u);
     // Cannot terraform next to unexplored land.
     CHECK(!planTerraform(map, 64, 0, +1).ok);
+}
+
+TEST_CASE("terrain: smooth terrain has varied inclines within a sane bound") {
+    const TerrainGenerator gen(20261017, true, true);
+    int worst = 0;
+    std::vector<int> slopes(64, 0);
+    Rng rng(4);
+    for (int i = 0; i < 300000; ++i) {
+        const i32 x = rng.range(-20000, 20000), y = rng.range(-20000, 20000);
+        const int h = gen.cornerFine(x, y);
+        const int d = std::max(std::abs(h - gen.cornerFine(x + 1, y)), std::abs(h - gen.cornerFine(x, y + 1)));
+        worst = std::max(worst, d);
+        ++slopes[static_cast<usize>(std::min(d, 63))];
+    }
+    if (std::getenv("TP_SLOPES"))
+        for (int d = 0; d < 64; ++d)
+            if (slopes[static_cast<usize>(d)]) std::printf("slope %d: %d\n", d, slopes[static_cast<usize>(d)]);
+    // Steep mountainsides, but no cliffs.
+    CHECK(worst <= 4 * kSubLevels);
+    // Inclines are not all one step: many different gradients occur, including fractions of a level.
+    int distinct = 0;
+    for (int d = 1; d < 64; ++d) distinct += slopes[static_cast<usize>(d)] > 0;
+    CHECK(distinct >= 12);
+    CHECK(slopes[3] > 0);
+    CHECK(slopes[9] > 0);
+}
+
+TEST_CASE("terrain: structures snap their corners to whole levels") {
+    Map map(5, true, true);
+    for (i32 y = -1; y <= 1; ++y)
+        for (i32 x = -1; x <= 1; ++x) map.activate({x, y});
+    // Find a tile with fractional corners.
+    TilePos t{0, 0};
+    for (i32 i = 0; i < 400; ++i) {
+        const TilePos p{4 + i % 20, 4 + i / 20};
+        const FineCorners c = map.fineCorners(p);
+        if (c.h[0] % kSubLevels || c.h[1] % kSubLevels || c.h[2] % kSubLevels || c.h[3] % kSubLevels) {
+            t = p;
+            break;
+        }
+    }
+    const TileCorners levels = map.corners(t);
+    map.tile(t)->type = TileType::Road;
+    map.touch(t);
+    const FineCorners after = map.fineCorners(t);
+    for (int i = 0; i < 4; ++i) CHECK_EQ(after.h[i], fineOf(levels.h[i]));
+}
+
+TEST_CASE("terraform: the brush shapes land smoothly and leaves structures alone") {
+    Map map(77, true, true);
+    for (i32 y = -1; y <= 1; ++y)
+        for (i32 x = -1; x <= 1; ++x) map.activate({x, y});
+    for (i32 y = 0; y <= 20; ++y)
+        for (i32 x = 0; x <= 20; ++x) map.setCornerFine(x, y, 10 * kSubLevels);
+    const auto none = [](i32, i32) { return false; };
+    BrushPlan plan = planBrush(map, {10, 10}, 4, BrushMode::Raise, 0, none);
+    applyBrush(map, plan);
+    // Highest in the middle, falling off towards the rim, untouched outside.
+    CHECK_EQ(map.cornerFine(10, 10), 11 * kSubLevels);
+    CHECK(map.cornerFine(12, 10) > 10 * kSubLevels);
+    CHECK(map.cornerFine(12, 10) < map.cornerFine(11, 10));
+    CHECK_EQ(map.cornerFine(15, 10), 10 * kSubLevels);
+    // Locked corners do not move.
+    const auto lockedCentre = [](i32 cx, i32 cy) { return cx == 10 && cy == 10; };
+    plan = planBrush(map, {10, 10}, 4, BrushMode::Lower, 0, lockedCentre);
+    applyBrush(map, plan);
+    CHECK_EQ(map.cornerFine(10, 10), 11 * kSubLevels);
+    // Levelling pulls everything near the centre to the target height.
+    for (int i = 0; i < 6; ++i) applyBrush(map, planBrush(map, {10, 10}, 3, BrushMode::Level, 10 * kSubLevels, none));
+    CHECK_EQ(map.cornerFine(10, 10), 10 * kSubLevels);
+    CHECK_EQ(map.cornerFine(11, 10), 10 * kSubLevels);
 }

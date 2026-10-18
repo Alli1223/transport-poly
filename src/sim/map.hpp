@@ -14,7 +14,7 @@ namespace tp {
 
 class Map {
 public:
-    explicit Map(u64 seed = 1, bool waterways = true) : gen_(seed, waterways) {}
+    explicit Map(u64 seed = 1, bool waterways = true, bool smooth = false) : gen_(seed, waterways, smooth) {}
 
     const TerrainGenerator& generator() const { return gen_; }
 
@@ -35,7 +35,9 @@ public:
     // Corner heights work everywhere: active chunks return stored data, inactive areas the
     // generated terrain.
     u8 cornerHeight(i32 cx, i32 cy) const;
+    u16 cornerFine(i32 cx, i32 cy) const;
     TileCorners corners(TilePos t) const;
+    FineCorners fineCorners(TilePos t) const;
     Slope slope(TilePos t) const { return computeSlope(corners(t)); }
     // Height of the lowest corner of a tile.
     u8 tileBaseHeight(TilePos t) const { return corners(t).min(); }
@@ -43,10 +45,14 @@ public:
     // A corner may only be changed when every chunk holding a copy of it is active, so that
     // inactive chunks always match the generator.
     bool cornerEditable(i32 cx, i32 cy) const;
-    void setCornerHeight(i32 cx, i32 cy, u8 height);
+    void setCornerHeight(i32 cx, i32 cy, u8 height) { setCornerFine(cx, cy, fineOf(height)); }
+    void setCornerFine(i32 cx, i32 cy, u16 fine);
 
-    // Marks the chunk containing the tile as modified (bumps its render revision).
+    // Marks the chunk containing the tile as modified (bumps its render revision). Tiles holding
+    // a structure get their corners snapped to whole levels, which is what every structure
+    // stands on.
     void touch(TilePos t);
+    void snapToLevels(TilePos t);
 
     void clear() {
         chunks_.clear();

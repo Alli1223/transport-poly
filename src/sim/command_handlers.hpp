@@ -12,6 +12,7 @@ CommandResult handle(World& w, const Command& c, const CmdActivateChunks& x, boo
 CommandResult handle(World& w, const Command& c, const CmdCreateCompany& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdSetLoan& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdTerraform& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdTerraformBrush& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdClearArea& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdPlantTrees& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdBuildRoad& x, bool exec);

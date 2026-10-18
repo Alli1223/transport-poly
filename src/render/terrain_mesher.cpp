@@ -14,11 +14,19 @@
 
 namespace tp::gfx {
 
-bool tileSplitNESW(const TileCorners& c) { return c.h[1] == c.h[3] && c.h[0] != c.h[2]; }
+namespace {
+FineCorners toFine(const TileCorners& c) { return FineCorners{{fineOf(c.h[0]), fineOf(c.h[1]), fineOf(c.h[2]), fineOf(c.h[3])}}; }
+} // namespace
 
-float tileSurfaceLevel(const TileCorners& c, float fx, float fy) {
-    const float nw = c.h[0], ne = c.h[1], se = c.h[2], sw = c.h[3];
-    if (!tileSplitNESW(c)) {
+bool tileSplitNESW(const TileCorners& c) { return toFine(c).splitNESW(); }
+bool tileSplitNESW(const FineCorners& c) { return c.splitNESW(); }
+
+float tileSurfaceLevel(const TileCorners& c, float fx, float fy) { return tileSurfaceLevel(toFine(c), fx, fy); }
+
+float tileSurfaceLevel(const FineCorners& c, float fx, float fy) {
+    constexpr float k = 1.0f / kSubLevels;
+    const float nw = c.h[0] * k, ne = c.h[1] * k, se = c.h[2] * k, sw = c.h[3] * k;
+    if (!c.splitNESW()) {
         if (fx >= fy) return nw + (ne - nw) * fx + (se - ne) * fy;
         return nw + (se - sw) * fx + (sw - nw) * fy;
     }
@@ -278,8 +286,8 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
     for (i32 j = 0; j < gridN; ++j) {
         for (i32 i = 0; i < gridN; ++i) {
             const i32 lx = i * step, ly = j * step;
-            const u8 h = chunk.height(lx, ly);
-            float y = static_cast<float>(h) * kHeightStep;
+            const u16 h = chunk.fine(lx, ly);
+            float y = static_cast<float>(h) * (kHeightStep / kSubLevels);
             if (h == 0 && isWater(lx - 1, ly - 1) && isWater(lx, ly - 1) && isWater(lx - 1, ly) && isWater(lx, ly))
                 y = seabedY(gen.rawHeight(origin.x + lx, origin.y + ly));
             cornerY[static_cast<usize>(j * gridN + i)] = y;
@@ -358,9 +366,9 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 const u32 h = hashCoords(seed, wp.x, wp.y, 0x7E44);
                 const u32 c0 = shade(base, jitter(h));
                 const u32 c1 = shade(base, jitter(h >> 8));
-                const TileCorners coarse{{chunk.height(lx, ly), chunk.height(lx + step, ly),
-                                          chunk.height(lx + step, ly + step), chunk.height(lx, ly + step)}};
-                if (!tileSplitNESW(coarse)) {
+                const FineCorners coarse{{chunk.fine(lx, ly), chunk.fine(lx + step, ly), chunk.fine(lx + step, ly + step),
+                                          chunk.fine(lx, ly + step)}};
+                if (!coarse.splitNESW()) {
                     ground.triangleUp(nw, se, ne, c0);
                     ground.triangleUp(nw, sw, se, c1);
                 } else {
@@ -410,7 +418,7 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
             }
 
             if (lod == 0 && tile.type == TileType::Clear && tile.trees > 0) {
-                const TileCorners corners = chunk.corners(lx, ly);
+                const FineCorners fineCorners = chunk.fineCorners(lx, ly);
                 for (u32 t = 0; t < tile.trees; ++t) {
                     const u32 th = hashCoords(seed, wp.x, wp.y, 0x7EE0 + t);
                     const float r1 = static_cast<float>(th & 0xFF) / 255.0f;
@@ -424,7 +432,7 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                         fz = static_cast<float>(t / 2) * 0.5f + 0.1f + r2 * 0.3f;
                     }
                     TreePlacement tp;
-                    tp.pos = glm::vec3(x0 + fx, tileSurfaceLevel(corners, fx, fz) * kHeightStep, z0 + fz);
+                    tp.pos = glm::vec3(x0 + fx, tileSurfaceLevel(fineCorners, fx, fz) * kHeightStep, z0 + fz);
                     tp.scale = 0.75f + static_cast<float>((th >> 16) & 0xFF) / 255.0f * 0.5f;
                     tp.yaw = static_cast<float>((th >> 24) & 0xFF) / 255.0f * glm::two_pi<float>();
                     tp.type = tile.treeType;

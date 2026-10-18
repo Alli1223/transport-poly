@@ -136,6 +136,16 @@ void drawIcon(ImDrawList* dl, Icon icon, ImVec2 centre, float size, ImU32 color)
         g.line(0.0f, -0.85f, 0.0f, 0.05f, 1.1f);
         g.tri(-0.42f, -0.1f, 0.0f, 0.5f, 0.42f, -0.1f);
         break;
+    case Icon::Level:
+        g.line(-0.9f, 0.1f, 0.9f, 0.1f, 1.2f);
+        g.tri(-0.62f, -0.85f, -0.22f, -0.85f, -0.42f, -0.25f);
+        g.tri(0.22f, 0.95f, 0.62f, 0.95f, 0.42f, 0.4f);
+        break;
+    case Icon::Smooth:
+        dl->AddBezierCubic(g.p(-0.95f, 0.15f), g.p(-0.45f, -0.75f), g.p(0.25f, 0.85f), g.p(0.95f, -0.2f), color, g.t);
+        g.line(-0.9f, 0.75f, 0.9f, 0.75f);
+        g.star(0.55f, -0.62f, 0.08f, 0.28f, 4);
+        break;
     case Icon::Bulldoze:
         g.fillPoly({{-0.98f, -0.15f}, {-0.78f, -0.05f}, {-0.78f, 0.62f}, {-0.98f, 0.72f}});
         g.line(-0.78f, 0.22f, -0.55f, 0.22f);
