@@ -91,15 +91,15 @@ relies on every peer computing exactly the same game state.
 ## M6 — Infrastructure
 - [x] 6.1 Roads: road bits per tile, build / remove along a drag line, slopes, costs, town roads
 - [x] 6.2 Road rendering (straight, curves, junctions, slopes, dead ends)
-- [~] 6.3 Rails: 6 track bits per tile (incl. diagonals), drag building, slopes (track pieces, slopes, straight + diagonal line planner; build command next)
+- [x] 6.3 Rails: 6 track bits per tile (incl. diagonals), drag building, slopes
 - [ ] 6.4 Rail rendering (ballast, sleepers, rails; diagonals)
 - [ ] 6.5 Level crossings (road + rail)
-- [ ] 6.6 Signals: block, path and one-way path signals; signal rendering
+- [~] 6.6 Signals: block, path and one-way path signals; signal rendering (two-way and one-way path signals; block signals behave as path signals)
 - [x] 6.7 Tram tracks (on roads and tram-only)
 - [ ] 6.8 Bridges and tunnels for road / rail
 - [ ] 6.9 Canals and water tiles editing
 - [~] 6.10 Stations: bus stop, tram stop, rail station (platform length / count), dock; names; joining adjacent tiles; catchment radius (bus / tram stops with joining, names, catchment; rail + docks later)
-- [~] 6.11 Depots: road, tram, rail, ship (road + tram depots)
+- [~] 6.11 Depots: road, tram, rail, ship (road, tram, rail depots; ship later)
 - [x] 6.12 Demolish tool with cost; ownership checks
 - [ ] 6.13 Infrastructure maintenance costs
 
@@ -110,8 +110,8 @@ relies on every peer computing exactly the same game state.
 - [x] 7.4 Road pathfinder (A* over the road graph with deterministic tie breaking)
 - [x] 7.5 Road vehicle movement: lanes, curves, junctions, queueing, gridlock breaker
 - [x] 7.6 Tram movement (tram network, articulated trams)
-- [~] 7.7 Rail pathfinder and train movement: consists, acceleration / braking, curve speed limits, slopes (rail A* path finder, train state fields, rail models; movement next)
-- [ ] 7.8 Signal logic, path reservation, collision prevention
+- [~] 7.7 Rail pathfinder and train movement: consists, acceleration / braking, curve speed limits, slopes (consists, acceleration, braking to reservation end, slopes; curve limits later)
+- [x] 7.8 Signal logic, path reservation, collision prevention
 - [ ] 7.9 Ship pathfinder over water tiles and ship movement
 - [x] 7.10 Loading / unloading at stations, dwell time
 - [ ] 7.11 Vehicle ageing, reliability, breakdowns, servicing at depots

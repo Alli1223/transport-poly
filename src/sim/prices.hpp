@@ -20,5 +20,10 @@ inline constexpr Money kRoadDepot = 4'000;
 inline constexpr Money kRemoveDepot = 600;
 inline constexpr Money kDemolishBuilding = 3'000;
 inline constexpr Money kDemolishPerResident = 150;
+inline constexpr Money kRailPiece = 400;
+inline constexpr Money kRemoveRailPiece = 60;
+inline constexpr Money kSignal = 500;
+inline constexpr Money kRailStationTile = 2'500;
+inline constexpr Money kRailDepot = 6'000;
 
 } // namespace tp::prices

@@ -60,6 +60,13 @@ std::string_view commandName(const CommandPayload& payload) {
                           [](const CmdSendToDepot&) { return std::string_view("Send to depot"); },
                           [](const CmdSetOrders&) { return std::string_view("Change orders"); },
                           [](const CmdSkipOrder&) { return std::string_view("Skip order"); },
+                          [](const CmdBuildRail&) { return std::string_view("Build railway"); },
+                          [](const CmdRemoveRail&) { return std::string_view("Remove railway"); },
+                          [](const CmdCycleSignal&) { return std::string_view("Signal"); },
+                          [](const CmdBuildRailStation&) { return std::string_view("Build railway station"); },
+                          [](const CmdBuildRailDepot&) { return std::string_view("Build train depot"); },
+                          [](const CmdAddCarriage&) { return std::string_view("Add carriage"); },
+                          [](const CmdRemoveCarriage&) { return std::string_view("Remove carriage"); },
                       },
                       payload);
 }

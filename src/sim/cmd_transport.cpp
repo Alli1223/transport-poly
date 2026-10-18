@@ -87,6 +87,8 @@ CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, co
         const StationId sid(tile->index);
         const Station* s = w.stations.tryGet(sid);
         if (s && s->owner != company) return CommandResult::failure("Owned by another company");
+        if (static_cast<StopKind>(tile->extra) == StopKind::Rail && tile->extra2)
+            return CommandResult::failure("Train in the way");
         if (occupied(busy, t)) return CommandResult::failure("Vehicle in the way");
         if (exec) {
             const StopKind kind = static_cast<StopKind>(tile->extra);
@@ -137,7 +139,23 @@ CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, co
         if (exec) towns::removeBuilding(w, bid);
         return CommandResult::success(cost);
     }
-    case TileType::Rail: return CommandResult::failure("Can't remove railway yet");
+    case TileType::Rail: {
+        if (tile->owner != ownerByte(company) && tile->owner != kOwnerNone)
+            return CommandResult::failure("Owned by another company");
+        if (tile->extra2) return CommandResult::failure("Train in the way");
+        const Money cost = std::popcount(static_cast<unsigned>(tile->rail)) * prices::kRemoveRailPiece +
+                           (tile->extra ? prices::kSignal / 5 : 0);
+        if (exec) {
+            if (tile->extra) w.signalTiles.erase(ChunkPos{t.x, t.y}.key());
+            tile->type = TileType::Clear;
+            tile->rail = 0;
+            tile->extra = 0;
+            tile->extra2 = 0;
+            tile->owner = kOwnerNone;
+            w.map.touch(t);
+        }
+        return CommandResult::success(cost);
+    }
     }
     return CommandResult::failure("Can't clear this");
 }
@@ -331,6 +349,8 @@ CommandResult handle(World& w, const Command& c, const CmdBuyVehicle& x, bool ex
     if (x.model >= vehicleModels().size()) return CommandResult::failure("Unknown vehicle");
     const VehicleModel& m = vehicleModel(x.model);
     if (!depotKindMatches(m.type, d->kind)) return CommandResult::failure("This depot can't build that vehicle");
+    if (m.type == VehicleType::Rail && !m.powered)
+        return CommandResult::failure("Buy an engine first, then add carriages to it");
     if (m.introYear > w.clock.date().year) return CommandResult::failure("Not yet available");
     if (w.vehicles.size() >= 60'000) return CommandResult::failure("Too many vehicles");
     if (exec) {

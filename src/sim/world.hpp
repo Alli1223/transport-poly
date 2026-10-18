@@ -81,6 +81,8 @@ public:
     std::priority_queue<PersonEvent, std::vector<PersonEvent>, std::greater<PersonEvent>> personEvents;
     // Chunk key -> stations whose catchment touches the chunk.
     std::unordered_map<u64, std::vector<StationId>> stationIndex;
+    // Tile keys of rail tiles carrying signals (for rendering).
+    std::set<u64> signalTiles;
     // Tile key -> vehicles on the tile (rebuilt every tick).
     std::unordered_map<u64, std::vector<VehicleId>> vehicleTiles;
     RoutingTable routing;
@@ -95,6 +97,7 @@ public:
 
     // Checksum over the game state, compared between peers to detect desyncs.
     u64 stateHash() const;
+    void rebuildSignalIndex();
 
     template <class Ar>
     void serialize(Ar& ar) {
@@ -106,6 +109,7 @@ public:
             people::rebuildEvents(*this);
             stations::rebuildIndex(*this);
             routing = RoutingTable{};
+            rebuildSignalIndex();
         }
     }
 

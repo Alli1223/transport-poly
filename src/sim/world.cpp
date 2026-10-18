@@ -66,6 +66,19 @@ bool World::activateChunk(ChunkPos pos) {
     return true;
 }
 
+void World::rebuildSignalIndex() {
+    signalTiles.clear();
+    for (const ChunkPos cp : map.activeChunks()) {
+        const Chunk* c = map.chunk(cp);
+        const TilePos o = chunkOrigin(cp);
+        for (i32 ly = 0; ly < kChunkSize; ++ly)
+            for (i32 lx = 0; lx < kChunkSize; ++lx) {
+                const Tile& t = c->tile(lx, ly);
+                if (t.type == TileType::Rail && t.extra) signalTiles.insert(ChunkPos{o.x + lx, o.y + ly}.key());
+            }
+    }
+}
+
 void World::addNews(NewsKind kind, std::string text, std::optional<TilePos> where) {
     news.push_back(NewsItem{clock.tick, kind, std::move(text), where});
     while (news.size() > 200) news.pop_front();

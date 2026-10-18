@@ -329,12 +329,14 @@ VehicleId buy(World& w, CompanyId owner, DepotId depotId, u16 model) {
     v.exit = opposite(d.facing);
     v.value = m.price;
     v.builtTick = w.clock.tick;
+    if (m.type == VehicleType::Rail) v.cars = {model};
     return id;
 }
 
 void sell(World& w, VehicleId id) {
     Vehicle& v = w.vehicles[id];
     dropAll(w, v);
+    if (v.info().type == VehicleType::Rail) trains::releaseAll(w, id);
     w.vehicles.destroy(id);
 }
 
@@ -356,7 +358,12 @@ void tickAll(World& w) {
     for (auto [id, v] : w.vehicles) {
         switch (v.state) {
         case VehicleState::InDepot:
-            if (!v.stopped && !v.orders.empty()) leaveDepot(w, id);
+            if (!v.stopped && !v.orders.empty()) {
+                if (v.info().type == VehicleType::Rail)
+                    trains::leaveDepot(w, id);
+                else
+                    leaveDepot(w, id);
+            }
             break;
         case VehicleState::Loading:
             if (w.clock.tick >= v.loadingUntil) finishLoading(w, id);
@@ -366,7 +373,10 @@ void tickAll(World& w) {
                 v.speed = 0;
                 break;
             }
-            drive(w, id);
+            if (v.info().type == VehicleType::Rail)
+                trains::tick(w, id);
+            else
+                drive(w, id);
             break;
         }
     }

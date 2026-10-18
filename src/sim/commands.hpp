@@ -171,10 +171,76 @@ struct CmdSkipOrder {
     }
 };
 
+// Railway track along a dragged line (straight, then diagonal).
+struct CmdBuildRail {
+    TilePos from;
+    TilePos to;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(from, to);
+    }
+};
+
+struct CmdRemoveRail {
+    TilePos from;
+    TilePos to;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(from, to);
+    }
+};
+
+// Cycles the signal on a straight track tile: none -> two way -> one way -> other way -> none.
+struct CmdCycleSignal {
+    TilePos tile;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(tile);
+    }
+};
+
+// A straight row of platform tiles.
+struct CmdBuildRailStation {
+    TilePos from;
+    TilePos to;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(from, to);
+    }
+};
+
+struct CmdBuildRailDepot {
+    TilePos tile;
+    Dir facing = Dir::S;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(tile, facing);
+    }
+};
+
+struct CmdAddCarriage {
+    VehicleId vehicle;
+    u16 model = 0;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(vehicle, model);
+    }
+};
+
+struct CmdRemoveCarriage {
+    VehicleId vehicle;
+    u16 index = 0;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(vehicle, index);
+    }
+};
+
 using CommandPayload =
     std::variant<CmdActivateChunks, CmdCreateCompany, CmdSetLoan, CmdTerraform, CmdClearArea, CmdPlantTrees, CmdBuildRoad,
                  CmdRemoveRoad, CmdBuildRoadStop, CmdBuildRoadDepot, CmdBuyVehicle, CmdSellVehicle, CmdStartStopVehicle,
-                 CmdSendToDepot, CmdSetOrders, CmdSkipOrder>;
+                 CmdSendToDepot, CmdSetOrders, CmdSkipOrder, CmdBuildRail, CmdRemoveRail, CmdCycleSignal,
+                 CmdBuildRailStation, CmdBuildRailDepot, CmdAddCarriage, CmdRemoveCarriage>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)
