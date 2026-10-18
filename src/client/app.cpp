@@ -113,6 +113,64 @@ void buildDemoNetwork(World& w, CompanyId company) {
     }
 }
 
+// Builds a short railway with two terminus stations near the biggest town and starts a train on
+// it. Returns the first station's tile (used for automated screenshots / smoke tests).
+std::optional<TilePos> buildDemoRailway(World& w, CompanyId company) {
+    const Town* town = nullptr;
+    for (const auto [id, t] : w.towns)
+        if (!town || t.population > town->population) town = &t;
+    if (!town) return std::nullopt;
+    const auto cmd = [&](CommandPayload p) {
+        Command c;
+        c.company = company;
+        c.payload = std::move(p);
+        return c;
+    };
+    const auto run = [&](CommandPayload p) { return executeCommand(w, cmd(std::move(p))); };
+    const auto test = [&](CommandPayload p) { return testCommand(w, cmd(std::move(p))).ok; };
+    constexpr i32 kPlatform = 4;
+    // Candidate east-west platforms: four clear, flat tiles at one level.
+    std::vector<TilePos> sites;
+    for (i32 dy = -36; dy <= 36; ++dy) {
+        for (i32 dx = -40; dx <= 40; ++dx) {
+            const TilePos p{town->centre.x + dx, town->centre.y + dy};
+            if (test(CmdBuildRailStation{p, {p.x + kPlatform - 1, p.y}})) sites.push_back(p);
+        }
+    }
+    std::ranges::sort(sites, {}, [&](TilePos p) {
+        return std::abs(p.x - town->centre.x) + std::abs(p.y - town->centre.y);
+    });
+    for (const TilePos a : sites) {
+        if (!test(CmdBuildRailDepot{{a.x - 2, a.y}, Dir::E})) continue;
+        for (const TilePos b : sites) {
+            const i32 gap = b.x - (a.x + kPlatform);
+            if (b.y != a.y || gap < 16 || gap > 48) continue;
+            const TilePos from{a.x + kPlatform, a.y}, to{b.x - 1, b.y};
+            if (!test(CmdBuildRail{from, to})) continue;
+            if (!run(CmdBuildRailStation{a, {a.x + kPlatform - 1, a.y}}).ok) return std::nullopt;
+            run(CmdBuildRailStation{b, {b.x + kPlatform - 1, b.y}});
+            run(CmdBuildRail{from, to});
+            for (i32 x = from.x + 4; x < to.x - 2; x += 8) run(CmdCycleSignal{{x, a.y}});
+            const CommandResult dep = run(CmdBuildRailDepot{{a.x - 2, a.y}, Dir::E});
+            if (!dep.ok) return a;
+            // Newest engine and coaches on sale.
+            CommandResult buy = run(CmdBuyVehicle{DepotId(dep.createdId), 8});
+            if (!buy.ok) buy = run(CmdBuyVehicle{DepotId(dep.createdId), 7});
+            if (!buy.ok) return a;
+            const VehicleId train(buy.createdId);
+            for (int i = 0; i < 2; ++i)
+                if (!run(CmdAddCarriage{train, 12}).ok) run(CmdAddCarriage{train, 11});
+            Order oa, ob;
+            oa.station = StationId(w.map.tile(a)->index);
+            ob.station = StationId(w.map.tile(b)->index);
+            run(CmdSetOrders{train, {ob, oa}});
+            run(CmdStartStopVehicle{train});
+            return a;
+        }
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 void App::onScroll(double dy) { scrollAccum_ += dy; }
@@ -149,6 +207,8 @@ bool App::parseArgs(int argc, char** argv) {
             followFirst_ = true;
         } else if (arg == "--demo-network") {
             demoNetwork_ = true;
+        } else if (arg == "--demo-rail") {
+            demoRail_ = true;
         } else if (arg == "--join") {
             if (const char* v = next()) joinAddress_ = v;
         } else if (arg == "--no-debug") {
@@ -606,6 +666,21 @@ int App::run(int argc, char** argv) {
             if (demoNetwork_ && frameCount == 100) {
                 if (auto* local = dynamic_cast<LocalSession*>(session_.get()))
                     buildDemoNetwork(local->world(), local->localCompany());
+            }
+            if (demoRail_ && frameCount >= 100 && frameCount % 20 == 0 && !world().towns.empty()) {
+                // Retried until a town has been founded near the camera.
+                demoRail_ = false;
+                if (auto* local = dynamic_cast<LocalSession*>(session_.get())) {
+                    if (const auto at = buildDemoRailway(local->world(), local->localCompany())) {
+                        camera_.targetGoal = glm::dvec3(at->x + 2.0, 0.0, at->y + 0.5);
+                        camera_.targetGoal.y =
+                            gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
+                        camera_.distanceGoal = 14.0;
+                        camera_.snapToGoals();
+                    } else {
+                        log::warn("No site found for the demo railway");
+                    }
+                }
             }
             if (followFirst_ && frameCount == 160) {
                 for (const auto [id, v] : world().vehicles) {

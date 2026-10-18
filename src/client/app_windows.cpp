@@ -156,7 +156,7 @@ void App::drawVehicleWindow() {
         ImGui::Text("%s", m.name.data());
         ImGui::TextColored(v->lost ? ImVec4(1, 0.5f, 0.4f, 1) : ImVec4(0.8f, 0.9f, 1.0f, 1), "%s",
                            vehicleStatus(*v).c_str());
-        ImGui::Text("Speed %d km/h   Passengers %zu / %d", displayKmh(v->speed), v->passengers.size(), m.capacity);
+        ImGui::Text("Speed %d km/h   Passengers %zu / %u", displayKmh(v->speed), v->passengers.size(), v->capacity());
         moneyText("Profit this year", v->profitThisYear);
         moneyText("Profit last year", v->profitLastYear);
         ImGui::Text("Passengers this year: %d   Value: %s", v->passengersThisYear, formatMoney(v->value).c_str());

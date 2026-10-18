@@ -161,6 +161,7 @@ private:
     bool gotoWater_ = false;
     double gotoTownDistance_ = 0.0; // > 0: jump to the biggest town at this zoom (automation)
     bool demoNetwork_ = false;      // automation: build a demo bus line in the biggest town
+    bool demoRail_ = false;         // automation: build a demo railway next to the biggest town
     bool followFirst_ = false;      // automation: follow the first vehicle
     bool directStart_ = false;      // skip the main menu (command line options given)
     std::string joinAddress_;       // --join host[:port]

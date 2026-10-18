@@ -27,6 +27,9 @@ inline constexpr ModelId kBusStop = 8;
 inline constexpr ModelId kRoadDepot = 9;
 inline constexpr ModelId kTramDepot = 10;
 inline constexpr ModelId kPerson = 11;
+inline constexpr ModelId kRailDepot = 12;
+inline constexpr ModelId kSignal = 13;
+inline constexpr ModelId kPlatformCanopy = 14;
 
 inline constexpr ModelId kBuildingBase = 16;
 inline constexpr ModelId kBuildingVariants = 3;

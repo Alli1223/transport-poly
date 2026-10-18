@@ -124,6 +124,100 @@ void depotBuilding(MeshBuilder& mb, bool tram) {
     if (tram) mb.box({-0.02f, 0.0f, mx.z - 0.01f}, {0.02f, 0.32f, mx.z + 0.01f}, kChrome);
 }
 
+// Railway vehicles: length along X in tiles (matching the simulation's car length).
+void steamEngine(MeshBuilder& mb) {
+    constexpr u32 kBlack = rgba(40, 42, 46);
+    constexpr u32 kRed = rgba(160, 40, 34);
+    const float hl = 0.31f, hw = 0.1f;
+    mb.box({-hl, 0.05f, -hw}, {hl, 0.08f, hw}, kBlack);                     // frame
+    const glm::mat4 saved = mb.transform;
+    mb.transform = saved * glm::translate(glm::mat4(1.0f), glm::vec3(0.05f, 0.155f, 0.0f)) *
+                   glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0, 0, 1));
+    mb.prism({0.0f, -0.25f, 0.0f}, 0.075f, 0.45f, 8, kLivery, true);      // boiler
+    mb.transform = saved;
+    mb.prism({0.24f, 0.22f, 0.0f}, 0.03f, 0.1f, 6, kBlack, true);          // chimney
+    mb.box({-hl, 0.08f, -hw}, {-0.12f, 0.28f, hw}, kLiveryDark);             // cab
+    mb.box({-hl - 0.01f, 0.28f, -hw - 0.01f}, {-0.1f, 0.3f, hw + 0.01f}, kBlack);
+    windowBand(mb, -0.28f, -0.15f, 0.18f, 0.25f, hw);
+    mb.box({hl - 0.02f, 0.05f, -hw + 0.01f}, {hl + 0.02f, 0.08f, hw - 0.01f}, kRed); // buffer beam
+    wheels(mb, -0.2f, 0.18f, hw, 0.05f);
+}
+
+void dieselEngine(MeshBuilder& mb, bool express) {
+    constexpr u32 kGrey = rgba(70, 74, 80);
+    const float hl = express ? 0.4f : 0.37f, hw = 0.105f, base = 0.05f, top = 0.28f;
+    mb.box({-hl, base, -hw}, {hl, base + 0.03f, hw}, kGrey);
+    mb.box({-hl + 0.02f, base + 0.03f, -hw}, {hl - 0.06f, top, hw}, kLivery);
+    // Sloped cab front.
+    mb.quadFacing({hl - 0.06f, base + 0.03f, -hw}, {hl, base + 0.03f, -hw}, {hl, top - 0.07f, -hw}, {hl - 0.06f, top, -hw},
+                  kLivery, {0, 0, -1});
+    mb.quadFacing({hl - 0.06f, base + 0.03f, hw}, {hl - 0.06f, top, hw}, {hl, top - 0.07f, hw}, {hl, base + 0.03f, hw},
+                  kLivery, {0, 0, 1});
+    mb.quadFacing({hl, base + 0.03f, -hw}, {hl, base + 0.03f, hw}, {hl, top - 0.07f, hw}, {hl, top - 0.07f, -hw}, kLiveryDark,
+                  {1, 0, 0});
+    mb.quadFacing({hl - 0.06f, top, -hw}, {hl, top - 0.07f, -hw}, {hl, top - 0.07f, hw}, {hl - 0.06f, top, hw}, kGlass,
+                  {1, 1, 0});
+    mb.box({-hl + 0.04f, top, -hw + 0.02f}, {hl - 0.1f, top + 0.015f, hw - 0.02f}, kRoofGrey);
+    mb.box({-hl + 0.02f, base + 0.04f, -hw - kInset}, {hl - 0.06f, base + 0.07f, hw + kInset}, kWhite); // stripe
+    windowBand(mb, hl - 0.16f, hl - 0.08f, base + 0.13f, top - 0.04f, hw);
+    wheels(mb, -hl + 0.12f, hl - 0.14f, hw, 0.045f);
+    if (express) wheels(mb, -0.04f, 0.04f, hw, 0.045f);
+}
+
+void railcar(MeshBuilder& mb, float length, bool powered, bool wooden) {
+    constexpr u32 kWood = rgba(122, 70, 44);
+    const float hl = length * 0.5f, hw = 0.1f, base = 0.06f, top = 0.27f;
+    const u32 body = wooden ? kWood : kLivery;
+    mb.box({-hl, base, -hw}, {hl, top, hw}, body);
+    mb.box({-hl + 0.01f, base, -hw - kInset}, {hl - 0.01f, base + 0.035f, hw + kInset}, wooden ? kLiveryDark : kLiveryDark);
+    windowBand(mb, -hl + 0.05f, hl - 0.05f, base + 0.09f, top - 0.04f, hw);
+    // Curved-ish roof.
+    mb.box({-hl + 0.005f, top, -hw + 0.015f}, {hl - 0.005f, top + 0.02f, hw - 0.015f}, kRoofGrey);
+    mb.box({-hl + 0.01f, top + 0.02f, -hw + 0.04f}, {hl - 0.01f, top + 0.03f, hw - 0.04f}, kRoofGrey);
+    if (powered) {
+        mb.quadFacing({hl + kInset, base + 0.09f, -hw + 0.015f}, {hl + kInset, base + 0.09f, hw - 0.015f},
+                      {hl + kInset, top - 0.03f, hw - 0.015f}, {hl + kInset, top - 0.03f, -hw + 0.015f}, kGlass, {1, 0, 0});
+        mb.box({hl - 0.004f, base + 0.04f, -hw + 0.02f}, {hl + 0.004f, base + 0.06f, -hw + 0.05f}, kLight);
+        mb.box({hl - 0.004f, base + 0.04f, hw - 0.05f}, {hl + 0.004f, base + 0.06f, hw - 0.02f}, kLight);
+    }
+    wheels(mb, -hl + 0.1f, hl - 0.1f, hw, 0.04f);
+}
+
+void railDepotBuilding(MeshBuilder& mb) {
+    constexpr u32 kBrick = rgba(150, 104, 84);
+    constexpr u32 kDoor = rgba(54, 56, 60);
+    const glm::vec3 mn(-0.44f, 0.0f, -0.44f), mx(0.44f, 0.5f, 0.44f);
+    mb.box(mn, mx, kBrick, 0x3F & ~0x08);
+    const glm::mat4 saved = mb.transform;
+    mb.transform = saved * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0, 1, 0));
+    mb.gableRoofX({-mx.z, 0, mn.x}, {-mn.z, 0, mx.x}, 0.5f, 0.18f, rgba(70, 76, 86), kBrick, 0.03f);
+    mb.transform = saved;
+    mb.quadFacing({-0.22f, 0.0f, mx.z + kInset}, {0.22f, 0.0f, mx.z + kInset}, {0.22f, 0.38f, mx.z + kInset},
+                  {-0.22f, 0.38f, mx.z + kInset}, kDoor, {0, 0, 1});
+    mb.box({-0.45f, 0.42f, mx.z - 0.01f}, {0.45f, 0.46f, mx.z + 0.012f}, kLivery);
+    mb.prism({0.3f, 0.5f, -0.25f}, 0.04f, 0.25f, 6, rgba(120, 90, 76), true); // chimney
+}
+
+void signalPost(MeshBuilder& mb) {
+    constexpr u32 kPost = rgba(60, 62, 66);
+    mb.box({-0.014f, 0.0f, -0.014f}, {0.014f, 0.34f, 0.014f}, kPost);
+    mb.box({-0.035f, 0.26f, -0.03f}, {0.035f, 0.4f, 0.03f}, rgba(30, 30, 32));
+    // Lamp facing +X (towards the approaching train): tintable red / green, with a white backplate.
+    mb.box({0.035f, 0.27f, -0.045f}, {0.04f, 0.39f, 0.045f}, rgba(230, 230, 226));
+    mb.box({0.04f, 0.31f, -0.024f}, {0.05f, 0.36f, 0.024f}, tintable(1.0f));
+}
+
+void platformCanopy(MeshBuilder& mb) {
+    // Two platform canopies along X, one on each side of the track.
+    constexpr u32 kPost = rgba(96, 100, 108);
+    constexpr u32 kRoof = rgba(150, 154, 160);
+    for (const float z : {-0.37f, 0.37f}) {
+        mb.box({-0.5f, 0.42f, z - 0.12f}, {0.5f, 0.44f, z + 0.12f}, kRoof);
+        mb.box({-0.02f, 0.12f, z - 0.015f}, {0.02f, 0.42f, z + 0.015f}, kPost);
+        mb.box({-0.08f, 0.12f, z - 0.02f}, {0.08f, 0.17f, z + 0.02f}, rgba(120, 90, 60)); // bench
+    }
+}
+
 void person(MeshBuilder& mb) {
     mb.box({-0.018f, 0.0f, -0.012f}, {0.018f, 0.07f, 0.012f}, tintable(1.0f));
     mb.box({-0.014f, 0.07f, -0.012f}, {0.014f, 0.098f, 0.012f}, rgba(226, 190, 160));
@@ -144,6 +238,15 @@ void buildTransportModels(MeshBuilder& out, ModelId id) {
     case models::tram(0): tramBody(out, 0.85f, 1); break;
     case models::tram(1): tramBody(out, 1.1f, 2); break;
     case models::tram(2): tramBody(out, 1.35f, 3); break;
+    case models::kRailDepot: railDepotBuilding(out); break;
+    case models::kSignal: signalPost(out); break;
+    case models::kPlatformCanopy: platformCanopy(out); break;
+    case models::train(0): steamEngine(out); break;
+    case models::train(1): dieselEngine(out, false); break;
+    case models::train(2): dieselEngine(out, true); break;
+    case models::train(3): railcar(out, 0.72f, true, false); break;
+    case models::train(8): railcar(out, 0.6f, false, true); break;
+    case models::train(9): railcar(out, 0.66f, false, false); break;
     default: break;
     }
 }

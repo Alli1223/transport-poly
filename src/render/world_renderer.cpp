@@ -4,6 +4,7 @@
 #include "core/log.hpp"
 #include "render/shaders.hpp"
 #include "render/vehicle_pose.hpp"
+#include "sim/rail.hpp"
 #include "sim/road.hpp"
 
 #include <glm/gtc/constants.hpp>
@@ -239,13 +240,22 @@ void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, Ch
                         items.emplace_back(models::kBusStop, makeInstance({lx + 0.5f, y, ly + 0.92f}, facingYaw(Dir::N), 1.0f, tint));
                         items.emplace_back(models::kBusStop, makeInstance({lx + 0.5f, y, ly + 0.08f}, facingYaw(Dir::S), 1.0f, tint));
                     }
+                } else if (t.type == TileType::Station && static_cast<StopKind>(t.extra) == StopKind::Rail) {
+                    const Station* st = world.stations.tryGet(StationId(t.index));
+                    const float y = static_cast<float>(map.corners(wp).min()) * kHeightStep;
+                    const float yaw = t.rail == kTrackNS ? glm::half_pi<float>() : 0.0f;
+                    items.emplace_back(models::kPlatformCanopy,
+                                       makeInstance({lx + 0.5f, y, ly + 0.5f}, yaw, 1.0f,
+                                                    companyTint(world, st ? st->owner : CompanyId{})));
                 } else if (t.type == TileType::Depot) {
                     const Depot* d = world.depots.tryGet(DepotId(t.index));
                     if (!d) continue;
                     const float y = static_cast<float>(map.corners(wp).min()) * kHeightStep;
-                    items.emplace_back(d->kind == DepotKind::Tram ? models::kTramDepot : models::kRoadDepot,
-                                       makeInstance({lx + 0.5f, y, ly + 0.5f}, facingYaw(d->facing), 1.0f,
-                                                    companyTint(world, d->owner)));
+                    const ModelId model = d->kind == DepotKind::Tram   ? models::kTramDepot
+                                          : d->kind == DepotKind::Rail ? models::kRailDepot
+                                                                       : models::kRoadDepot;
+                    items.emplace_back(model, makeInstance({lx + 0.5f, y, ly + 0.5f}, facingYaw(d->facing), 1.0f,
+                                                           companyTint(world, d->owner)));
                 }
             }
         }
@@ -287,17 +297,55 @@ void WorldRenderer::drawChunks(const DrawLists& lists, const glm::dvec3& origin,
 void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin, const glm::dvec3& focus,
                                     double radius, double tickFraction) {
     dynamic_.clear();
+    const auto poseMatrix = [&](const VehiclePose& pose) {
+        glm::mat4 m = glm::translate(glm::mat4(1.0f), glm::vec3(pose.pos - origin));
+        m = glm::rotate(m, pose.yaw, glm::vec3(0, 1, 0));
+        return glm::rotate(m, pose.pitch, glm::vec3(0, 0, 1));
+    };
+    std::vector<CarPose> cars;
     for (const auto [id, v] : world.vehicles) {
         if (v.state == VehicleState::InDepot) continue;
         const double dx = v.tile.x - focus.x, dz = v.tile.y - focus.z;
         if (dx * dx + dz * dz > radius * radius) continue;
+        if (v.info().type == VehicleType::Rail) {
+            cars.clear();
+            trainCarPoses(world, v, tickFraction, cars);
+            const u32 tint = companyTint(world, v.owner);
+            for (const CarPose& c : cars)
+                dynamic_.add(vehicleModelId(vehicleModel(c.model)), makeInstance(poseMatrix(c.pose), tint));
+            ++stats_.vehiclesDrawn;
+            continue;
+        }
         const auto pose = vehiclePose(world, v, tickFraction);
         if (!pose) continue;
-        glm::mat4 m = glm::translate(glm::mat4(1.0f), glm::vec3(pose->pos - origin));
-        m = glm::rotate(m, pose->yaw, glm::vec3(0, 1, 0));
-        m = glm::rotate(m, pose->pitch, glm::vec3(0, 0, 1));
-        dynamic_.add(vehicleModelId(v.info()), makeInstance(m, companyTint(world, v.owner)));
+        dynamic_.add(vehicleModelId(v.info()), makeInstance(poseMatrix(*pose), companyTint(world, v.owner)));
         ++stats_.vehiclesDrawn;
+    }
+
+    // Signals: red unless a train has reserved a path through them.
+    constexpr u32 kRed = rgba(235, 50, 36), kGreen = rgba(60, 230, 90);
+    for (const u64 key : world.signalTiles) {
+        const ChunkPos k = ChunkPos::fromKey(key);
+        const TilePos tp{k.x, k.y};
+        const double dx = tp.x + 0.5 - focus.x, dz = tp.y + 0.5 - focus.z;
+        if (dx * dx + dz * dz > radius * radius * 0.25) continue;
+        const Tile* t = world.map.tile(tp);
+        if (!t || t->type != TileType::Rail || !t->extra) continue;
+        const bool ns = t->rail == kTrackNS;
+        const u32 tint = (t->extra2 & t->rail) ? kGreen : kRed;
+        for (const u8 bit : {kSignalForward, kSignalBackward}) {
+            if (!(t->extra & bit)) continue;
+            // Direction of travel the signal applies to; it stands on the right of the track,
+            // facing the approaching train.
+            const glm::vec2 travel = ns ? glm::vec2(0.0f, bit == kSignalForward ? -1.0f : 1.0f)
+                                        : glm::vec2(bit == kSignalForward ? 1.0f : -1.0f, 0.0f);
+            const glm::vec2 right(-travel.y, travel.x);
+            const glm::vec2 at = glm::vec2(0.5f) + right * 0.24f;
+            const float y = roadSurfaceY(world, tp, at.x, at.y);
+            const float yaw = std::atan2(travel.y, -travel.x); // lamp (+X) faces against travel
+            dynamic_.add(models::kSignal,
+                         makeInstance(glm::vec3(tp.x + at.x - origin.x, y, tp.y + at.y - origin.z), yaw, 1.0f, tint));
+        }
     }
     dynamic_.upload();
 }

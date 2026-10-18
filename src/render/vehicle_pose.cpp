@@ -1,6 +1,7 @@
 #include "render/vehicle_pose.hpp"
 
 #include "render/terrain_mesher.hpp"
+#include "sim/rail.hpp"
 #include "sim/road.hpp"
 
 #include <glm/gtc/constants.hpp>
@@ -83,14 +84,87 @@ float roadSurfaceY(const World& w, TilePos tile, float u, float v) {
     if (!t) return tileSurfaceLevel(c, u, v) * kHeightStep;
     u8 pieces = allRoadPieces(*t);
     if (t->type == TileType::Depot) pieces = 0;
-    const Surface surf = t->type == TileType::Road || t->type == TileType::Station ? roadSurface(s, pieces)
-                                                                                   : buildingSurface(s);
+    Surface surf = t->type == TileType::Road || t->type == TileType::Station ? roadSurface(s, pieces)
+                                                                             : buildingSurface(s);
+    if (t->type == TileType::Rail) surf = railSurface(s, t->rail);
     if (surf == Surface::Ramp) return tileSurfaceLevel(c, u, v) * kHeightStep;
     return static_cast<float>(flatSurfaceLevel(s, surf == Surface::Invalid ? Surface::Foundation : surf)) *
            kHeightStep;
 }
 
+namespace {
+
+glm::vec2 edgeMid(Dir d) {
+    switch (d) {
+    case Dir::N: return {0.5f, 0.0f};
+    case Dir::E: return {1.0f, 0.5f};
+    case Dir::S: return {0.5f, 1.0f};
+    case Dir::W: return {0.0f, 0.5f};
+    }
+    return {0.5f, 0.5f};
+}
+
+i32 segLength(const TrackSeg& s) { return trackLength(trackBetween(s.entry, s.exit)); }
+
+// World position of the point `along` units from the entry of a track segment.
+glm::dvec3 pointOnSeg(const World& w, const TrackSeg& s, double along) {
+    const double len = segLength(s);
+    const float t = static_cast<float>(std::clamp(along / len, 0.0, 1.0));
+    const glm::vec2 p = glm::mix(edgeMid(s.entry), edgeMid(s.exit), t);
+    const float y = roadSurfaceY(w, s.tile, std::clamp(p.x, 0.0f, 1.0f), std::clamp(p.y, 0.0f, 1.0f));
+    return {s.tile.x + p.x, y + 0.03, s.tile.y + p.y};
+}
+
+// Point `back` units behind the (extrapolated) head; nullopt beyond the end of the trail.
+std::optional<glm::dvec3> trainPoint(const World& w, const Vehicle& v, double headProgress, double back) {
+    double s = headProgress - back;
+    if (s >= 0.0) {
+        const double l0 = segLength(v.trail.front());
+        if (s <= l0 || v.ahead.empty()) return pointOnSeg(w, v.trail.front(), std::min(s, l0));
+        return pointOnSeg(w, v.ahead.front(), s - l0);
+    }
+    double remaining = -s;
+    for (usize i = 1; i < v.trail.size(); ++i) {
+        const double l = segLength(v.trail[i]);
+        if (remaining <= l) return pointOnSeg(w, v.trail[i], l - remaining);
+        remaining -= l;
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
+void trainCarPoses(const World& w, const Vehicle& v, double tickFraction, std::vector<CarPose>& out) {
+    if (v.state == VehicleState::InDepot || v.trail.empty()) return;
+    double head = v.progress;
+    if (v.state == VehicleState::Driving && !v.stopped) head += v.speed * tickFraction;
+    double offset = 0.0;
+    const std::vector<u16> single{v.model};
+    const std::vector<u16>& cars = v.cars.empty() ? single : v.cars;
+    for (const u16 m : cars) {
+        const double len = vehicleModel(m).length * 16.0;
+        const double centre = offset + len * 0.5;
+        const auto front = trainPoint(w, v, head, centre - len * 0.4);
+        const auto rear = trainPoint(w, v, head, centre + len * 0.4);
+        offset += len + 4.0;
+        if (!front || !rear) continue;
+        const glm::dvec3 d = *front - *rear;
+        CarPose cp;
+        cp.model = m;
+        cp.pose.pos = (*front + *rear) * 0.5;
+        cp.pose.yaw = static_cast<float>(std::atan2(-d.z, d.x));
+        cp.pose.pitch = static_cast<float>(std::atan2(d.y, std::max(1e-6, std::sqrt(d.x * d.x + d.z * d.z))));
+        out.push_back(cp);
+    }
+}
+
 std::optional<VehiclePose> vehiclePose(const World& w, const Vehicle& v, double tickFraction) {
+    if (v.info().type == VehicleType::Rail) {
+        std::vector<CarPose> poses;
+        trainCarPoses(w, v, tickFraction, poses);
+        if (poses.empty()) return std::nullopt;
+        return poses.front().pose;
+    }
     if (v.state == VehicleState::InDepot) return std::nullopt;
     const i32 len = pathLength(v.entry, v.exit);
     double progress = v.progress;

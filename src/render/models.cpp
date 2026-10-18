@@ -70,13 +70,14 @@ void ModelLibrary::build() {
         buildDeciduous(mb, v);
         add(static_cast<ModelId>(models::kTreeDeciduous0 + v), mb);
     }
-    for (const ModelId id : {models::kBusStop, models::kRoadDepot, models::kTramDepot, models::kPerson}) {
+    for (const ModelId id : {models::kBusStop, models::kRoadDepot, models::kTramDepot, models::kPerson,
+                             models::kRailDepot, models::kSignal, models::kPlatformCanopy}) {
         MeshBuilder mb;
         buildTransportModels(mb, id);
         add(id, mb);
     }
     for (int v = 0; v < 8; ++v) {
-        for (const ModelId id : {models::bus(v), models::tram(v)}) {
+        for (const ModelId id : {models::bus(v), models::tram(v), models::train(v), models::train(v + 8)}) {
             MeshBuilder mb;
             buildTransportModels(mb, id);
             if (!mb.vertices.empty()) add(id, mb);

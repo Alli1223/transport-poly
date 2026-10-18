@@ -1,6 +1,7 @@
 #include "render/terrain_mesher.hpp"
 
 #include "core/hash.hpp"
+#include "sim/rail.hpp"
 #include "sim/road.hpp"
 #include "sim/station.hpp"
 #include "sim/world.hpp"
@@ -9,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 
 namespace tp::gfx {
 
@@ -44,6 +46,10 @@ constexpr u32 kUrbanBuilding = rgba(160, 152, 140);
 constexpr u32 kBallast = rgba(128, 118, 106);
 constexpr u32 kRail = rgba(88, 88, 94);
 constexpr u32 kStopMarking = rgba(232, 196, 64);
+constexpr u32 kSleeper = rgba(96, 74, 56);
+constexpr u32 kSteel = rgba(150, 152, 158);
+constexpr u32 kPlatform = rgba(186, 180, 168);
+constexpr u32 kPlatformEdge = rgba(226, 204, 92);
 
 u32 groundColor(const Tile& t) {
     switch (t.ground) {
@@ -148,6 +154,82 @@ void addRoad(MeshBuilder& mb, const TopSurface& s, float x0, float z0, u8 roadBi
     }
 }
 
+// Quad with arbitrary corners (tile local u/v) draped over the surface.
+void quadUV(MeshBuilder& mb, const TopSurface& s, float x0, float z0, glm::vec2 a, glm::vec2 b, glm::vec2 c,
+            glm::vec2 d, float lift, u32 color) {
+    const auto p = [&](glm::vec2 q) {
+        return glm::vec3(x0 + q.x, s.y(std::clamp(q.x, 0.0f, 1.0f), std::clamp(q.y, 0.0f, 1.0f)) + lift, z0 + q.y);
+    };
+    mb.triangleUp(p(a), p(b), p(c), color);
+    mb.triangleUp(p(a), p(c), p(d), color);
+}
+
+glm::vec2 edgeMidpoint(Dir d) {
+    switch (d) {
+    case Dir::N: return {0.5f, 0.0f};
+    case Dir::E: return {1.0f, 0.5f};
+    case Dir::S: return {0.5f, 1.0f};
+    case Dir::W: return {0.0f, 0.5f};
+    }
+    return {0.5f, 0.5f};
+}
+
+// Railway track pieces: ballast, sleepers and two rails per piece. Strips end flush with the tile
+// edges so that diagonal chains of corner pieces join up seamlessly.
+// With `half` set, only the half of each piece next to that edge is drawn (depot entrances).
+void addRail(MeshBuilder& mb, const TopSurface& s, float x0, float z0, u8 bits, std::optional<Dir> half = {}) {
+    constexpr float kBed = 0.2f, kGauge = 0.07f, kRailW = 0.012f;
+    for (u8 bit = 1; bit < 0x40; bit = static_cast<u8>(bit << 1)) {
+        if (!(bits & bit)) continue;
+        TrackEdges e = trackEdges(bit);
+        if (half && e.b == *half) std::swap(e.a, e.b);
+        const glm::vec2 a = edgeMidpoint(e.a);
+        glm::vec2 b = edgeMidpoint(e.b);
+        if (half) b = (a + b) * 0.5f;
+        const glm::vec2 dir = glm::normalize(b - a);
+        const glm::vec2 n(-dir.y, dir.x);
+        const float stretch = isStraightTrack(bit) ? 1.0f : 1.41421356f;
+        // Offset along an edge for a lateral distance `w` from the centre line.
+        const auto along = [&](Dir edge, float w) {
+            const glm::vec2 t = (edge == Dir::N || edge == Dir::S) ? glm::vec2(1, 0) : glm::vec2(0, 1);
+            return t * (glm::dot(n, t) >= 0.0f ? 1.0f : -1.0f) * w * stretch;
+        };
+        const auto strip = [&](float w0, float w1, float lift, u32 color) {
+            const Dir eb = half ? e.a : e.b;
+            quadUV(mb, s, x0, z0, a + along(e.a, w0), a + along(e.a, w1), b + along(eb, w1), b + along(eb, w0), lift,
+                   color);
+        };
+        strip(-kBed, kBed, 0.018f, kBallast);
+        {
+            const float len = glm::length(b - a);
+            const int count = (isStraightTrack(bit) ? 6 : 4) / (half ? 2 : 1);
+            for (int k = 0; k < count; ++k) {
+                const glm::vec2 c = a + dir * (len * (static_cast<float>(k) + 0.5f) / static_cast<float>(count));
+                const glm::vec2 h = n * 0.13f, t = dir * 0.022f;
+                quadUV(mb, s, x0, z0, c - h - t, c + h - t, c + h + t, c - h + t, 0.026f, kSleeper);
+            }
+        }
+        for (const float side : {-kGauge, kGauge}) strip(side - kRailW, side + kRailW, 0.036f, kSteel);
+    }
+}
+
+// Platform slabs either side of a rail station's track.
+void addPlatforms(MeshBuilder& mb, float x0, float z0, float y, u8 bit) {
+    constexpr float kH = 0.1f;
+    const bool ns = bit == kTrackNS;
+    for (const float side : {0.0f, 1.0f}) {
+        const float a0 = side == 0.0f ? 0.03f : 0.72f, a1 = side == 0.0f ? 0.28f : 0.97f;
+        const float e0 = side == 0.0f ? 0.25f : 0.72f, e1 = side == 0.0f ? 0.28f : 0.75f;
+        if (ns) {
+            mb.box({x0 + a0, y, z0}, {x0 + a1, y + kH, z0 + 1.0f}, kPlatform, 0x37);
+            mb.box({x0 + e0, y + kH, z0}, {x0 + e1, y + kH + 0.004f, z0 + 1.0f}, kPlatformEdge, 0x04);
+        } else {
+            mb.box({x0, y, z0 + a0}, {x0 + 1.0f, y + kH, z0 + a1}, kPlatform, 0x37);
+            mb.box({x0, y + kH, z0 + e0}, {x0 + 1.0f, y + kH + 0.004f, z0 + e1}, kPlatformEdge, 0x04);
+        }
+    }
+}
+
 // Raised flat foundation: top quad plus side walls down to the terrain.
 void addFoundation(MeshBuilder& mb, const TileCorners& c, float x0, float z0, float topY, u32 topColor) {
     const glm::vec3 nw(x0, c.h[0] * kHeightStep, z0), ne(x0 + 1, c.h[1] * kHeightStep, z0);
@@ -235,6 +317,8 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 base = kUrbanRoad;
             } else if (tile.type == TileType::Depot) {
                 base = lod == 0 ? kPlaza : kUrbanBuilding;
+            } else if (tile.type == TileType::Rail && lod > 0) {
+                base = kBallast;
             }
             cellColor[static_cast<usize>(j * cells + i)] = base;
 
@@ -245,11 +329,17 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 tile.type == TileType::Road ||
                 (tile.type == TileType::Station && (static_cast<StopKind>(tile.extra) == StopKind::Bus ||
                                                     static_cast<StopKind>(tile.extra) == StopKind::Tram));
-            if (lod == 0 && (roadLike || tile.type == TileType::Building || tile.type == TileType::Depot)) {
+            const bool railStation =
+                tile.type == TileType::Station && static_cast<StopKind>(tile.extra) == StopKind::Rail;
+            const bool rail = tile.type == TileType::Rail;
+            if (lod == 0 && (roadLike || rail || railStation || tile.type == TileType::Building ||
+                             tile.type == TileType::Depot)) {
                 structure = true;
                 top.corners = chunk.corners(lx, ly);
                 const Slope slope = computeSlope(top.corners);
-                top.surface = roadLike ? roadSurface(slope, allRoadPieces(tile)) : buildingSurface(slope);
+                top.surface = roadLike ? roadSurface(slope, allRoadPieces(tile))
+                              : rail   ? railSurface(slope, tile.rail)
+                                       : buildingSurface(slope);
                 if (top.surface == Surface::Invalid) top.surface = Surface::Foundation;
                 top.level = flatSurfaceLevel(slope, top.surface);
             }
@@ -272,8 +362,15 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
             }
             if (structure && roadLike)
                 addRoad(ground, top, x0, z0, roadPieces(tile), tramPieces(tile), tile.type == TileType::Station);
-            if (structure && tile.type == TileType::Depot)
+            if (structure && tile.type == TileType::Depot) {
                 quadOnSurface(ground, top, x0, z0, 0.04f, 0.04f, 0.96f, 0.96f, 0.012f, kPlaza);
+                if (tile.rail) addRail(ground, top, x0, z0, tile.rail, static_cast<Dir>(tile.extra));
+            }
+            if (structure && rail) addRail(ground, top, x0, z0, tile.rail);
+            if (structure && railStation) {
+                addRail(ground, top, x0, z0, tile.rail);
+                addPlatforms(ground, x0, z0, static_cast<float>(top.level) * kHeightStep, tile.rail);
+            }
 
             if (tile.type == TileType::Water) {
                 const u32 wc = rgba(255, 255, 255);

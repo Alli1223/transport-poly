@@ -92,9 +92,9 @@ relies on every peer computing exactly the same game state.
 - [x] 6.1 Roads: road bits per tile, build / remove along a drag line, slopes, costs, town roads
 - [x] 6.2 Road rendering (straight, curves, junctions, slopes, dead ends)
 - [x] 6.3 Rails: 6 track bits per tile (incl. diagonals), drag building, slopes
-- [ ] 6.4 Rail rendering (ballast, sleepers, rails; diagonals)
+- [x] 6.4 Rail rendering (ballast, sleepers, rails; diagonals)
 - [ ] 6.5 Level crossings (road + rail)
-- [~] 6.6 Signals: block, path and one-way path signals; signal rendering (two-way and one-way path signals; block signals behave as path signals)
+- [~] 6.6 Signals: block, path and one-way path signals; signal rendering (two-way and one-way path signals with red / green lamps; block signals behave as path signals)
 - [x] 6.7 Tram tracks (on roads and tram-only)
 - [ ] 6.8 Bridges and tunnels for road / rail
 - [ ] 6.9 Canals and water tiles editing
