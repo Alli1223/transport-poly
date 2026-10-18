@@ -19,6 +19,11 @@ struct ClientPreferences {
     int interestPercent = 4;
     bool inflation = false;
     bool recessions = true;
+    // New world terrain (see TerrainSettings): landmass index and amounts.
+    int landmass = 0;
+    int mountains = 2;
+    int lakes = 2;
+    int rivers = 2;
     void clamp();
     bool load(const std::filesystem::path& path);
     bool save(const std::filesystem::path& path) const;

@@ -2,8 +2,10 @@
 
 #include "core/rng.hpp"
 #include "core/serialize.hpp"
+#include "sim/chunk.hpp"
 #include "sim/map.hpp"
 #include "sim/terraform.hpp"
+#include "sim/world.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -261,4 +263,126 @@ TEST_CASE("terraform: the brush shapes land smoothly and leaves structures alone
     for (int i = 0; i < 6; ++i) applyBrush(map, planBrush(map, {10, 10}, 3, BrushMode::Level, 10 * kSubLevels, none));
     CHECK_EQ(map.cornerFine(10, 10), 10 * kSubLevels);
     CHECK_EQ(map.cornerFine(11, 10), 10 * kSubLevels);
+}
+
+namespace {
+
+TerrainSettings landOf(Landmass m, u8 mountains = 2, u8 lakes = 2, u8 rivers = 2) {
+    TerrainSettings t;
+    t.landmass = m;
+    t.mountains = mountains;
+    t.lakes = lakes;
+    t.rivers = rivers;
+    return t;
+}
+
+struct LandStats {
+    int waterPercent = 0;
+    int peak = 0;        // levels
+    int highPermille = 0; // of land above 40 levels
+};
+
+LandStats survey(const TerrainGenerator& gen, i32 radius = 1536, i32 step = 8) {
+    int water = 0, samples = 0, high = 0;
+    LandStats st;
+    for (i32 y = -radius; y < radius; y += step)
+        for (i32 x = -radius; x < radius; x += step) {
+            const i64 r = gen.rawHeight(x, y);
+            ++samples;
+            if (r < 0) {
+                ++water;
+                continue;
+            }
+            if (r > 40 * kHeightOne) ++high;
+            st.peak = std::max<int>(st.peak, static_cast<int>(r / kHeightOne));
+        }
+    st.waterPercent = water * 100 / samples;
+    st.highPermille = high * 1000 / std::max(1, samples - water);
+    return st;
+}
+
+} // namespace
+
+TEST_CASE("terrain: land types range from mainland to scattered islands") {
+    const auto water = [](Landmass m) { return survey(TerrainGenerator(4242, true, true, landOf(m))).waterPercent; };
+    const int mainland = water(Landmass::Mainland), continents = water(Landmass::Continents);
+    const int islands = water(Landmass::Islands), archipelago = water(Landmass::Archipelago);
+    CHECK(mainland < 20);
+    CHECK(mainland < continents);
+    CHECK(continents > 35);
+    CHECK(continents < islands);
+    CHECK(islands > 55);
+    CHECK(archipelago > 55);
+    // A single island: land at the start, open sea all around it far out.
+    const TerrainGenerator island(4242, true, true, landOf(Landmass::SingleIsland));
+    CHECK(island.rawHeight(0, 0) > 0);
+    for (const TilePos far : {TilePos{1200, 0}, TilePos{-1200, 0}, TilePos{0, 1200}, TilePos{900, -900}})
+        CHECK(island.rawHeight(far.x, far.y) < 0);
+}
+
+TEST_CASE("terrain: every land type starts on land") {
+    for (int m = 0; m < kLandmassCount; ++m)
+        for (u64 seed = 1; seed <= 16; ++seed) {
+            const TerrainGenerator gen(seed * 7919, true, true, landOf(static_cast<Landmass>(m)));
+            int land = 0, samples = 0;
+            for (i32 y = -200; y <= 200; y += 10)
+                for (i32 x = -200; x <= 200; x += 10) {
+                    ++samples;
+                    land += gen.rawHeight(x, y) >= 0;
+                }
+            CHECK(land * 100 / samples >= 10);
+        }
+}
+
+TEST_CASE("terrain: mountain settings range from rolling hills to alpine peaks") {
+    const LandStats none = survey(TerrainGenerator(99, true, true, landOf(Landmass::Mainland, 0)));
+    const LandStats normal = survey(TerrainGenerator(99, true, true, landOf(Landmass::Mainland, 2)));
+    const LandStats alpine = survey(TerrainGenerator(99, true, true, landOf(Landmass::Mainland, 4)));
+    CHECK(none.peak < 40);
+    CHECK_EQ(none.highPermille, 0);
+    CHECK(normal.peak > 50);
+    CHECK(alpine.peak > 80);
+    CHECK(alpine.highPermille > normal.highPermille);
+    CHECK(normal.highPermille > 0);
+}
+
+TEST_CASE("terrain: more lakes and rivers make more inland water") {
+    const LandStats dry = survey(TerrainGenerator(7, true, true, landOf(Landmass::Mainland, 2, 0, 0)));
+    const LandStats lakes = survey(TerrainGenerator(7, true, true, landOf(Landmass::Mainland, 2, 4, 0)));
+    const LandStats rivers = survey(TerrainGenerator(7, true, true, landOf(Landmass::Mainland, 2, 0, 3)));
+    CHECK(lakes.waterPercent > dry.waterPercent + 2);
+    CHECK(rivers.waterPercent > dry.waterPercent + 1);
+}
+
+TEST_CASE("terrain: shaped terrain is deterministic and seamless across chunks") {
+    const TerrainSettings ts = landOf(Landmass::Islands, 3, 3, 3);
+    const TerrainGenerator a(31337, true, true, ts), b(31337, true, true, ts);
+    Chunk left, right, below;
+    a.generateChunk({4, -2}, left);
+    b.generateChunk({5, -2}, right);
+    a.generateChunk({4, -1}, below);
+    for (i32 i = 0; i <= kChunkSize; ++i) {
+        CHECK_EQ(left.fine(kChunkSize, i), right.fine(0, i));
+        CHECK_EQ(left.fine(i, kChunkSize), below.fine(i, 0));
+    }
+    for (i32 y = -300; y < 300; y += 37)
+        for (i32 x = -300; x < 300; x += 41) CHECK_EQ(a.rawHeight(x, y), b.rawHeight(x, y));
+}
+
+TEST_CASE("terrain: worlds saved before terrain settings keep their land") {
+    WorldSettings s;
+    s.seed = 2024;
+    s.terrain = landOf(Landmass::Archipelago, 4, 1, 3);
+    World w(s);
+    // A save from before the settings existed reads as the original terrain.
+    World old;
+    fromBytes(toBytes(w, 18), old, 18);
+    CHECK(old.settings.terrain == TerrainSettings::original());
+    const TerrainGenerator original(2024, true, true, TerrainSettings::original());
+    for (i32 x = -500; x < 500; x += 97) CHECK_EQ(old.map.generator().rawHeight(x, 3 * x), original.rawHeight(x, 3 * x));
+    // A current save keeps the choices.
+    World copy;
+    fromBytes(toBytes(w, kSaveVersion), copy, kSaveVersion);
+    CHECK(copy.settings.terrain == s.terrain);
+    for (i32 x = -500; x < 500; x += 97) CHECK_EQ(copy.map.generator().rawHeight(x, -x), w.map.generator().rawHeight(x, -x));
 }

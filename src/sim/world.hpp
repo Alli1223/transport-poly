@@ -28,7 +28,7 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 18;
+inline constexpr u32 kSaveVersion = 19;
 inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
@@ -44,6 +44,7 @@ struct WorldSettings {
     bool inflation = false;
     bool recessions = true;
     bool smoothTerrain = true; // smooth hills with varied inclines (worlds before save version 12: stepped)
+    TerrainSettings terrain;   // land, mountains, lakes and rivers (worlds before save version 19: the original)
 
     template <class Ar>
     void serialize(Ar& ar) {
@@ -57,6 +58,8 @@ struct WorldSettings {
         else if constexpr (Ar::kReading) { inflation = false; recessions = false; }
         if (ar.version == 0 || ar.version >= 12) ar(smoothTerrain);
         else if constexpr (Ar::kReading) smoothTerrain = false;
+        if (ar.version == 0 || ar.version >= 19) ar(terrain);
+        else if constexpr (Ar::kReading) terrain = TerrainSettings::original();
     }
 };
 
@@ -130,7 +133,7 @@ public:
     template <class Ar>
     void serialize(Ar& ar) {
         ar(settings);
-        if constexpr (Ar::kReading) map = Map(settings.seed, settings.waterways, settings.smoothTerrain);
+        if constexpr (Ar::kReading) map = Map(settings.seed, settings.waterways, settings.smoothTerrain, settings.terrain);
         ar(clock, rng, map, companies, towns, buildings, people, stations, depots, vehicles, processedTownCells,
            nextSerial, news);
         if (ar.version == 0 || ar.version >= 10) ar(economy);

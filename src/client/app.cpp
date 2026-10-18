@@ -1,4 +1,5 @@
 #include "client/app.hpp"
+#include "client/terrain_options.hpp"
 #include "client/demo_station.hpp"
 #include "render/person_pose.hpp"
 #include "client/ui/widgets.hpp"
@@ -457,7 +458,8 @@ bool App::parseArgs(int argc, char** argv) {
     if (argc > 0 && argv[0]) exeDir_ = std::filesystem::path(argv[0]).parent_path().string();
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
-        if (arg != "--no-debug" && arg != "--screenshot" && arg != "--frames" && arg != "--time" && arg != "--open")
+        if (arg != "--no-debug" && arg != "--screenshot" && arg != "--frames" && arg != "--time" && arg != "--open" &&
+            arg != "--land" && arg != "--mountains" && arg != "--lakes" && arg != "--rivers")
             directStart_ = true;
         const auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : nullptr; };
         if (arg == "--screenshot") {
@@ -480,6 +482,16 @@ bool App::parseArgs(int argc, char** argv) {
             }
         } else if (arg == "--goto-town") {
             if (const char* v = next()) gotoTownDistance_ = std::max(6.0, std::atof(v));
+        } else if (arg == "--land") {
+            // New world terrain: --land continents|mainland|islands|archipelago|island,
+            // --mountains 0-4, --lakes 0-4, --rivers 0-3.
+            if (const char* v = next(); v && landmassByKey(v)) preferences_.landmass = static_cast<int>(*landmassByKey(v));
+        } else if (arg == "--mountains" || arg == "--lakes" || arg == "--rivers") {
+            if (const char* v = next()) {
+                int& amount = arg == "--mountains" ? preferences_.mountains : arg == "--lakes" ? preferences_.lakes : preferences_.rivers;
+                amount = std::atoi(v);
+                preferences_.clamp();
+            }
         } else if (arg == "--goto-water") {
             gotoWater_ = true;
         } else if (arg == "--goto-mountain") {
@@ -627,6 +639,7 @@ void App::newGame(u64 seed) {
     settings.inflation = preferences_.inflation;
     settings.recessions = preferences_.recessions;
     settings.aiCompetitors = preferences_.aiCompetitors;
+    settings.terrain = terrainSettings(preferences_);
     settings.seed = seed;
     startSession(std::make_unique<LocalSession>(settings));
     if (demoStation_) {

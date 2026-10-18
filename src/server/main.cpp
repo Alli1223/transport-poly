@@ -56,9 +56,22 @@ int main(int argc, char** argv) {
         else if (arg == "--ai") settings.aiCompetitors = std::clamp(std::atoi(next().c_str()), 0, 3);
         else if (arg == "--inflation") settings.inflation = true;
         else if (arg == "--no-recessions") settings.recessions = false;
+        else if (arg == "--land") {
+            static constexpr const char* kKeys[] = {"continents", "mainland", "islands", "archipelago", "island"};
+            const std::string v = next();
+            const auto it = std::find(std::begin(kKeys), std::end(kKeys), v);
+            if (it == std::end(kKeys)) {
+                std::cerr << "--land takes continents, mainland, islands, archipelago or island\n";
+                return EXIT_FAILURE;
+            }
+            settings.terrain.landmass = static_cast<Landmass>(it - std::begin(kKeys));
+        } else if (arg == "--mountains") settings.terrain.mountains = static_cast<u8>(std::clamp(std::atoi(next().c_str()), 0, kTerrainAmountMax));
+        else if (arg == "--lakes") settings.terrain.lakes = static_cast<u8>(std::clamp(std::atoi(next().c_str()), 0, kTerrainAmountMax));
+        else if (arg == "--rivers") settings.terrain.rivers = static_cast<u8>(std::clamp(std::atoi(next().c_str()), 0, kRiverAmountMax));
         else {
             std::cerr << "usage: transport-poly-server [--port N] [--seed N] [--load file] [--name text] "
-                         "[--autosave months] [--ai 0-3] [--inflation] [--no-recessions]\n";
+                         "[--autosave months] [--ai 0-3] [--inflation] [--no-recessions]\n"
+                         "       [--land continents|mainland|islands|archipelago|island] [--mountains 0-4] [--lakes 0-4] [--rivers 0-3]\n";
             return EXIT_FAILURE;
         }
     }

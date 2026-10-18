@@ -93,6 +93,15 @@ The land rolls in smooth hills and mountains. The landscaping toolbar's brush
 raises, lowers, levels and smooths it with a soft edge; pick the brush size in
 the tool's panel.
 
+A new game's **Terrain** section shows a picture of the land around the start
+and chooses what kind it is: **Continents**, **Mainland** (land almost
+everywhere), **Islands**, **Archipelago** (many small islands) or a **Single
+island** surrounded by ocean. It also sets how many mountains (none to alpine),
+lakes and rivers there are. A new company always starts on land. The dedicated
+server takes the same choices: `--land continents|mainland|islands|archipelago|island`,
+`--mountains 0-4`, `--lakes 0-4` and `--rivers 0-3`. Worlds saved before these
+options keep the land they were made with.
+
 Railways are free-form, in the style of Transport Fever. With the **Track** tool,
 click to start and click again to lay a curved piece; the next piece carries on
 from its end. Start on a track or station end to continue it (or to branch off

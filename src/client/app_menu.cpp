@@ -1,6 +1,7 @@
 // Main menu, in-game menu, connection screen, chat and autosave.
 
 #include "client/app.hpp"
+#include "client/terrain_options.hpp"
 #include "client/ui/widgets.hpp"
 
 #define GLFW_INCLUDE_NONE
@@ -16,6 +17,7 @@
 #include "render/picking.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cfloat>
 #include <chrono>
 #include <cmath>
@@ -83,6 +85,52 @@ bool menuItem(const char* id, ui::Icon icon, const char* title, const char* desc
     dl->AddText(hf, hf->FontSize, ImVec2(tx, mn.y + 10.0f * s), ui::col::kText, title);
     dl->AddText(sf, sf->FontSize, ImVec2(tx, mn.y + 14.0f * s + hf->FontSize), ui::col::kTextMuted, desc);
     return pressed;
+}
+
+// Terrain choices for a new world: a picture of the land around the start, the kind of land,
+// and how many mountains, lakes and rivers.
+void terrainOptions(ClientPreferences& prefs, gfx::TerrainPreview& preview, u64 seed, float s) {
+    ui::sectionHeader("Terrain");
+    preview.update(seed, terrainSettings(prefs));
+    if (preview.ready()) {
+        const float size = std::min(ImGui::GetContentRegionAvail().x, 190.0f * s);
+        const ImVec2 at(ImGui::GetCursorScreenPos().x + (ImGui::GetContentRegionAvail().x - size) * 0.5f, ImGui::GetCursorScreenPos().y);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddImageRounded(static_cast<ImTextureID>(preview.textureId()), at, ImVec2(at.x + size, at.y + size), ImVec2(0, 0),
+                            ImVec2(1, 1), IM_COL32_WHITE, 10.0f * s);
+        dl->AddCircle(ImVec2(at.x + size * 0.5f, at.y + size * 0.5f), 4.0f * s, ui::col::kAccent, 0, 2.0f * s);
+        const std::string water = std::format("{}% water", preview.waterPercent());
+        ImFont* sf = ui::fonts().small;
+        const ImVec2 ts = sf->CalcTextSizeA(sf->FontSize, FLT_MAX, 0.0f, water.c_str());
+        dl->AddRectFilled(ImVec2(at.x + 6.0f * s, at.y + size - ts.y - 10.0f * s), ImVec2(at.x + ts.x + 18.0f * s, at.y + size - 6.0f * s),
+                          ui::withAlpha(ui::col::kCard, 0.85f), 6.0f * s);
+        dl->AddText(sf, sf->FontSize, ImVec2(at.x + 12.0f * s, at.y + size - ts.y - 8.0f * s), ui::col::kText, water.c_str());
+        ImGui::Dummy(ImVec2(0, size + 6.0f * s));
+    }
+    ui::fieldLabel("Land");
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::BeginCombo("##landmass", landmassInfo(static_cast<Landmass>(prefs.landmass)).name)) {
+        for (int i = 0; i < kLandmassCount; ++i) {
+            const LandmassInfo& info = landmassInfo(static_cast<Landmass>(i));
+            if (ImGui::Selectable(info.name, prefs.landmass == i)) prefs.landmass = i;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", info.description);
+        }
+        ImGui::EndCombo();
+    }
+    {
+        ui::FontScope f(ui::fonts().small);
+        ui::mutedText(landmassInfo(static_cast<Landmass>(prefs.landmass)).description);
+    }
+    const auto amounts = [&](const char* label, const char* id, int& value, int count, const char* (*name)(int)) {
+        ui::fieldLabel(label);
+        std::array<ui::Segment, kTerrainAmountMax + 1> items{};
+        for (int i = 0; i < count; ++i) items[static_cast<usize>(i)].label = name(i);
+        if (const int clicked = ui::segmented(id, std::span(items.data(), static_cast<usize>(count)), value); clicked >= 0)
+            value = clicked;
+    };
+    amounts("Mountains", "##mountains", prefs.mountains, kTerrainAmountMax + 1, mountainAmountName);
+    amounts("Lakes", "##lakes", prefs.lakes, kTerrainAmountMax + 1, lakeAmountName);
+    amounts("Rivers", "##rivers", prefs.rivers, kRiverAmountMax + 1, riverAmountName);
 }
 
 std::unique_ptr<World> newWorld(u64 seed) {
@@ -308,10 +356,12 @@ void App::drawMainMenu() {
             field("Company name", "##company", companyName_, sizeof(companyName_), "Leave empty for a generated name");
             ImGui::SliderInt("Starting year", &preferences_.startYear, 1900, 2100);
             ImGui::SliderInt("Loan interest", &preferences_.interestPercent, 0, 20, "%d%%");
+            terrainOptions(preferences_, terrainPreview_, std::strtoull(seedBuf_, nullptr, 10), s);
             ImGui::Dummy(ImVec2(0, 6.0f * s));
             if (ui::button("Start", ui::Icon::Play, ui::Btn::Primary, ImVec2(-1.0f, 40.0f))) {
                 WorldSettings ws;
                 ws.seed = std::strtoull(seedBuf_, nullptr, 10);
+                ws.terrain = terrainSettings(preferences_);
                 ws.startYear = preferences_.startYear;
                 ws.interestPercent = preferences_.interestPercent;
                 ws.inflation = preferences_.inflation;
@@ -352,10 +402,12 @@ void App::drawMainMenu() {
             field("World seed", "##seed", seedBuf_, sizeof(seedBuf_));
             field("Company name", "##company", companyName_, sizeof(companyName_), "Leave empty for a generated name");
             portField(port_);
+            terrainOptions(preferences_, terrainPreview_, std::strtoull(seedBuf_, nullptr, 10), s);
             ImGui::Dummy(ImVec2(0, 6.0f * s));
             if (ui::button("Host new world", ui::Icon::Server, ui::Btn::Primary, ImVec2(-1.0f, 40.0f))) {
                 WorldSettings ws;
                 ws.seed = std::strtoull(seedBuf_, nullptr, 10);
+                ws.terrain = terrainSettings(preferences_);
                 ws.startYear = preferences_.startYear;
                 ws.interestPercent = preferences_.interestPercent;
                 ws.inflation = preferences_.inflation;

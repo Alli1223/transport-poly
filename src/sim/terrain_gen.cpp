@@ -1,6 +1,7 @@
 #include "sim/terrain_gen.hpp"
 
 #include "core/hash.hpp"
+#include "core/math.hpp"
 #include "sim/chunk.hpp"
 
 #include <algorithm>
@@ -34,6 +35,29 @@ i64 valueNoise(u64 seed, u32 salt, i32 x, i32 y, int shift) {
     return a + (((b - a) * sy) >> 16);
 }
 
+// Value noise at a fixed point position (1/65536 tiles), lattice spacing 2^shift tiles, so that
+// warped coordinates vary smoothly.
+i64 valueNoiseAt(u64 seed, u32 salt, i64 x, i64 y, int shift) {
+    const int bits = 16 + shift;
+    const i64 ix = x >> bits, iy = y >> bits;
+    const i64 fx = (x - (ix << bits)) >> shift;
+    const i64 fy = (y - (iy << bits)) >> shift;
+    const auto lattice = [&](i64 a, i64 b) -> i64 {
+        return static_cast<i64>(hashCoords(seed, static_cast<i32>(a), static_cast<i32>(b), salt) >> 16);
+    };
+    const i64 v00 = lattice(ix, iy), v10 = lattice(ix + 1, iy);
+    const i64 v01 = lattice(ix, iy + 1), v11 = lattice(ix + 1, iy + 1);
+    const i64 sx = fade(fx), sy = fade(fy);
+    const i64 a = v00 + (((v10 - v00) * sx) >> 16);
+    const i64 b = v01 + (((v11 - v01) * sx) >> 16);
+    return a + (((b - a) * sy) >> 16);
+}
+
+// 1 at a noise value of one half, falling to 0 at 0 and 1: ridges along the noise's mid line.
+constexpr i64 ridge(i64 n) { return kOne - (2 * n - kOne < 0 ? kOne - 2 * n : 2 * n - kOne); }
+
+constexpr i64 mul(i64 a, i64 b) { return (a * b) >> 16; }
+
 // Noise salts (independent streams).
 enum Salt : u32 {
     kContinentLow = 1,
@@ -49,7 +73,33 @@ enum Salt : u32 {
     kTreeJitter,
     kRiverBend,
     kLakeSite,
+    kWarpX = 40,
+    kWarpY,
+    kLand,
+    kRiverField = 50,
+    kLakeField = 60,
 };
+
+// Per landmass: lattice spacing of the land noise (2^shift tiles), the share of the noise range
+// that is sea, how fast the ground rises from the shore and how far inland hills and
+// mountains reach full size.
+struct LandShape {
+    int shift;
+    i64 sea;     // land where the land noise exceeds this (of kOne)
+    i64 rise;    // levels per kOne of land noise above the shore
+    i64 inland;  // land noise above the shore at which hills and mountains are full size
+};
+
+constexpr LandShape landShape(Landmass m) {
+    switch (m) {
+    case Landmass::Mainland: return {10, kOne * 30 / 100, 46, kOne * 12 / 100};
+    case Landmass::Islands: return {8, kOne * 56 / 100, 70, kOne * 8 / 100};
+    case Landmass::Archipelago: return {7, kOne * 58 / 100, 90, kOne * 5 / 100};
+    case Landmass::SingleIsland: return {8, kOne * 50 / 100, 50, kOne * 10 / 100};
+    case Landmass::Continents: break;
+    }
+    return {10, kOne * 48 / 100, 46, kOne * 12 / 100};
+}
 
 // Piecewise linear flattening of the continent term with slopes <= 1: coastal plains.
 constexpr i64 flatten(i64 h) {
@@ -69,7 +119,125 @@ constexpr i64 flatten(i64 h) {
 
 } // namespace
 
-i64 TerrainGenerator::rawHeight(i32 x, i32 y) const { return smooth_ ? smoothHeight(x, y) : legacyHeight(x, y); }
+TerrainGenerator::TerrainGenerator(u64 seed, bool waterways, bool smooth, TerrainSettings terrain)
+    : seed_(seed), waterways_(waterways), smooth_(smooth), terrain_(terrain) {
+    // A new company never begins in open sea: wherever the land noise is low at the start, the
+    // land around it is raised just enough to stand clear of the water there.
+    if (smooth_ && terrain_.style != 0 && terrain_.landmass != Landmass::SingleIsland) {
+        static constexpr i64 kMargin[kLandmassCount] = {kOne * 14 / 100, kOne * 12 / 100, kOne * 10 / 100, kOne * 7 / 100, 0};
+        const i64 wx = (valueNoiseAt(seed_, kWarpX, 0, 0, 9) - kOne / 2) * 128 + (valueNoiseAt(seed_, kWarpX + 1, 0, 0, 6) - kOne / 2) * 32;
+        const i64 wy = (valueNoiseAt(seed_, kWarpY, 0, 0, 9) - kOne / 2) * 128 + (valueNoiseAt(seed_, kWarpY + 1, 0, 0, 6) - kOne / 2) * 32;
+        const int m = static_cast<int>(terrain_.landmass);
+        startLift_ = std::max<i64>(0, landShape(terrain_.landmass).sea + kMargin[m] - landNoise(wx, wy));
+    }
+}
+
+i64 TerrainGenerator::landNoise(i64 qx, i64 qy) const {
+    const int shift = landShape(terrain_.landmass).shift;
+    return (55 * valueNoiseAt(seed_, kLand, qx, qy, shift) + 25 * valueNoiseAt(seed_, kLand + 1, qx, qy, shift - 1) +
+            12 * valueNoiseAt(seed_, kLand + 2, qx, qy, shift - 2) + 8 * valueNoiseAt(seed_, kLand + 3, qx, qy, shift - 3)) /
+           100;
+}
+
+i64 TerrainGenerator::rawHeight(i32 x, i32 y) const {
+    if (!smooth_) return legacyHeight(x, y);
+    return terrain_.style == 0 ? smoothHeight(x, y) : shapedHeight(x, y);
+}
+
+// The current terrain. Land and sea come from warped multi-octave noise, so coastlines fold
+// into bays, headlands and islands; the ground rises from beaches through lowlands to hills,
+// and ridged mountain ranges (as many as the settings ask for) stand inland. Rivers wind
+// through the lowlands and lakes fill low basins, both at sea level.
+i64 TerrainGenerator::shapedHeight(i32 x, i32 y) const {
+    const TerrainSettings& t = terrain_;
+    const LandShape shape = landShape(t.landmass);
+    const i64 px = static_cast<i64>(x) << 16, py = static_cast<i64>(y) << 16;
+    // Domain warp, two octaves: up to +-64 tiles across, +-16 tiles of finer folding.
+    const i64 wx = (valueNoiseAt(seed_, kWarpX, px, py, 9) - kOne / 2) * 128 + (valueNoiseAt(seed_, kWarpX + 1, px, py, 6) - kOne / 2) * 32;
+    const i64 wy = (valueNoiseAt(seed_, kWarpY, px, py, 9) - kOne / 2) * 128 + (valueNoiseAt(seed_, kWarpY + 1, px, py, 6) - kOne / 2) * 32;
+    const i64 qx = px + wx, qy = py + wy;
+
+    // Land noise: four octaves, the coarsest at the landmass's scale.
+    i64 land = landNoise(qx, qy);
+    const i64 dx = qx >> 16, dy = qy >> 16;
+    const i64 d = static_cast<i64>(isqrt(static_cast<u64>(dx * dx + dy * dy)));
+    if (t.landmass == Landmass::SingleIsland) {
+        // One island around the origin: the land noise leans on a falloff from the centre.
+        constexpr i64 kRadius = 760; // the coast lies about half this far out
+        land = land * 45 / 100 + (kOne - d * kOne / kRadius) * 55 / 100;
+    } else if (startLift_ > 0) {
+        constexpr i64 kReach = 600;
+        if (d < kReach) land += startLift_ * fade((kReach - d) * kOne / kReach) / kOne;
+    }
+    const i64 above = land - shape.sea; // of kOne: negative at sea
+
+    i64 height;
+    if (above < 0) {
+        // Sea floor: shelving away from the shore.
+        height = std::max<i64>(above * 60, -24 * kOne);
+    } else {
+        // Beach, lowland, upland: the ground rises gently near the shore, then faster.
+        const i64 beach = kOne * 3 / 100;
+        height = above < beach ? above * shape.rise / 3 : beach * shape.rise / 3 + (above - beach) * shape.rise;
+        const i64 inland = std::clamp<i64>(above * kOne / shape.inland, 0, kOne);
+        const i64 inlandSq = mul(inland, inland);
+
+        const i64 hillMask = valueNoiseAt(seed_, kHillMask, px, py, 9);
+        const i64 hills = mul(16 * valueNoiseAt(seed_, kHills, qx, qy, 7) + 5 * valueNoiseAt(seed_, kHills + 100, qx, qy, 5), hillMask);
+        height += mul(hills, inland);
+
+        if (t.mountains > 0) {
+            // Ranges where the mountain mask is high; more mountains lower the bar and raise peaks.
+            static constexpr i64 kBar[5] = {kOne, kOne * 58 / 100, kOne * 49 / 100, kOne * 41 / 100, kOne * 33 / 100};
+            static constexpr i64 kPeak[5] = {0, 44, 56, 66, 84};
+            const i64 mask = (2 * valueNoiseAt(seed_, kMountainMask, qx, qy, 10) + valueNoiseAt(seed_, kMountainMask + 1, qx, qy, 8)) / 3;
+            const u8 m = std::min<u8>(t.mountains, kTerrainAmountMax);
+            const i64 mm = std::clamp<i64>((mask - kBar[m]) * 4, 0, kOne);
+            if (mm > 0) {
+                // Ridged multifractal: each finer octave is weighted by the ridge above it, so
+                // crests carry sharp detail while valleys stay broad.
+                const i64 r1 = mul(ridge(valueNoiseAt(seed_, kRidges, qx, qy, 8)), ridge(valueNoiseAt(seed_, kRidges, qx, qy, 8)));
+                const i64 w1 = std::min<i64>(2 * r1, kOne);
+                const i64 n2 = ridge(valueNoiseAt(seed_, kRidges + 100, qx, qy, 6));
+                const i64 r2 = mul(mul(n2, n2), w1);
+                const i64 w2 = std::min<i64>(2 * r2, kOne);
+                const i64 n3 = ridge(valueNoiseAt(seed_, kRidges + 200, qx, qy, 4));
+                const i64 r3 = mul(mul(n3, n3), w2);
+                const i64 ridges = (4 * r1 + 2 * r2 + r3) / 7;
+                height += mul(mul(ridges * kPeak[m], mul(mm, mm)), inlandSq);
+            }
+        }
+
+        const i64 detail = mul(3 * valueNoiseAt(seed_, kDetail, px, py, 3) + 2 * valueNoiseAt(seed_, kDetail + 100, px, py, 5), hillMask) / 2;
+        height += mul(detail, std::clamp<i64>(above * 50, 0, kOne));
+    }
+    if (!waterways_) return height;
+
+    // Rivers: thin bands along the mid line of slowly varying noise, winding across the land.
+    // Their beds rise with the height of the land around, so in hills and mountains they become
+    // dry valleys and the water stays in the lowlands.
+    if (t.rivers > 0) {
+        const i64 lift = std::max<i64>(0, height - 16 * kOne) / 2;
+        static constexpr int kShift[4] = {0, 10, 9, 9};
+        static constexpr i64 kWidth[4] = {0, kOne * 9 / 1000, kOne * 10 / 1000, kOne * 11 / 1000};
+        const int fields = t.rivers >= 3 ? 2 : 1;
+        for (int f = 0; f < fields; ++f) {
+            const i64 n = valueNoiseAt(seed_, kRiverField + f, qx, qy, kShift[std::min<u8>(t.rivers, kRiverAmountMax)]);
+            const i64 across = n - kOne / 2 < 0 ? kOne / 2 - n : n - kOne / 2;
+            const i64 bed = (across - kWidth[std::min<u8>(t.rivers, kRiverAmountMax)]) * 220 + lift;
+            height = std::min(height, std::max<i64>(bed, -3 * kOne));
+        }
+    }
+    // Lakes: basins where the lake noise peaks, filled to sea level where the land is low.
+    if (t.lakes > 0) {
+        const i64 lift = std::max<i64>(0, height - 12 * kOne) * 3 / 4;
+        static constexpr i64 kBar[5] = {kOne, kOne * 76 / 100, kOne * 70 / 100, kOne * 64 / 100, kOne * 58 / 100};
+        const i64 n = (2 * valueNoiseAt(seed_, kLakeField, qx, qy, 7) + valueNoiseAt(seed_, kLakeField + 1, qx, qy, 5)) / 3;
+        const i64 bed = (kBar[std::min<u8>(t.lakes, kTerrainAmountMax)] - n) * 110 + lift;
+        height = std::min(height, std::max<i64>(bed, -4 * kOne));
+    }
+    return height;
+}
 
 // Smooth terrain: broad lowlands, rolling hills and steep ridged mountains whose inclines vary
 // continuously. Slopes reach a little over two levels per tile on the steepest mountainsides.

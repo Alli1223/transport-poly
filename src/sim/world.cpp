@@ -10,7 +10,7 @@
 
 namespace tp {
 
-World::World(const WorldSettings& s) : settings(s), rng(s.seed, 0x5EED), map(s.seed, s.waterways, s.smoothTerrain) {
+World::World(const WorldSettings& s) : settings(s), rng(s.seed, 0x5EED), map(s.seed, s.waterways, s.smoothTerrain, s.terrain) {
     clock.startDay = daysFromCivil(s.startYear, 1, 1);
     // Start on the first Monday of the year so the week structure is easy to follow.
     while (weekdayFromDays(clock.startDay) != Weekday::Monday) ++clock.startDay;

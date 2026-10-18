@@ -7,6 +7,7 @@
 #include "sim/savegame.hpp"
 #include "render/picking.hpp"
 #include "render/minimap.hpp"
+#include "render/terrain_preview.hpp"
 #include "render/world_renderer.hpp"
 
 #include <deque>
@@ -207,6 +208,7 @@ private:
     double newsBannerUntil_ = 0.0;
 
     gfx::Minimap minimap_;
+    gfx::TerrainPreview terrainPreview_; // the new game screen's picture of the land
     double minimapUpdated_ = -1.0;
     glm::dvec2 minimapCentre_{0.0};
     i32 minimapScale_ = 2;
