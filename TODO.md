@@ -83,9 +83,9 @@ relies on every peer computing exactly the same game state.
 - [x] 5.8 Weekly schedule: 5 work days, 2 shopping days; departure times; dwell times
 - [x] 5.9 Trip planner: walk / public transport / private car (abstract) mode choice
 - [x] 5.10 Event driven people simulation (priority queue by tick) for scalability
-- [~] 5.11 Town growth (roads + buildings) driven by population, jobs and transport service (daily growth by class and demand; service bonus with stations)
-- [ ] 5.12 New towns spawn over time in explored land
-- [ ] 5.13 Town ratings per company & local authority restrictions
+- [x] 5.11 Town growth (roads + buildings) driven by population, jobs and transport service (growth rate scales with transit share and served stations)
+- [x] 5.12 New towns spawn over time in explored land (villages, preferably around remote stations)
+- [x] 5.13 Town ratings per company & local authority restrictions
 - [~] 5.14 Town statistics (population, passengers last month, served %) (monthly trip stats per mode)
 
 ## M6 — Infrastructure

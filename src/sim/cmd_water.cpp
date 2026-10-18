@@ -12,7 +12,7 @@ namespace tp::cmd {
 namespace {
 
 // Common checks for a coastal site; returns an error message or an empty string.
-std::string whyNotCoastal(const World& w, TilePos t, Dir facing) {
+std::string whyNotCoastal(const World& w, CompanyId company, TilePos t, Dir facing) {
     const Tile* tile = w.map.tile(t);
     if (!tile) return "Area not explored";
     switch (tile->type) {
@@ -23,6 +23,7 @@ std::string whyNotCoastal(const World& w, TilePos t, Dir facing) {
     }
     if (w.map.slope(t).isSteep()) return "Land sloped in the wrong direction";
     if (!w.map.tile(neighbour(t, facing))) return "Area not explored";
+    if (std::string why = towns::authorityRefusal(w, company, t, kRatingRefuseBuild); !why.empty()) return why;
     if (!isWaterTile(w, neighbour(t, facing))) return "Must face the water";
     return {};
 }
@@ -31,7 +32,8 @@ std::string whyNotCoastal(const World& w, TilePos t, Dir facing) {
 
 CommandResult handle(World& w, const Command& c, const CmdBuildDock& x, bool exec) {
     if (!w.companies.contains(c.company)) return CommandResult::failure("Only companies can build docks");
-    if (const std::string why = whyNotCoastal(w, x.tile, x.facing); !why.empty()) return CommandResult::failure(why);
+    if (const std::string why = whyNotCoastal(w, c.company, x.tile, x.facing); !why.empty())
+        return CommandResult::failure(why);
     const Money cost = prices::kDock + w.map.tile(x.tile)->trees * prices::kRemoveTree;
     if (exec) {
         StationId sid = stations::findJoinable(w, c.company, x.tile);
@@ -58,7 +60,8 @@ CommandResult handle(World& w, const Command& c, const CmdBuildDock& x, bool exe
 
 CommandResult handle(World& w, const Command& c, const CmdBuildShipDepot& x, bool exec) {
     if (!w.companies.contains(c.company)) return CommandResult::failure("Only companies can build shipyards");
-    if (const std::string why = whyNotCoastal(w, x.tile, x.facing); !why.empty()) return CommandResult::failure(why);
+    if (const std::string why = whyNotCoastal(w, c.company, x.tile, x.facing); !why.empty())
+        return CommandResult::failure(why);
     const Money cost = prices::kShipDepot + w.map.tile(x.tile)->trees * prices::kRemoveTree;
     if (!exec) return CommandResult::success(cost, Expense::Construction);
     const DepotId id = w.depots.create();

@@ -145,6 +145,9 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRailStation& x, b
         if (t == x.to) break;
     }
     if (tiles.size() > 16) return CommandResult::failure("Platform too long (max 16 tiles)");
+    for (const TilePos p : tiles)
+        if (const std::string why = towns::authorityRefusal(w, c.company, p, kRatingRefuseBuild); !why.empty())
+            return CommandResult::failure(why);
     int level = -1;
     Money cost = 0;
     for (const TilePos p : tiles) {
@@ -195,6 +198,8 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRailDepot& x, boo
     if (t->type != TileType::Clear) return CommandResult::failure("Site must be clear");
     const Slope s = w.map.slope(x.tile);
     if (!s.isFlat()) return CommandResult::failure("Land must be flat");
+    if (const std::string why = towns::authorityRefusal(w, c.company, x.tile, kRatingRefuseBuild); !why.empty())
+        return CommandResult::failure(why);
     const TilePos front = neighbour(x.tile, x.facing);
     const Tile* ft = w.map.tile(front);
     if (!ft) return CommandResult::failure("Area not explored");

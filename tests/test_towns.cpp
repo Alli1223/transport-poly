@@ -1,6 +1,8 @@
 #include "test.hpp"
 
+#include "core/math.hpp"
 #include "core/serialize.hpp"
+#include "sim/commands.hpp"
 #include "sim/road.hpp"
 #include "sim/world.hpp"
 
@@ -120,4 +122,57 @@ TEST_CASE("towns: towns grow over time") {
     usize before = w.buildings.size();
     for (i64 t = 0; t < 40 * kTicksPerDay; ++t) w.tick();
     CHECK(w.buildings.size() > before);
+}
+
+TEST_CASE("towns: local authorities refuse companies that demolish too much") {
+    World w = makeWorld(20261017);
+    explore(w, 6);
+    Command create;
+    create.payload = CmdCreateCompany{"Wrecking Co", 0xFF};
+    const CompanyId co(static_cast<u8>(executeCommand(w, create).createdId));
+    REQUIRE(w.companies.contains(co));
+    w.companies[co].money = 100'000'000;
+    TownId tid;
+    for (const auto [id, t] : w.towns)
+        if (t.buildings.size() >= 12) tid = id;
+    REQUIRE(tid.valid());
+    CHECK_EQ(towns::rating(w.towns[tid], co), kRatingInitial);
+
+    const std::vector<BuildingId> buildings = w.towns[tid].buildings;
+    int demolished = 0;
+    std::string refusal;
+    for (const BuildingId b : buildings) {
+        if (!w.buildings.contains(b)) continue;
+        const TilePos p = w.buildings[b].pos;
+        Command c;
+        c.company = co;
+        c.payload = CmdClearArea{p, p};
+        const CommandResult r = executeCommand(w, c);
+        if (!r.ok) {
+            refusal = r.error;
+            break;
+        }
+        ++demolished;
+    }
+    // 200 -> 150 -> 100 -> 50 -> 0 -> -50: five demolitions, then the authority says no.
+    CHECK_EQ(demolished, 5);
+    CHECK(refusal.find("local authority") != std::string::npos);
+    CHECK(towns::rating(w.towns[tid], co) < 0);
+    CHECK_EQ(std::string(ratingName(towns::rating(w.towns[tid], co))), std::string("Poor"));
+
+    // Without any presence in town the rating slowly recovers.
+    for (int m = 0; m < 3; ++m) towns::monthly(w);
+    CHECK(towns::rating(w.towns[tid], co) > -50);
+}
+
+TEST_CASE("towns: new villages spawn in open explored land") {
+    World w = makeWorld(424242);
+    explore(w, 6);
+    const usize before = w.towns.size();
+    for (int month = 0; month < 48; ++month) towns::spawnNewTowns(w);
+    CHECK(w.towns.size() > before);
+    for (const auto [a, ta] : w.towns)
+        for (const auto [b, tb] : w.towns)
+            if (a.value < b.value && (ta.cellKey == 0 || tb.cellKey == 0))
+                CHECK(chebyshev(ta.centre.x - tb.centre.x, ta.centre.y - tb.centre.y) >= 40);
 }

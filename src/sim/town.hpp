@@ -8,6 +8,7 @@
 #include "sim/ids.hpp"
 
 #include <array>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -21,6 +22,16 @@ class World;
 inline constexpr i32 kTownCellSize = 96;
 // Tiles around a site centre that must be explored before the town is founded.
 inline constexpr i32 kTownFootprint = 32;
+
+// Local authority ratings of companies, from -1000 (appalling) to 1000 (outstanding).
+inline constexpr i32 kRatingInitial = 200;
+inline constexpr i32 kRatingMin = -1000;
+inline constexpr i32 kRatingMax = 1000;
+inline constexpr i32 kRatingRefuseBuild = -200;   // below this, no new stations or depots in town
+inline constexpr i32 kRatingRefuseDemolish = 0;   // below this, no demolishing town buildings
+inline constexpr i32 kRatingDemolishBuilding = -50;
+inline constexpr i32 kRatingRemoveTrees = -4;     // per tile, never pushing the rating below -200
+std::string_view ratingName(i32 rating);
 
 struct TownSite {
     TilePos centre;
@@ -74,11 +85,15 @@ struct Town {
     TripStats thisMonth;
     TripStats lastMonth;
 
+    std::map<u8, i16> ratings; // by company id; companies without an entry are rated kRatingInitial
+    i32 servedStations = 0;    // stations in town visited last month (drives growth)
+
     template <class Ar>
     void serialize(Ar& ar) {
         ar(name, centre, cellKey, cls, grid, gridSpacing, rng, foundedTick, population, jobs, workers,
            retailCapacity, radius, growthPoints, buildings, jobSites, retail, roads, unemployed, shopTown, jobCursor,
            thisMonth, lastMonth);
+        if (ar.version == 0 || ar.version >= 3) ar(ratings, servedStations);
     }
 };
 
@@ -100,6 +115,17 @@ void removeBuilding(World& w, BuildingId id);
 
 // True if a building of the given size could be placed with its NW corner at `pos`.
 bool canPlaceBuilding(const World& w, TilePos pos, u8 size);
+
+// The town whose built-up area (plus a margin) contains the tile, if any.
+TownId townAt(const World& w, TilePos t);
+i32 rating(const Town& t, CompanyId company);
+void changeRating(World& w, TownId town, CompanyId company, i32 delta, i32 floor = kRatingMin);
+// The local authority's refusal when `company` acts at `t` with a rating below `minRating`;
+// empty when allowed.
+std::string authorityRefusal(const World& w, CompanyId company, TilePos t, i32 minRating);
+// Monthly: occasionally founds a new village somewhere in the explored world, preferably around a
+// station out in the countryside.
+void spawnNewTowns(World& w);
 
 } // namespace towns
 

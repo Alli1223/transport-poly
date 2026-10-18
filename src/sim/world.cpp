@@ -30,6 +30,7 @@ void World::onNewDay() {
 
 void World::onNewMonth() {
     towns::monthly(*this);
+    towns::spawnNewTowns(*this);
     stations::monthly(*this);
     people::jobMarket(*this);
     for (auto [id, c] : companies) {

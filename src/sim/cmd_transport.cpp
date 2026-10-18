@@ -58,6 +58,8 @@ CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, co
         if (tile->ground == Ground::Rock) cost += prices::kClearRock;
         if (cost == 0) return CommandResult::failure("Nothing to clear");
         if (exec) {
+            if (tile->trees > 0)
+                towns::changeRating(w, towns::townAt(w, t), company, kRatingRemoveTrees, kRatingRefuseBuild);
             tile->trees = 0;
             if (tile->ground == Ground::Rough || tile->ground == Ground::Rock) tile->ground = Ground::Grass;
             w.map.touch(t);
@@ -138,8 +140,15 @@ CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, co
         const BuildingId bid(tile->index);
         const Building* b = w.buildings.tryGet(bid);
         if (!b) return CommandResult::failure("Nothing to clear");
+        // Checked in the test phase only, so that a large clearance is all or nothing.
+        if (!exec)
+            if (const std::string why = towns::authorityRefusal(w, company, t, kRatingRefuseDemolish); !why.empty())
+                return CommandResult::failure(why);
         const Money cost = prices::kDemolishBuilding + b->residents * prices::kDemolishPerResident;
-        if (exec) towns::removeBuilding(w, bid);
+        if (exec) {
+            towns::changeRating(w, b->town, company, kRatingDemolishBuilding);
+            towns::removeBuilding(w, bid);
+        }
         return CommandResult::success(cost);
     }
     case TileType::Rail: {
@@ -282,6 +291,8 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRoadStop& x, bool
     if (!isStraight(pieces)) return CommandResult::failure("The road must be straight here");
     if (!w.map.slope(x.tile).isFlat()) return CommandResult::failure("Land must be flat");
     if (x.tram && t->owner != c.company.value) return CommandResult::failure("Tram track owned by someone else");
+    if (const std::string why = towns::authorityRefusal(w, c.company, x.tile, kRatingRefuseBuild); !why.empty())
+        return CommandResult::failure(why);
     if (exec) {
         const StopKind kind = x.tram ? StopKind::Tram : StopKind::Bus;
         StationId sid = stations::findJoinable(w, c.company, x.tile);
@@ -318,6 +329,8 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRoadDepot& x, boo
     if (fs == Surface::Invalid) return CommandResult::failure("Can't connect to the road");
     if (roadEdgeHalfLevels(w.map.corners(front), fs, opposite(x.facing)) != 2 * s.base)
         return CommandResult::failure("The road is at a different height");
+    if (const std::string why = towns::authorityRefusal(w, c.company, x.tile, kRatingRefuseBuild); !why.empty())
+        return CommandResult::failure(why);
     const bool needPiece = !(layerPieces(*ft, x.tram) & dirBit(opposite(x.facing)));
     const Money cost = prices::kRoadDepot + (needPiece ? prices::kRoadPiece : 0) + t->trees * prices::kRemoveTree;
     if (exec) {

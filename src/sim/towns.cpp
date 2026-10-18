@@ -12,6 +12,17 @@
 
 namespace tp {
 
+std::string_view ratingName(i32 r) {
+    if (r < -400) return "Appalling";
+    if (r < -200) return "Very poor";
+    if (r < 0) return "Poor";
+    if (r < 200) return "Mediocre";
+    if (r < 400) return "Good";
+    if (r < 600) return "Very good";
+    if (r < 800) return "Excellent";
+    return "Outstanding";
+}
+
 std::string_view townClassName(TownClass c) {
     switch (c) {
     case TownClass::Village: return "Village";
@@ -226,13 +237,40 @@ void makeCentre(World& w, TownId id) {
     }
 }
 
+// Growth points per day (100 points = one growth step). Good public transport makes towns grow
+// faster: up to three times the base rate when everyone travels by transit, plus a bonus for
+// each regularly served station.
 i32 growthRate(const Town& t) {
+    i32 base = 8;
     switch (t.cls) {
-    case TownClass::Village: return 8;
-    case TownClass::Town: return 12;
-    case TownClass::City: return 18;
+    case TownClass::Village: base = 8; break;
+    case TownClass::Town: base = 12; break;
+    case TownClass::City: base = 18; break;
     }
-    return 8;
+    i32 rate = base;
+    if (t.lastMonth.trips > 0) rate += base * 2 * t.lastMonth.transit / t.lastMonth.trips;
+    rate += std::min(t.servedStations, 6) * 2;
+    return rate;
+}
+
+// A new village needs open, gently sloping land well away from other towns.
+bool newTownSiteOk(const World& w, TilePos c) {
+    for (const auto [id, t] : w.towns) {
+        const i64 d = chebyshev(t.centre.x - c.x, t.centre.y - c.y);
+        if (d < 40 || d < t.radius + 14) return false;
+    }
+    int lo = 255, hi = 0;
+    for (i32 dy = -5; dy <= 5; ++dy) {
+        for (i32 dx = -5; dx <= 5; ++dx) {
+            const TilePos p{c.x + dx, c.y + dy};
+            const Tile* tile = w.map.tile(p);
+            if (!tile || tile->type != TileType::Clear) return false;
+            const int h = w.map.cornerHeight(p.x, p.y);
+            lo = std::min(lo, h);
+            hi = std::max(hi, h);
+        }
+    }
+    return lo >= 1 && hi - lo <= 2 && hi < kSnowLine - 4;
 }
 
 TownId findShopTown(const World& w, TownId self) {
@@ -444,6 +482,74 @@ TownId foundTown(World& w, const TownSite& site) {
     return id;
 }
 
+TownId townAt(const World& w, TilePos tile) {
+    TownId best;
+    i64 bestD = 0;
+    for (const auto [id, t] : w.towns) {
+        const i64 d = chebyshev(t.centre.x - tile.x, t.centre.y - tile.y);
+        if (d > t.radius + 3) continue;
+        if (!best.valid() || d < bestD) {
+            best = id;
+            bestD = d;
+        }
+    }
+    return best;
+}
+
+i32 rating(const Town& t, CompanyId company) {
+    const auto it = t.ratings.find(company.value);
+    return it == t.ratings.end() ? kRatingInitial : it->second;
+}
+
+void changeRating(World& w, TownId town, CompanyId company, i32 delta, i32 floor) {
+    Town* t = w.towns.tryGet(town);
+    if (!t || !w.companies.contains(company)) return;
+    const i32 cur = rating(*t, company);
+    i32 next = std::clamp(cur + delta, kRatingMin, kRatingMax);
+    if (delta < 0) next = std::max(next, std::min(cur, floor));
+    t->ratings[company.value] = static_cast<i16>(next);
+}
+
+std::string authorityRefusal(const World& w, CompanyId company, TilePos tile, i32 minRating) {
+    if (!w.companies.contains(company)) return {};
+    const TownId id = townAt(w, tile);
+    const Town* t = w.towns.tryGet(id);
+    if (!t || rating(*t, company) >= minRating) return {};
+    return std::format("{} local authority refuses to allow this (rating: {})", t->name,
+                       ratingName(rating(*t, company)));
+}
+
+void spawnNewTowns(World& w) {
+    // Roughly one new village every four months.
+    if (w.rng.below(4) != 0) return;
+    const std::vector<ChunkPos>& chunks = w.map.activeChunks();
+    if (chunks.size() < 16) return;
+    std::vector<TilePos> remoteStations;
+    for (const auto [id, st] : w.stations)
+        if (!townAt(w, st.sign).valid()) remoteStations.push_back(st.sign);
+    for (int attempt = 0; attempt < 24; ++attempt) {
+        TilePos c;
+        if (!remoteStations.empty() && attempt % 2 == 0) {
+            // Settlers like a station nearby.
+            const TilePos s = remoteStations[w.rng.below(static_cast<u32>(remoteStations.size()))];
+            c = {s.x + static_cast<i32>(w.rng.below(13)) - 6, s.y + static_cast<i32>(w.rng.below(13)) - 6};
+        } else {
+            const TilePos o = chunkOrigin(chunks[w.rng.below(static_cast<u32>(chunks.size()))]);
+            c = {o.x + static_cast<i32>(w.rng.below(kChunkSize)), o.y + static_cast<i32>(w.rng.below(kChunkSize))};
+        }
+        if (!newTownSiteOk(w, c)) continue;
+        TownSite site;
+        site.centre = c;
+        site.cls = TownClass::Village;
+        site.seed = w.rng.next();
+        site.cellKey = 0;
+        site.targetPopulation = 40 + static_cast<i32>(w.rng.below(60));
+        const TownId id = foundTown(w, site);
+        w.addNews(NewsKind::Town, std::format("New village of {} founded", w.towns[id].name), c);
+        return;
+    }
+}
+
 void growAll(World& w) {
     for (auto [id, t] : w.towns) {
         t.growthPoints += growthRate(t);
@@ -458,10 +564,32 @@ void growAll(World& w) {
 }
 
 void monthly(World& w) {
+    const i64 recent = w.clock.tick - 30 * kTicksPerDay;
     for (auto [id, t] : w.towns) {
         t.lastMonth = t.thisMonth;
         t.thisMonth = {};
         recompute(w, id);
+        // Local authority: companies serving their stations here gain standing, neglected
+        // stations cost it; without any presence ratings drift back towards neutral.
+        std::map<u8, std::pair<i32, i32>> presence; // company -> (stations, served)
+        for (const auto [sid, st] : w.stations) {
+            if (chebyshev(st.sign.x - t.centre.x, st.sign.y - t.centre.y) > t.radius + 3) continue;
+            auto& [total, served] = presence[st.owner.value];
+            ++total;
+            if (st.lastVisitTick >= recent) ++served;
+        }
+        t.servedStations = 0;
+        for (const auto& [company, counts] : presence) {
+            const auto [total, served] = counts;
+            t.servedStations += served;
+            const i32 delta = std::clamp(served * 15 - (total - served) * 10, -60, 60);
+            changeRating(w, id, CompanyId(company), delta);
+        }
+        for (auto& [company, value] : t.ratings) {
+            if (presence.contains(company)) continue;
+            if (value > kRatingInitial) value = static_cast<i16>(std::max(kRatingInitial, value - 10));
+            if (value < kRatingInitial) value = static_cast<i16>(std::min(kRatingInitial, value + 10));
+        }
         if (t.cls == TownClass::Village && t.population >= 400) {
             t.cls = TownClass::Town;
             w.addNews(NewsKind::Town, std::format("{} has grown into a town", t.name), t.centre);

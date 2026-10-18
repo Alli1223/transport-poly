@@ -351,6 +351,19 @@ void App::drawTownWindow() {
         } else {
             ImGui::TextDisabled("No trips yet");
         }
+        ImGui::SeparatorText("Local authority");
+        if (t->servedStations > 0) ImGui::Text("Stations served last month: %d", t->servedStations);
+        bool any = false;
+        for (const auto [cid, c] : w.companies) {
+            const i32 r = towns::rating(*t, cid);
+            if (!t->ratings.contains(cid.value) && cid != session_->localCompany()) continue;
+            any = true;
+            const float k = static_cast<float>(r - kRatingMin) / static_cast<float>(kRatingMax - kRatingMin);
+            ImGui::Text("%s:", c.name.c_str());
+            ImGui::SameLine(170);
+            ImGui::TextColored(ImVec4(1.0f - k * 0.6f, 0.4f + k * 0.6f, 0.4f, 1.0f), "%s (%d)", ratingName(r).data(), r);
+        }
+        if (!any) ImGui::TextDisabled("No companies rated yet");
         if (ImGui::Button("Centre view")) focusOn(t->centre);
     }
     ImGui::End();
