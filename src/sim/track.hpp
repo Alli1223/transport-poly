@@ -39,6 +39,9 @@ inline constexpr i32 kPlatformHalfWidth = 244;   // station platforms either sid
 inline constexpr i32 kTrackSpacing = 300;        // closest two separate tracks may run, centre to centre
 inline constexpr i32 kDepotStub = 384;           // length of the track into a depot
 inline constexpr i64 kGradeOne = 65536;          // grade scale: fine height per unit of length
+inline constexpr i32 kBridgeClearance = 40;      // rails this far (fine units) above the ground go on a bridge
+inline constexpr i32 kOverpassClearance = 24;    // the least height for a bridge over water, roads and railways
+inline constexpr i32 kTunnelCover = 48;          // rails this far below the ground go through a tunnel
 
 struct TPoint {
     i32 x = 0;
@@ -99,6 +102,21 @@ struct TrackNode {
 
 enum class TrackKind : u8 { Plain, Platform, Depot };
 
+// What carries the rails along a stretch of track.
+enum class TrackStructure : u8 { Ground, Bridge, Tunnel };
+
+// A bridge or tunnel along an edge, between two distances from its node a.
+struct TrackSpan {
+    i32 s0 = 0;
+    i32 s1 = 0;
+    TrackStructure kind = TrackStructure::Bridge;
+
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(s0, s1, kind);
+    }
+};
+
 struct TrackSample {
     TPoint p;
     i32 h = 0; // rail height, fine units
@@ -117,16 +135,19 @@ struct TrackEdge {
     DepotId depot;
     u32 serial = 0;
     VehicleId reservedBy; // the train holding this edge (trains only drive on track they hold)
+    std::vector<TrackSpan> spans; // bridges and tunnels, in order along the edge
 
     // Derived from the nodes when built or loaded (not saved).
     std::vector<TrackSample> samples;
     i32 length = 0;
     i32 minRadius = 0; // tightest curve, units (0 when straight)
+    std::vector<TilePos> crossings; // road tiles the track crosses on the level
 
     template <class Ar>
     void serialize(Ar& ar) {
         ar(a, b, sideA, sideB, handleA, handleB, owner, kind, station, depot, serial);
         if (ar.version == 0 || ar.version >= 14) ar(reservedBy);
+        if (ar.version == 0 || ar.version >= 15) ar(spans);
     }
 };
 
@@ -170,8 +191,12 @@ struct TrackPlan {
     i32 gradePermille = 0; // steepest gradient along the track
 
     std::vector<TrackSample> samples; // the whole new track (for previews and the terrain)
+    std::vector<TrackSpan> spans;     // bridges and tunnels along the samples
     std::vector<FineChange> terrain;  // embankments, cuttings and the bed
-    std::vector<TilePos> tiles;       // tiles under the bed
+    std::vector<TilePos> tiles;       // tiles under the bed (not under bridges or over tunnels)
+    i32 bridgeLength = 0;             // units on bridges
+    i32 tunnelLength = 0;             // units in tunnels
+    i32 levelCrossings = 0;
     TrackOptions options;
 
     // Resolved ends.
@@ -182,6 +207,7 @@ struct TrackPlan {
         i32 h0 = 0, h1 = 0;
         i64 g0 = 0, g1 = 0; // grades along the direction of travel
         TDir d0, d3;        // travel directions at both ends
+        i32 s0 = 0, s1 = 0; // where the piece starts and ends along the samples
     };
     std::vector<Piece> pieces;
 };
@@ -219,6 +245,15 @@ TrackSample pointOn(const TrackEdge& e, bool forward, i32 distance);
 // Whether a train may take an edge: free (or its own) and no switch sibling held by another.
 bool reservable(const World& w, TrackEdgeId e, VehicleId train);
 bool hasPlatform(const World& w, StationId s);
+
+// What carries the rails `s` units along an edge (or a plan's spans).
+TrackStructure structureAt(const std::vector<TrackSpan>& spans, i32 s);
+// The tiles an edge covers: on the ground (under its bed), and all of them (including those
+// under its bridges and over its tunnels).
+void edgeTiles(const TrackEdge& e, std::vector<TilePos>* ground, std::vector<TilePos>* all);
+// Level crossings: whether a road tile has free track across it, and whether a train holds it.
+bool isCrossing(const World& w, TilePos t);
+bool crossingClosed(const World& w, TilePos t);
 
 void computeSamples(const World& w, TrackEdge& e);
 // Recomputes samples and the tile index (after loading).

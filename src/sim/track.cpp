@@ -3,11 +3,14 @@
 #include "core/math.hpp"
 #include "sim/passengers.hpp"
 #include "sim/prices.hpp"
+#include "sim/rail.hpp"
+#include "sim/road.hpp"
 #include "sim/world.hpp"
 
 #include <algorithm>
 #include <climits>
 #include <cstdlib>
+#include <optional>
 #include <unordered_set>
 
 namespace tp {
@@ -87,6 +90,8 @@ int sampleCount(const Curve& c) {
 struct Nearest {
     i64 d = INT64_MAX;
     i32 h = 0;
+    i32 i = -1; // the segment (from sample i to i + 1)
+    TPoint q{}; // the nearest point (set by nearest() only)
 };
 Nearest nearest(const std::vector<TrackSample>& line, TPoint p) {
     Nearest best;
@@ -104,6 +109,8 @@ Nearest nearest(const std::vector<TrackSample>& line, TPoint p) {
         if (d < best.d) {
             best.d = d;
             best.h = static_cast<i32>(len2 ? a.h + (static_cast<i64>(b.h) - a.h) * num / len2 : a.h);
+            best.i = static_cast<i32>(i);
+            best.q = {static_cast<i32>(qx), static_cast<i32>(qz)};
         }
     }
     return best;
@@ -160,6 +167,7 @@ Field nearestField(const std::vector<TrackSample>& line, i32 reach, i32 offset) 
                 if (d < cell.d) {
                     cell.d = d;
                     cell.h = static_cast<i32>(len2 ? a.h + (static_cast<i64>(b.h) - a.h) * num / len2 : a.h);
+                    cell.i = static_cast<i32>(i);
                 }
             }
         }
@@ -174,6 +182,105 @@ Curve edgeCurve(const World& w, const TrackEdge& e) {
 }
 
 u64 tileKey(TilePos t) { return ChunkPos{t.x, t.y}.key(); }
+
+constexpr i32 kCrossingReach = 96; // the centre line passes this close to the middle of a crossed road tile
+constexpr i32 kGrazeReach = 160;   // a road tile farther than this from the centre line is only grazed
+
+// A tile under a sampled track: what carries the rails nearest to it, and how near they pass
+// its middle.
+struct BedTile {
+    TilePos t;
+    TrackStructure kind = TrackStructure::Ground;
+    Nearest near;
+};
+
+i32 segmentMid(const std::vector<TrackSample>& sm, i32 i) {
+    return (sm[static_cast<usize>(i)].s + sm[static_cast<usize>(i) + 1].s) / 2;
+}
+
+std::vector<BedTile> bedTileList(const std::vector<TrackSample>& samples, const std::vector<TrackSpan>& spans, i32 halfWidth) {
+    std::vector<BedTile> out;
+    const i32 reach = halfWidth + kTrackUnits / 2;
+    const Field f = nearestField(samples, reach, kTrackUnits / 2);
+    for (i32 y = 0; y < f.h; ++y)
+        for (i32 x = 0; x < f.w; ++x) {
+            const Nearest& c = f.cells[static_cast<usize>(y * f.w + x)];
+            if (c.d > reach) continue;
+            out.push_back({{f.gx0 + x, f.gy0 + y}, track::structureAt(spans, segmentMid(samples, c.i)), c});
+        }
+    return out;
+}
+
+// Bridges and tunnels from what carries each sample: scraps of ground shorter than a tile
+// between two bridges (or two tunnels) join them; bridges shorter than a tile that cross
+// nothing, and tunnels shorter than two tiles, become embankments and cuttings. Tunnels then
+// reach out to where the hillside is about as high as their portals (`cover`: ground above
+// the rails at each sample).
+std::vector<TrackSpan> tidyStructures(const std::vector<TrackSample>& sm, std::vector<TrackStructure>& kinds,
+                                      const std::vector<u8>& mustBridge, const std::vector<i32>& cover) {
+    struct Run {
+        usize a, b; // samples a..b
+        TrackStructure kind;
+    };
+    const auto runs = [&] {
+        std::vector<Run> out;
+        for (usize i = 0; i < kinds.size();) {
+            usize j = i;
+            while (j + 1 < kinds.size() && kinds[j + 1] == kinds[i]) ++j;
+            out.push_back({i, j, kinds[i]});
+            i = j + 1;
+        }
+        return out;
+    };
+    const auto length = [&](const Run& r) { return sm[r.b].s - sm[r.a].s; };
+    std::vector<Run> rs = runs();
+    for (usize k = 1; k + 1 < rs.size(); ++k)
+        if (rs[k].kind == TrackStructure::Ground && rs[k - 1].kind == rs[k + 1].kind && length(rs[k]) < kTrackUnits)
+            for (usize i = rs[k].a; i <= rs[k].b; ++i) kinds[i] = rs[k - 1].kind;
+    for (const Run& r : runs()) {
+        if (r.kind == TrackStructure::Ground) continue;
+        bool needed = false;
+        for (usize i = r.a; i <= r.b; ++i) needed = needed || mustBridge[i];
+        const i32 shortest = r.kind == TrackStructure::Bridge ? kTrackUnits : 2 * kTrackUnits;
+        if (!needed && length(r) < shortest)
+            for (usize i = r.a; i <= r.b; ++i) kinds[i] = TrackStructure::Ground;
+    }
+    constexpr i32 kPortalCover = 20;
+    for (const Run& r : runs()) {
+        if (r.kind != TrackStructure::Tunnel) continue;
+        for (usize i = r.a; i-- > 0 && kinds[i] == TrackStructure::Ground && cover[i] >= kPortalCover;)
+            kinds[i] = TrackStructure::Tunnel;
+        for (usize i = r.b + 1; i < kinds.size() && kinds[i] == TrackStructure::Ground && cover[i] >= kPortalCover; ++i)
+            kinds[i] = TrackStructure::Tunnel;
+    }
+    std::vector<TrackSpan> spans;
+    for (const Run& r : runs())
+        if (r.kind != TrackStructure::Ground) spans.push_back({sm[r.a].s, sm[r.b].s, r.kind});
+    return spans;
+}
+
+// A road tile track may cross on the level: a straight road without junctions, level across
+// its width (it may climb along its length). Gives the road's axis (true: north-south).
+std::optional<bool> crossableRoad(const World& w, TilePos t) {
+    const Tile* tile = w.map.tile(t);
+    if (!tile || tile->type != TileType::Road || tile->rail || tile->span) return std::nullopt;
+    const u8 bits = allRoadPieces(*tile);
+    const bool ns = bits == (dirBit(Dir::N) | dirBit(Dir::S));
+    const bool ew = bits == (dirBit(Dir::E) | dirBit(Dir::W));
+    const FineCorners fc = w.map.fineCorners(t);
+    if (ns && fc.h[0] == fc.h[1] && fc.h[3] == fc.h[2]) return true;
+    if (ew && fc.h[0] == fc.h[3] && fc.h[1] == fc.h[2]) return false;
+    return std::nullopt;
+}
+
+void computeCrossings(const World& w, TrackEdge& e) {
+    e.crossings.clear();
+    if (e.kind != TrackKind::Plain) return;
+    for (const BedTile& bt : bedTileList(e.samples, e.spans, kTrackBedHalfWidth)) {
+        if (bt.kind != TrackStructure::Ground || bt.near.d > kCrossingReach) continue;
+        if (const Tile* tile = w.map.tile(bt.t); tile && tile->type == TileType::Road) e.crossings.push_back(bt.t);
+    }
+}
 
 // A node lying (almost) exactly at p.
 TrackNodeId nodeAt(const World& w, TPoint p) {
@@ -230,6 +337,37 @@ std::vector<TilePos> bedTiles(const std::vector<TrackSample>& samples, i32 halfW
     return tiles;
 }
 
+TrackStructure structureAt(const std::vector<TrackSpan>& spans, i32 s) {
+    for (const TrackSpan& sp : spans)
+        if (s >= sp.s0 && s <= sp.s1) return sp.kind;
+    return TrackStructure::Ground;
+}
+
+void edgeTiles(const TrackEdge& e, std::vector<TilePos>* ground, std::vector<TilePos>* all) {
+    for (const BedTile& bt : bedTileList(e.samples, e.spans, halfWidthOf(e.kind))) {
+        if (all) all->push_back(bt.t);
+        if (ground && bt.kind == TrackStructure::Ground) ground->push_back(bt.t);
+    }
+}
+
+bool isCrossing(const World& w, TilePos t) {
+    const auto it = w.trackTiles.find(tileKey(t));
+    if (it == w.trackTiles.end()) return false;
+    for (const TrackEdgeId id : it->second)
+        if (std::ranges::find(w.trackEdges[id].crossings, t) != w.trackEdges[id].crossings.end()) return true;
+    return false;
+}
+
+bool crossingClosed(const World& w, TilePos t) {
+    const auto it = w.trackTiles.find(tileKey(t));
+    if (it == w.trackTiles.end()) return false;
+    for (const TrackEdgeId id : it->second) {
+        const TrackEdge& e = w.trackEdges[id];
+        if (e.reservedBy.valid() && std::ranges::find(e.crossings, t) != e.crossings.end()) return true;
+    }
+    return false;
+}
+
 void computeSamples(const World& w, TrackEdge& e) {
     const TrackNode& a = w.trackNodes[e.a];
     const TrackNode& b = w.trackNodes[e.b];
@@ -253,6 +391,7 @@ void computeSamples(const World& w, TrackEdge& e) {
             if (e.minRadius == 0 || r < e.minRadius) e.minRadius = static_cast<i32>(std::min<i64>(r, INT_MAX));
         }
     }
+    computeCrossings(w, e);
 }
 
 i32 halfWidthOf(TrackKind kind) { return kind == TrackKind::Platform ? kPlatformHalfWidth : kTrackBedHalfWidth; }
@@ -261,7 +400,9 @@ void rebuildDerived(World& w) {
     w.trackTiles.clear();
     for (auto [id, e] : w.trackEdges) {
         computeSamples(w, e);
-        for (const TilePos t : bedTiles(e.samples, halfWidthOf(e.kind))) w.trackTiles[tileKey(t)].push_back(id);
+        std::vector<TilePos> all;
+        edgeTiles(e, nullptr, &all);
+        for (const TilePos t : all) w.trackTiles[tileKey(t)].push_back(id);
     }
     ++w.trackRevision;
 }
@@ -431,6 +572,49 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
     const int pieces = static_cast<int>((len + kTrackPiece - 1) / kTrackPiece);
     const int per = std::max(4, (sampleCount(curve) + pieces - 1) / pieces);
     pl.samples = sampleCurve(curve, static_cast<i32>(h0), g0, static_cast<i32>(h1), g1, per * pieces);
+
+    // Where the track crosses a road on the level, free ends move up or down a little so that the
+    // rails meet the road exactly (roads keep their ground at whole height steps).
+    if (options.kind == TrackKind::Plain && !(a.existing && b.existing)) {
+        for (const TrackSample& sm : pl.samples) {
+            const TilePos t = tileAt(sm.p);
+            if (!crossableRoad(w, t)) continue;
+            const Nearest near =
+                nearest(pl.samples, {t.x * kTrackUnits + kTrackUnits / 2, t.y * kTrackUnits + kTrackUnits / 2});
+            if (near.d > kCrossingReach) continue;
+            const i64 miss = static_cast<i64>(terrainAt(w, near.q)) - near.h;
+            if (miss == 0 || std::abs(miss) > 24) break;
+            const i64 total = std::max<i32>(1, pl.samples.back().s);
+            const i64 u = pl.samples[static_cast<usize>(near.i)].s * kT / total;
+            if (!a.existing && !b.existing) {
+                h0 += miss;
+                h1 += miss;
+            } else {
+                // The height at the crossing changes in proportion to the free end's height.
+                const bool moveEnd = !b.existing;
+                const auto heightAt = [&](i64 free) {
+                    const i64 hs = moveEnd ? h0 : free, he = moveEnd ? free : h1;
+                    const i64 gs = moveEnd ? g0 : 2 * (he - hs) * kGradeOne / total - g1;
+                    const i64 ge = moveEnd ? 2 * (he - hs) * kGradeOne / total - g0 : g1;
+                    return hermite(u, hs, gs * total / kGradeOne, he, ge * total / kGradeOne);
+                };
+                const i64 current = moveEnd ? h1 : h0;
+                const i64 step = heightAt(current + 64) - heightAt(current);
+                if (std::abs(step) < 8) break;
+                const i64 moved = current + miss * 64 / step;
+                if (std::abs(moved - current) > 48 || moved < 0) break;
+                if (moveEnd) {
+                    h1 = moved;
+                    g1 = 2 * (h1 - h0) * kGradeOne / total - g0;
+                } else {
+                    h0 = moved;
+                    g0 = 2 * (h1 - h0) * kGradeOne / total - g1;
+                }
+            }
+            pl.samples = sampleCurve(curve, static_cast<i32>(h0), g0, static_cast<i32>(h1), g1, per * pieces);
+            break;
+        }
+    }
     pl.length = pl.samples.back().s;
 
     // Gradient and curvature checks. Curvature is measured over half a tile either side, so
@@ -462,20 +646,71 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
         return fail("Too steep - trains can only climb gentle slopes; make the track longer");
     if (pl.minRadius && pl.minRadius < kTrackMinRadius) return fail("Curve too tight");
 
-    // What lies under the bed.
-    pl.tiles = bedTiles(pl.samples, options.halfWidth);
+    // Bridges and tunnels. Where the rails run high above the ground (or above water, a road or
+    // a railway) the track goes onto a bridge; deep under the ground it goes through a tunnel.
+    std::vector<TrackStructure> kinds(n, TrackStructure::Ground);
+    if (options.kind == TrackKind::Plain) {
+        std::vector<u8> mustBridge(n, 0);
+        std::vector<i32> cover(n, 0);
+        for (usize i = 0; i < n; ++i) {
+            const TrackSample& sm = pl.samples[i];
+            const Tile* tile = w.map.tile(tileAt(sm.p));
+            if (!tile) return fail("Area not explored");
+            const bool water = tile->type == TileType::Water;
+            const bool over = water || tile->type == TileType::Road || tile->type == TileType::Rail || tile->type == TileType::Track;
+            const i32 clearance = sm.h - terrainAt(w, sm.p);
+            mustBridge[i] = water;
+            cover[i] = -clearance;
+            if (clearance >= kBridgeClearance || (over && clearance >= kOverpassClearance)) kinds[i] = TrackStructure::Bridge;
+            else if (-clearance >= kTunnelCover) kinds[i] = TrackStructure::Tunnel;
+        }
+        pl.spans = tidyStructures(pl.samples, kinds, mustBridge, cover);
+        for (const TrackSpan& sp : pl.spans)
+            (sp.kind == TrackStructure::Bridge ? pl.bridgeLength : pl.tunnelLength) += sp.s1 - sp.s0;
+    }
+
+    // What lies under the track: the bed needs clear ground (or a road to cross on the level);
+    // bridges stand clear of buildings; tunnels pass under anything.
     Money trees = 0;
-    for (const TilePos t : pl.tiles) {
+    for (const BedTile& bt : bedTileList(pl.samples, pl.spans, options.halfWidth)) {
+        const TilePos t = bt.t;
         const Tile* tile = w.map.tile(t);
         if (!tile) return fail("Area not explored");
+        if (bt.kind == TrackStructure::Tunnel) continue;
         if (tile->span) return fail("Bridge or tunnel in the way");
+        if (bt.kind == TrackStructure::Bridge) {
+            if (tile->type == TileType::Building || tile->type == TileType::Station || tile->type == TileType::Depot)
+                return fail("Building in the way of the bridge");
+            continue;
+        }
+        pl.tiles.push_back(t);
         switch (tile->type) {
         case TileType::Clear: trees += tile->trees * prices::kRemoveTree; break;
         case TileType::Track:
             if (tile->owner != company.value) return fail("Owned by another company");
             break;
-        case TileType::Water: return fail("Can't build on water");
-        case TileType::Road: return fail("Road in the way");
+        case TileType::Water:
+            return fail(options.kind == TrackKind::Plain ? "Too low to bridge the water - raise the track" : "Can't build on water");
+        case TileType::Road: {
+            if (bt.near.d >= kGrazeReach) break; // the edge of the bed only brushes the road
+            if (bt.near.d > kCrossingReach || options.kind != TrackKind::Plain) return fail("Road in the way");
+            // A level crossing: square enough across a straight road, at its height.
+            if (tile->rail) return fail("Railway in the way");
+            const std::optional<bool> axis = crossableRoad(w, t);
+            if (!axis) return fail("Level crossings need a straight road without junctions, level across its width");
+            const bool ns = *axis;
+            const Nearest crossing = nearest(pl.samples, {t.x * kTrackUnits + kTrackUnits / 2, t.y * kTrackUnits + kTrackUnits / 2});
+            const TrackSample& sa = pl.samples[static_cast<usize>(bt.near.i)];
+            const TrackSample& sb = pl.samples[static_cast<usize>(bt.near.i) + 1];
+            const i64 dx = static_cast<i64>(sb.p.x) - sa.p.x, dz = static_cast<i64>(sb.p.z) - sa.p.z;
+            const i64 len2 = std::max<i64>(1, dx * dx + dz * dz);
+            const i64 along = ns ? dz : dx; // the track's heading along the road
+            if (along * along * 2 > len2) return fail("Cross the road more squarely");
+            if (std::abs(crossing.h - terrainAt(w, crossing.q)) > 3)
+                return fail("The track must meet the road at its level, or pass high over it on a bridge");
+            ++pl.levelCrossings;
+            break;
+        }
         case TileType::Rail: return fail("Railway in the way");
         case TileType::Building: return fail("Building in the way");
         case TileType::Station: return fail("Station in the way");
@@ -483,12 +718,12 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
         }
     }
 
-    // Separate tracks may not cross or crowd each other; near the nodes this track joins they
-    // naturally converge.
+    // Separate tracks may not cross or crowd each other unless one passes well over the other
+    // on a bridge (or under it in a tunnel); near the nodes this track joins they converge.
     {
         std::unordered_set<u32> nearby;
-        for (const TilePos t : pl.tiles)
-            if (const auto it = w.trackTiles.find(tileKey(t)); it != w.trackTiles.end())
+        for (const BedTile& bt : bedTileList(pl.samples, {}, options.halfWidth))
+            if (const auto it = w.trackTiles.find(tileKey(bt.t)); it != w.trackTiles.end())
                 for (const TrackEdgeId e : it->second) nearby.insert(e.value);
         const TPoint ends[2] = {a.pos, b.pos};
         const TrackNodeId joined[2] = {a.existing ? a.id : TrackNodeId{}, b.existing ? b.id : TrackNodeId{}};
@@ -501,9 +736,17 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
             for (int j = 0; j < 2; ++j)
                 if (joined[j].valid() && w.trackNodes[joined[j]].count(0) > 0 && w.trackNodes[joined[j]].count(1) > 0)
                     exclusion[j] = 7 * kTrackUnits;
-            for (const TrackSample& sm : pl.samples) {
+            for (usize i = 0; i < n; ++i) {
+                const TrackSample& sm = pl.samples[i];
                 if (distance(sm.p, ends[0]) < exclusion[0] || distance(sm.p, ends[1]) < exclusion[1]) continue;
-                if (nearest(other.samples, sm.p).d < spacing) return fail("Another track is in the way");
+                const Nearest o = nearest(other.samples, sm.p);
+                if (o.d >= spacing) continue;
+                const TrackStructure mine = kinds[i];
+                const TrackStructure theirs = structureAt(other.spans, segmentMid(other.samples, o.i));
+                const i32 dh = sm.h - o.h;
+                const bool over = dh >= kOverpassClearance && (mine == TrackStructure::Bridge || theirs == TrackStructure::Tunnel);
+                const bool under = -dh >= kOverpassClearance && (mine == TrackStructure::Tunnel || theirs == TrackStructure::Bridge);
+                if (!over && !under) return fail("Another track is in the way");
             }
         }
     }
@@ -515,6 +758,8 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
             const Tile* tile = w.map.tile(t);
             if (!tile) return true;
             if (tile->type != TileType::Clear && tile->type != TileType::Track) return true;
+            // Ground under another track's bridge or over its tunnel stays as it is.
+            if (tile->type == TileType::Clear && w.trackTiles.contains(tileKey(t))) return true;
         }
         return false;
     };
@@ -533,16 +778,21 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
                 if (const auto it = w.trackTiles.find(tileKey({gx, gy})); it != w.trackTiles.end())
                     for (const TrackEdgeId e : it->second) nearby.insert(e.value);
         for (const u32 id : nearby) {
-            const Field other = nearestField(w.trackEdges[TrackEdgeId{id}].samples, kBed, 0);
+            const TrackEdge& oe = w.trackEdges[TrackEdgeId{id}];
+            const Field other = nearestField(oe.samples, kBed, 0);
             for (i32 gy = other.gy0; gy < other.gy0 + other.h; ++gy)
                 for (i32 gx = other.gx0; gx < other.gx0 + other.w; ++gx)
-                    if (other.at(gx, gy)->d <= kBed) bedCorners.insert(tileKey({gx, gy}));
+                    if (const Nearest* cell = other.at(gx, gy);
+                        cell->d <= kBed && structureAt(oe.spans, segmentMid(oe.samples, cell->i)) == TrackStructure::Ground)
+                        bedCorners.insert(tileKey({gx, gy}));
         }
     }
     for (i32 cy = field.gy0; cy < field.gy0 + field.h; ++cy) {
         for (i32 cx = field.gx0; cx < field.gx0 + field.w; ++cx) {
             const Nearest near = *field.at(cx, cy);
             if (near.d > kReach) continue;
+            // No earthworks under bridges or over tunnels.
+            if (structureAt(pl.spans, segmentMid(pl.samples, near.i)) != TrackStructure::Ground) continue;
             if (!w.map.cornerEditable(cx, cy) || locked(cx, cy) || bedCorners.contains(tileKey({cx, cy}))) continue;
             const i32 orig = w.map.cornerFine(cx, cy);
             const i64 bed = std::max(0, near.h - kBallastDepth);
@@ -564,7 +814,11 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
         }
     }
     pl.earthworks = volume * prices::kEarthworkPerUnit;
-    pl.cost = static_cast<Money>(pl.length) * prices::kTrackPerTile / kTrackUnits + trees + pl.earthworks;
+    const i64 onGround = pl.length - pl.bridgeLength - pl.tunnelLength;
+    pl.cost = (onGround * prices::kTrackPerTile + static_cast<i64>(pl.bridgeLength) * prices::kTrackBridgePerTile +
+               static_cast<i64>(pl.tunnelLength) * prices::kTrackTunnelPerTile) /
+                  kTrackUnits +
+              pl.levelCrossings * prices::kLevelCrossing + trees + pl.earthworks;
 
     // Pieces for building.
     for (int j = 0; j < pieces; ++j) {
@@ -582,6 +836,8 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
         const TrackSample& sb = pl.samples[static_cast<usize>((j + 1) * per)];
         pc.h0 = sa.h;
         pc.h1 = sb.h;
+        pc.s0 = sa.s;
+        pc.s1 = sb.s;
         const i64 t0 = g0 * len / kGradeOne, t1 = g1 * len / kGradeOne;
         const auto gradeAt = [&](const TrackSample& s) {
             return hermiteDeriv(s.s * kT / pl.length, h0, t0, h1, t1) * kGradeOne / pl.length;
@@ -649,8 +905,22 @@ std::vector<TrackEdgeId> build(World& w, CompanyId company, const TrackPlan& pl)
         attach(next, nextSide, id);
         TrackEdge& e = w.trackEdges[id];
         computeSamples(w, e);
-        for (const TilePos t : bedTiles(e.samples, halfWidthOf(kind))) {
+        // The plan's bridges and tunnels along this piece, in the edge's own distances.
+        const i64 planned = std::max(1, pc.s1 - pc.s0);
+        for (const TrackSpan& sp : pl.spans) {
+            const i32 from = std::max(sp.s0, pc.s0), to = std::min(sp.s1, pc.s1);
+            if (from >= to) continue;
+            e.spans.push_back({static_cast<i32>((from - pc.s0) * e.length / planned),
+                               static_cast<i32>((to - pc.s0) * e.length / planned), sp.kind});
+        }
+        computeCrossings(w, e);
+        std::vector<TilePos> ground, all;
+        edgeTiles(e, &ground, &all);
+        for (const TilePos t : all) {
             w.trackTiles[tileKey(t)].push_back(id);
+            w.map.touch(t);
+        }
+        for (const TilePos t : ground) {
             Tile* tile = w.map.tile(t);
             if (!tile) continue;
             if (tile->type == TileType::Clear) {
@@ -678,7 +948,8 @@ std::vector<TrackEdgeId> build(World& w, CompanyId company, const TrackPlan& pl)
 void remove(World& w, TrackEdgeId id) {
     TrackEdge* e = w.trackEdges.tryGet(id);
     if (!e) return;
-    const std::vector<TilePos> tiles = bedTiles(e->samples, halfWidthOf(e->kind));
+    std::vector<TilePos> ground, tiles;
+    edgeTiles(*e, &ground, &tiles);
     if (e->kind == TrackKind::Platform && w.stations.contains(e->station)) {
         const StationId sid = e->station;
         for (const TilePos t : tiles)
@@ -693,6 +964,9 @@ void remove(World& w, TrackEdgeId id) {
             std::erase(it->second, id);
             if (it->second.empty()) w.trackTiles.erase(it);
         }
+        w.map.touch(t);
+    }
+    for (const TilePos t : ground) {
         Tile* tile = w.map.tile(t);
         if (!tile || tile->type != TileType::Track) continue;
         if (tile->extra > 0) --tile->extra;
@@ -777,6 +1051,9 @@ TrackSample pointOn(const TrackEdge& e, bool forward, i32 dist) {
 bool reservable(const World& w, TrackEdgeId id, VehicleId train) {
     const TrackEdge& e = w.trackEdges[id];
     if (e.reservedBy.valid() && e.reservedBy != train) return false;
+    if (e.reservedBy != train)
+        for (const TilePos t : e.crossings)
+            if (crossingRoadOccupied(w, t)) return false;
     // The two branches of a switch overlap near the switch: only one train at a time.
     const auto siblingFree = [&](TrackNodeId nid, u8 side) {
         const TrackNode& n = w.trackNodes[nid];

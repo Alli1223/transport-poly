@@ -246,6 +246,8 @@ private:
     bool demoShips_ = false;        // automation: build a demo ferry line on the nearest coast
     bool demoTrack_ = false;        // automation: lay curved free-form track near the camera
     bool previewStation_ = false;   // automation: show the station tool placing a platform
+    std::optional<TrackStructure> demoStructure_; // automation: build a line needing a bridge or tunnel
+    bool demoCrossing_ = false;     // automation: build a line across a road
     std::optional<glm::dvec3> previewHover_; // automation: scripted cursor position on the ground
     bool followFirst_ = false;      // automation: follow the first vehicle
     bool directStart_ = false;      // skip the main menu (command line options given)

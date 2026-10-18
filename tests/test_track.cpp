@@ -1,10 +1,13 @@
-#include "test.hpp"
+﻿#include "test.hpp"
 
 #include "core/serialize.hpp"
 #include "sim/commands.hpp"
+#include "sim/town.hpp"
 #include "sim/track.hpp"
 #include "sim/world.hpp"
 
+#include <cmath>
+#include <cstdio>
 #include <cstdlib>
 
 using namespace tp;
@@ -95,11 +98,11 @@ TEST_CASE("track: curves keep to the minimum radius and cannot double back") {
 
 TEST_CASE("track: the terrain is shaped into a smooth bed with embankments and cuttings") {
     TrackWorld tw;
-    // A ridge across the route and a dip after it.
+    // A ridge across the route and a dip after it (not so high or deep to need a tunnel or bridge).
     for (i32 y = 1; y < 63; ++y)
         for (i32 x = 1; x < 63; ++x) {
-            if (x >= 20 && x <= 26) tw.w.map.setCornerFine(x, y, 9 * kSubLevels);
-            if (x >= 34 && x <= 40) tw.w.map.setCornerFine(x, y, 1 * kSubLevels);
+            if (x >= 20 && x <= 26) tw.w.map.setCornerFine(x, y, 6 * kSubLevels);
+            if (x >= 34 && x <= 40) tw.w.map.setCornerFine(x, y, 2 * kSubLevels);
         }
     const CommandResult r = tw.run(CmdBuildTrack{freeAnchor(at(4, 32)), freeAnchor(at(52, 32))});
     REQUIRE(r.ok);
@@ -110,13 +113,14 @@ TEST_CASE("track: the terrain is shaped into a smooth bed with embankments and c
             CHECK(std::abs(ground - (s.h - 5)) <= 2);
         }
     // ...the ridge has been cut and the dip filled, while land well away is untouched.
-    CHECK(tw.w.map.cornerFine(23, 32) < 9 * kSubLevels);
-    CHECK(tw.w.map.cornerFine(37, 32) > 1 * kSubLevels);
-    CHECK_EQ(tw.w.map.cornerFine(23, 50), 9 * kSubLevels);
-    CHECK_EQ(tw.w.map.cornerFine(37, 10), 1 * kSubLevels);
+    CHECK(tw.w.map.cornerFine(23, 32) < 6 * kSubLevels);
+    CHECK(tw.w.map.cornerFine(37, 32) > 2 * kSubLevels);
+    CHECK_EQ(tw.w.map.cornerFine(23, 50), 6 * kSubLevels);
+    CHECK_EQ(tw.w.map.cornerFine(37, 10), 2 * kSubLevels);
+    for (const auto [id, e] : tw.w.trackEdges) CHECK(e.spans.empty());
     // The slope eases out: the cutting's sides are not vertical.
     CHECK(tw.w.map.cornerFine(23, 34) > tw.w.map.cornerFine(23, 32));
-    CHECK(tw.w.map.cornerFine(23, 34) < 9 * kSubLevels);
+    CHECK(tw.w.map.cornerFine(23, 34) < 6 * kSubLevels);
 }
 
 TEST_CASE("track: gradients are limited") {
@@ -338,4 +342,128 @@ TEST_CASE("track: two trains share a signalled loop safely, and saves continue i
         copy.tick();
     }
     CHECK_EQ(copy.stateHash(), tw.w.stateHash());
+}
+
+namespace {
+
+// Sets every corner within the rectangle [x0, x1] x [y0, y1] to a fine height.
+void setGround(World& w, i32 x0, i32 y0, i32 x1, i32 y1, u16 fine) {
+    for (i32 y = y0; y <= y1; ++y)
+        for (i32 x = x0; x <= x1; ++x) w.map.setCornerFine(x, y, fine);
+}
+
+i32 structureLength(const World& w, TrackStructure kind) {
+    i32 total = 0;
+    for (const auto [id, e] : w.trackEdges)
+        for (const TrackSpan& sp : e.spans)
+            if (sp.kind == kind) total += sp.s1 - sp.s0;
+    return total;
+}
+
+} // namespace
+
+TEST_CASE("track: a line across a valley goes over it on a bridge") {
+    TrackWorld tw;
+    setGround(tw.w, 14, 1, 22, 2 * kChunkSize - 1, 0);
+    const CommandResult r = tw.run(CmdBuildTrack{freeAnchor(at(6, 10.5)), freeAnchor(at(30, 10.5))});
+    REQUIRE(r.ok);
+    const i32 bridge = structureLength(tw.w, TrackStructure::Bridge);
+    CHECK(bridge > 7 * kTrackUnits);
+    CHECK(bridge < 11 * kTrackUnits);
+    CHECK_EQ(structureLength(tw.w, TrackStructure::Tunnel), 0);
+    // The valley floor is untouched and stays clear ground, but nothing may be built under the
+    // bridge or reshape the ground beneath it.
+    CHECK_EQ(tw.w.map.cornerFine(18, 10), 0);
+    CHECK(tw.w.map.tile({18, 10})->type == TileType::Clear);
+    CHECK(tw.w.map.tile({8, 10})->type == TileType::Track);
+    CHECK(!towns::canPlaceBuilding(tw.w, {18, 10}, 1));
+    CHECK(!tw.run(CmdTerraformBrush{{18, 11}, 1, static_cast<u8>(BrushMode::Raise), 0}).ok);
+
+    // Bridges survive a save and load unchanged.
+    World copy;
+    fromBytes(toBytes(tw.w, kSaveVersion), copy, kSaveVersion);
+    CHECK_EQ(structureLength(copy, TrackStructure::Bridge), bridge);
+    CHECK_EQ(copy.stateHash(), tw.w.stateHash());
+
+    // Taking the track away leaves the valley as it was.
+    std::vector<TrackEdgeId> edges;
+    for (const auto [id, e] : tw.w.trackEdges) edges.push_back(id);
+    for (const TrackEdgeId e : edges) REQUIRE(tw.run(CmdRemoveTrack{e}).ok);
+    CHECK(tw.w.trackTiles.empty());
+    CHECK(tw.w.map.tile({8, 10})->type == TileType::Clear);
+}
+
+TEST_CASE("track: a line through a hill goes into a tunnel") {
+    TrackWorld tw;
+    // A steep hill 128 fine units above the plain around (18, 10).
+    for (i32 y = 1; y < 2 * kChunkSize; ++y)
+        for (i32 x = 1; x < 2 * kChunkSize; ++x) {
+            const double d = std::hypot(x - 18.0, y - 10.5);
+            if (d < 7.0) tw.w.map.setCornerFine(x, y, static_cast<u16>(4 * kSubLevels + std::min(128.0, (7.0 - d) * 48.0)));
+        }
+    const u16 top = tw.w.map.cornerFine(18, 10);
+    const CommandResult r = tw.run(CmdBuildTrack{freeAnchor(at(6, 10.5)), freeAnchor(at(30, 10.5))});
+    REQUIRE(r.ok);
+    const i32 tunnel = structureLength(tw.w, TrackStructure::Tunnel);
+    CHECK(tunnel > 3 * kTrackUnits);
+    CHECK_EQ(tw.w.map.cornerFine(18, 10), top); // the hill above is left alone
+    CHECK(tw.w.map.tile({18, 10})->type == TileType::Clear);
+}
+
+TEST_CASE("track: water needs a bridge high enough to cross it") {
+    TrackWorld tw;
+    setGround(tw.w, 17, 1, 19, 2 * kChunkSize - 1, 0);
+    for (i32 y = 0; y < 2 * kChunkSize; ++y)
+        for (const i32 x : {17, 18}) tw.w.map.tile({x, y})->type = TileType::Water;
+    CHECK(tw.run(CmdBuildTrack{freeAnchor(at(6, 10.5)), freeAnchor(at(30, 10.5))}).ok);
+    CHECK(structureLength(tw.w, TrackStructure::Bridge) > 2 * kTrackUnits);
+
+    // Banks barely above the water are too low for a bridge.
+    TrackWorld low;
+    setGround(low.w, 1, 1, 2 * kChunkSize - 1, 2 * kChunkSize - 1, kSubLevels);
+    setGround(low.w, 17, 1, 19, 2 * kChunkSize - 1, 0);
+    for (i32 y = 0; y < 2 * kChunkSize; ++y)
+        for (const i32 x : {17, 18}) low.w.map.tile({x, y})->type = TileType::Water;
+    const CommandResult r = low.run(CmdBuildTrack{freeAnchor(at(6, 10.5)), freeAnchor(at(30, 10.5))});
+    CHECK(!r.ok);
+    CHECK(r.error.find("water") != std::string::npos);
+}
+
+TEST_CASE("track: level crossings with roads close for trains") {
+    TrackWorld tw;
+    REQUIRE(tw.run(CmdBuildRoad{{18, 4}, {18, 16}, false}).ok);
+    const CommandResult r = tw.run(CmdBuildTrack{freeAnchor(at(6, 10.5)), freeAnchor(at(30, 10.5))});
+    REQUIRE(r.ok);
+    CHECK(track::isCrossing(tw.w, {18, 10}));
+    CHECK(!track::isCrossing(tw.w, {18, 9}));
+    CHECK(tw.w.map.tile({18, 10})->type == TileType::Road);
+    CHECK(!track::crossingClosed(tw.w, {18, 10}));
+    // The crossing closes while a train holds the track over it.
+    for (auto [id, e] : tw.w.trackEdges)
+        if (!e.crossings.empty()) e.reservedBy = VehicleId{1};
+    CHECK(track::crossingClosed(tw.w, {18, 10}));
+    for (auto [id, e] : tw.w.trackEdges) e.reservedBy = {};
+    // The road can't be taken away from under the track or branch off at the crossing.
+    CHECK(!tw.run(CmdRemoveRoad{{18, 10}, {18, 10}, false}).ok);
+    CHECK(!tw.run(CmdBuildRoad{{18, 10}, {20, 10}, false}).ok);
+
+    // Track running along a road (or crossing it at a shallow angle) is refused.
+    REQUIRE(tw.run(CmdBuildRoad{{8, 20}, {28, 20}, false}).ok);
+    CHECK(!tw.run(CmdBuildTrack{freeAnchor(at(6, 19.6)), freeAnchor(at(30, 21.4))}).ok);
+}
+
+TEST_CASE("track: one line may cross another on a bridge") {
+    TrackWorld tw;
+    REQUIRE(tw.run(CmdBuildTrack{freeAnchor(at(6, 10.5)), freeAnchor(at(30, 10.5))}).ok);
+    // Crossing on the level is refused.
+    CHECK(!tw.run(CmdBuildTrack{freeAnchor(at(18.5, 1.5)), freeAnchor(at(18.5, 20))}).ok);
+    // From hill to hill, high over the first line.
+    for (const double cy : {1.5, 20.0})
+        for (i32 y = 1; y < 2 * kChunkSize; ++y)
+            for (i32 x = 1; x < 2 * kChunkSize; ++x)
+                if (std::hypot(x - 18.5, y - cy) < 3.0) tw.w.map.setCornerFine(x, y, 4 * kSubLevels + 60);
+    const CommandResult over = tw.run(CmdBuildTrack{freeAnchor(at(18.5, 1.5)), freeAnchor(at(18.5, 20))});
+    if (!over.ok) std::printf("overpass refused: %s\n", over.error.c_str());
+    CHECK(over.ok);
+    CHECK(structureLength(tw.w, TrackStructure::Bridge) > 6 * kTrackUnits);
 }

@@ -310,6 +310,7 @@ bool canPlaceBuilding(const World& w, TilePos pos, u8 size) {
             const TilePos p{pos.x + dx, pos.y + dy};
             const Tile* t = w.map.tile(p);
             if (!t || t->type != TileType::Clear) return false;
+            if (w.trackTiles.contains(ChunkPos{p.x, p.y}.key())) return false; // under a bridge
             const Slope s = w.map.slope(p);
             const Surface surf = buildingSurface(s);
             if (surf == Surface::Invalid) return false;

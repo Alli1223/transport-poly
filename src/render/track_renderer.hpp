@@ -1,5 +1,6 @@
 #pragma once
-// Meshes for free-form track: ballast, sleepers and rails following each curved edge.
+// Meshes for free-form track: ballast, sleepers and rails following each curved edge, with
+// bridges, tunnel portals and level crossings.
 
 #include "render/mesh.hpp"
 #include "render/shader.hpp"
@@ -37,7 +38,8 @@ private:
     u32 revision_ = ~0u;
 };
 
-// Builds the mesh of one edge with vertices relative to tile `anchor`.
-void buildTrackMesh(const TrackEdge& edge, TilePos anchor, MeshBuilder& out);
+// Builds the mesh of one edge with vertices relative to tile `anchor` (the world gives the
+// ground under bridges).
+void buildTrackMesh(const World& world, const TrackEdge& edge, TilePos anchor, MeshBuilder& out);
 
 } // namespace tp::gfx

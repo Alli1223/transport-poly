@@ -288,6 +288,97 @@ std::optional<TPoint> buildDemoTrack(World& w, CompanyId company, TilePos centre
     return std::nullopt;
 }
 
+// Finds a straight line near `centre` that needs the longest bridge (or tunnel) and builds it.
+// Returns the middle of that structure (used for automated screenshots / smoke tests).
+std::optional<TPoint> buildDemoStructure(World& w, CompanyId company, TilePos centre, TrackStructure kind) {
+    TrackPlan best;
+    TrackAnchor bestFrom, bestTo;
+    i32 bestLength = 2 * kTrackUnits;
+    for (i32 dy = -40; dy <= 40; dy += 5)
+        for (i32 dx = -40; dx <= 40; dx += 5)
+            for (int d = 0; d < 8; ++d) {
+                const double ang = d * 6.2831853 / 8.0;
+                TrackAnchor from, to;
+                from.pos = {(centre.x + dx) * kTrackUnits + kTrackUnits / 2, (centre.y + dy) * kTrackUnits + kTrackUnits / 2};
+                to.pos = {from.pos.x + static_cast<i32>(std::cos(ang) * 24 * kTrackUnits),
+                          from.pos.z + static_cast<i32>(std::sin(ang) * 24 * kTrackUnits)};
+                const TrackPlan plan = track::plan(w, company, from, to);
+                const i32 length = kind == TrackStructure::Bridge ? plan.bridgeLength : plan.tunnelLength;
+                if (plan.ok && length > bestLength) {
+                    best = plan;
+                    bestLength = length;
+                    bestFrom = from;
+                    bestTo = to;
+                }
+            }
+    if (!best.ok) return std::nullopt;
+    Command c;
+    c.company = company;
+    c.payload = CmdBuildTrack{bestFrom, bestTo};
+    if (!executeCommand(w, c).ok) return std::nullopt;
+    for (const TrackSpan& sp : best.spans)
+        if (sp.kind == kind) {
+            // A bridge from its middle; a tunnel from just outside its first portal.
+            const i32 look = kind == TrackStructure::Bridge ? (sp.s0 + sp.s1) / 2 : std::max(0, sp.s0 - kTrackUnits);
+            for (const TrackSample& sm : best.samples)
+                if (sm.s >= look) return sm.p;
+        }
+    return bestFrom.pos;
+}
+
+// Lays a straight line across a straight road near `centre`, with a level crossing. Returns the
+// crossing (used for automated screenshots / smoke tests).
+std::optional<TPoint> buildDemoCrossing(World& w, CompanyId company, TilePos centre) {
+    for (i32 r = 0; r < 70; ++r)
+        for (i32 dy = -r; dy <= r; ++dy)
+            for (i32 dx = -r; dx <= r; ++dx) {
+                if (std::max(std::abs(dx), std::abs(dy)) != r) continue;
+                const TilePos t{centre.x + dx, centre.y + dy};
+                const Tile* tile = w.map.tile(t);
+                if (!tile || tile->type != TileType::Road) continue;
+                const bool ns = allRoadPieces(*tile) == (dirBit(Dir::N) | dirBit(Dir::S));
+                const bool ew = allRoadPieces(*tile) == (dirBit(Dir::E) | dirBit(Dir::W));
+                if (!ns && !ew) continue;
+                const TPoint mid{t.x * kTrackUnits + kTrackUnits / 2, t.y * kTrackUnits + kTrackUnits / 2};
+                for (const i32 skew : {0, 2, -2}) {
+                    TrackAnchor from, to;
+                    const i32 run = 9 * kTrackUnits, side = skew * kTrackUnits;
+                    from.pos = ns ? TPoint{mid.x - run, mid.z - side} : TPoint{mid.x - side, mid.z - run};
+                    to.pos = ns ? TPoint{mid.x + run, mid.z + side} : TPoint{mid.x + side, mid.z + run};
+                    const TrackPlan plan = track::plan(w, company, from, to);
+                    if (!plan.ok || plan.levelCrossings == 0) continue;
+                    Command c;
+                    c.company = company;
+                    c.payload = CmdBuildTrack{from, to};
+                    if (executeCommand(w, c).ok) return mid;
+                }
+            }
+    // No crossable road nearby: lay a country road first, then cross it.
+    for (i32 r = 4; r < 40; r += 2)
+        for (int k = 0; k < 16; ++k)
+            for (const bool ns : {true, false}) {
+                const TilePos a{centre.x + static_cast<i32>(std::cos(k * 0.3927) * r),
+                                centre.y + static_cast<i32>(std::sin(k * 0.3927) * r)};
+                const TilePos b = ns ? TilePos{a.x, a.y + 10} : TilePos{a.x + 10, a.y};
+                Command c;
+                c.company = company;
+                c.payload = CmdBuildRoad{a, b, false};
+                if (!executeCommand(w, c).ok) continue;
+                const TPoint mid{(a.x + b.x) * kTrackUnits / 2 + kTrackUnits / 2, (a.y + b.y) * kTrackUnits / 2 + kTrackUnits / 2};
+                TrackAnchor from, to;
+                from.pos = ns ? TPoint{mid.x - 9 * kTrackUnits, mid.z - kTrackUnits} : TPoint{mid.x - kTrackUnits, mid.z - 9 * kTrackUnits};
+                to.pos = ns ? TPoint{mid.x + 9 * kTrackUnits, mid.z + kTrackUnits} : TPoint{mid.x + kTrackUnits, mid.z + 9 * kTrackUnits};
+                const TrackPlan plan = track::plan(w, company, from, to);
+                if (plan.ok && plan.levelCrossings > 0) {
+                    c.payload = CmdBuildTrack{from, to};
+                    if (executeCommand(w, c).ok) return mid;
+                }
+                c.payload = CmdRemoveRoad{a, b, false};
+                executeCommand(w, c);
+            }
+    return std::nullopt;
+}
+
 // Builds two docks on a coast near `centre`, a shipyard and a ferry between them. Returns the
 // first dock's tile (used for automated screenshots / smoke tests).
 std::optional<TilePos> buildDemoFerry(World& w, CompanyId company, TilePos centre) {
@@ -396,6 +487,12 @@ bool App::parseArgs(int argc, char** argv) {
             demoTrack_ = true;
         } else if (arg == "--preview-station") {
             previewStation_ = true;
+        } else if (arg == "--demo-bridge") {
+            demoStructure_ = TrackStructure::Bridge;
+        } else if (arg == "--demo-tunnel") {
+            demoStructure_ = TrackStructure::Tunnel;
+        } else if (arg == "--demo-crossing") {
+            demoCrossing_ = true;
         } else if (arg == "--demo-ships") {
             demoShips_ = true;
         } else if (arg == "--join") {
@@ -1086,6 +1183,36 @@ int App::run(int argc, char** argv) {
                         demoTrack_ = false;
                         log::warn("No site found for the demo track");
                     }
+                }
+            }
+            if (demoCrossing_ && frameCount >= 200) {
+                if (auto* local = dynamic_cast<LocalSession*>(session_.get())) {
+                    const TilePos centre{static_cast<i32>(std::floor(camera_.target.x)),
+                                         static_cast<i32>(std::floor(camera_.target.z))};
+                    if (const auto at = buildDemoCrossing(local->world(), local->localCompany(), centre)) {
+                        camera_.targetGoal = glm::dvec3(at->x / double(kTrackUnits), 0.0, at->z / double(kTrackUnits));
+                        camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
+                        camera_.distanceGoal = 7.0;
+                        camera_.snapToGoals();
+                    } else {
+                        log::warn("No site found for the demo level crossing");
+                    }
+                    demoCrossing_ = false;
+                }
+            }
+            if (demoStructure_ && frameCount >= 200) {
+                if (auto* local = dynamic_cast<LocalSession*>(session_.get())) {
+                    const TilePos centre{static_cast<i32>(std::floor(camera_.target.x)),
+                                         static_cast<i32>(std::floor(camera_.target.z))};
+                    if (const auto at = buildDemoStructure(local->world(), local->localCompany(), centre, *demoStructure_)) {
+                        camera_.targetGoal = glm::dvec3(at->x / double(kTrackUnits), 0.0, at->z / double(kTrackUnits));
+                        camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
+                        camera_.distanceGoal = *demoStructure_ == TrackStructure::Bridge ? 18.0 : 9.0;
+                        camera_.snapToGoals();
+                    } else {
+                        log::warn("No site found for the demo bridge or tunnel");
+                    }
+                    demoStructure_.reset();
                 }
             }
             if (demoShips_ && frameCount >= 160 && frameCount % 20 == 0) {

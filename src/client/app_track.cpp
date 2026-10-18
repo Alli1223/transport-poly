@@ -50,6 +50,34 @@ void addRibbon(std::vector<gfx::OverlayQuad>& out, const std::vector<TrackSample
     }
 }
 
+// The build preview: the planned track, coloured by what carries it (ground, bridge, tunnel).
+void addPlanRibbon(std::vector<gfx::OverlayQuad>& out, const TrackPlan& plan, double halfWidth) {
+    if (plan.samples.size() < 2) return;
+    if (!plan.ok) {
+        addRibbon(out, plan.samples, halfWidth, gfx::rgba(250, 90, 80, 130));
+        return;
+    }
+    const auto colour = [](TrackStructure k) {
+        switch (k) {
+        case TrackStructure::Bridge: return gfx::rgba(110, 175, 255, 140);
+        case TrackStructure::Tunnel: return gfx::rgba(196, 140, 255, 140);
+        default: return gfx::rgba(110, 230, 140, 120);
+        }
+    };
+    const auto kindOf = [&](usize i) { return track::structureAt(plan.spans, (plan.samples[i].s + plan.samples[i + 1].s) / 2); };
+    std::vector<TrackSample> run{plan.samples[0]};
+    TrackStructure current = kindOf(0);
+    for (usize i = 0; i + 1 < plan.samples.size(); ++i) {
+        if (const TrackStructure k = kindOf(i); k != current) {
+            addRibbon(out, run, halfWidth, colour(current));
+            run = {plan.samples[i]};
+            current = k;
+        }
+        run.push_back(plan.samples[i + 1]);
+    }
+    addRibbon(out, run, halfWidth, colour(current));
+}
+
 // The ground as a plan's earthworks leave it, tinted by how far it is dug away (cuttings,
 // rust) or built up (embankments, sand). Drawn at the new heights, so it shows through hills.
 void addEarthworks(std::vector<gfx::OverlayQuad>& out, const Map& map, const std::vector<FineChange>& changes) {
@@ -124,6 +152,12 @@ void planTooltip(const TrackPlan& p, float scale) {
                             p.minRadius ? std::format("radius {:.1f} tiles", p.minRadius / static_cast<double>(kTrackUnits))
                                         : std::string("straight"));
             ui::mutedText(details.c_str());
+            std::string structures;
+            const auto add = [&](std::string part) { structures += (structures.empty() ? "" : "   ") + part; };
+            if (p.bridgeLength) add(std::format("bridge {:.1f} tiles", p.bridgeLength / static_cast<double>(kTrackUnits)));
+            if (p.tunnelLength) add(std::format("tunnel {:.1f} tiles", p.tunnelLength / static_cast<double>(kTrackUnits)));
+            if (p.levelCrossings) add(std::format("{} level crossing{}", p.levelCrossings, p.levelCrossings == 1 ? "" : "s"));
+            if (!structures.empty()) ui::mutedText(structures.c_str());
             if (p.earthworks > 0) ui::mutedText(std::format("including earthworks {}", formatMoney(p.earthworks)).c_str());
         } else {
             ui::iconText(ui::Icon::Warning, ui::col::kRed, p.error.c_str(), ui::col::kRed);
@@ -198,7 +232,7 @@ void App::handleTrackTool(std::vector<gfx::OverlayQuad>& overlays) {
     const TrackPlan plan = track::plan(w, company, from, to);
     if (plan.ok) addEarthworks(overlays, w.map, plan.terrain);
     if (!plan.samples.empty()) {
-        addRibbon(overlays, plan.samples, 0.34, plan.ok ? gfx::rgba(110, 230, 140, 120) : gfx::rgba(250, 90, 80, 130));
+        addPlanRibbon(overlays, plan, 0.34);
     } else {
         // Nothing planned (too short, explored, ...): a thin line shows where the track would go.
         addRibbon(overlays, {TrackSample{from.pos, track::terrainAt(w, from.pos), 0}, TrackSample{to.pos, track::terrainAt(w, to.pos), 1}},

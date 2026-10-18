@@ -84,6 +84,7 @@ CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, co
         return CommandResult::success(cost);
     }
     case TileType::Road: {
+        if (track::isCrossing(w, t)) return CommandResult::failure("A railway crosses the road here - remove the track first");
         if (tile->rail && tile->owner != ownerByte(company))
             return CommandResult::failure("Railway owned by another company");
         if (tile->rail && tile->extra2) return CommandResult::failure("Train in the way");
@@ -255,6 +256,8 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRoad& x, bool exe
         const bool hasA = layerPieces(*ta, x.tram) & dirBit(dir);
         const bool hasB = layerPieces(*tb, x.tram) & dirBit(opposite(dir));
         if (hasA && hasB) continue;
+        if ((!hasA && track::isCrossing(w, a)) || (!hasB && track::isCrossing(w, b)))
+            return CommandResult::failure("Roads can't branch off at a level crossing");
         if (!canConnectRoad(w.map, a, dir, x.tram)) {
             const bool aOk = ta->type == TileType::Clear || ta->type == TileType::Road;
             return CommandResult::failure(whyNoRoad(w, aOk ? b : a));
@@ -293,6 +296,8 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveRoad& x, bool ex
         if (tiles.size() == 1) mask = 0x0F;
         const u8 have = layerPieces(*t, x.tram) & mask;
         if (!have) continue;
+        if (track::isCrossing(w, tiles[i]))
+            return CommandResult::failure("A railway crosses the road here - remove the track first");
         const u8 owner = x.tram ? t->owner : t->roadOwner;
         if (owner == kOwnerTown) return CommandResult::failure("Town road - can't remove");
         if (owner != ownerByte(c.company) && owner != kOwnerNone) return CommandResult::failure("Owned by another company");
@@ -321,7 +326,7 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRoadStop& x, bool
     if (!t) return CommandResult::failure("Area not explored");
     if (t->type != TileType::Road) return CommandResult::failure(x.tram ? "Build on a tram track" : "Build on a road");
     if (t->span) return CommandResult::failure("Stops cannot be built on a bridge or tunnel");
-    if (t->rail) return CommandResult::failure("Can't build a stop on a level crossing");
+    if (t->rail || track::isCrossing(w, x.tile)) return CommandResult::failure("Can't build a stop on a level crossing");
     const u8 pieces = layerPieces(*t, x.tram);
     if (!isStraight(pieces)) return CommandResult::failure("The road must be straight here");
     if (!w.map.slope(x.tile).isFlat()) return CommandResult::failure("Land must be flat");

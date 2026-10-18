@@ -95,7 +95,7 @@ CommandResult handle(World& w, const Command& c, const CmdTerraform& x, bool exe
         if (!tile) return CommandResult::failure("Area not explored");
         if (tile->type == TileType::Water && tile->owner != kOwnerNone)
             return CommandResult::failure("Reclaim the canal before terraforming");
-        if (tile->type != TileType::Clear && tile->type != TileType::Water)
+        if ((tile->type != TileType::Clear && tile->type != TileType::Water) || w.trackTiles.contains(ChunkPos{t.x, t.y}.key()))
             return CommandResult::failure("Something is in the way - demolish it first");
     }
     const Money cost = static_cast<Money>(plan.changes.size()) * prices::kTerraformPerCorner;
@@ -129,6 +129,7 @@ CommandResult handle(World& w, const Command& c, const CmdTerraformBrush& x, boo
             const Tile* tile = w.map.tile(t);
             if (!tile) return true;
             if (tile->type == TileType::Water ? tile->owner != kOwnerNone : tile->type != TileType::Clear) return true;
+            if (w.trackTiles.contains(ChunkPos{t.x, t.y}.key())) return true; // under a bridge or over a tunnel
         }
         return false;
     };

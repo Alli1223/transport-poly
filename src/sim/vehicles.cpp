@@ -242,7 +242,8 @@ void drive(World& w, VehicleId id) {
     // the road gridlock timeout; pathfinding still treats the road as connected.
     const auto closedCrossing = [&](TilePos pos) {
         const Tile* tile = w.map.tile(pos);
-        return tile && tile->type == TileType::Road && tile->rail && (tile->extra2 & tile->rail);
+        if (!tile || tile->type != TileType::Road) return false;
+        return (tile->rail && (tile->extra2 & tile->rail)) || track::crossingClosed(w, pos);
     };
     if (closedCrossing(neighbour(v.tile, v.exit)))
         v.speed = std::min(v.speed, std::max(0, pathLength(v.entry, v.exit) - v.progress - 1));
