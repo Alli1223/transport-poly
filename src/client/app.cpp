@@ -1,4 +1,5 @@
 #include "client/app.hpp"
+#include "client/ui/widgets.hpp"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -19,6 +20,7 @@
 #include "sim/water_path.hpp"
 
 #include <algorithm>
+#include <cfloat>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -243,7 +245,8 @@ bool App::parseArgs(int argc, char** argv) {
     if (argc > 0 && argv[0]) exeDir_ = std::filesystem::path(argv[0]).parent_path().string();
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
-        if (arg != "--no-debug" && arg != "--screenshot" && arg != "--frames" && arg != "--time") directStart_ = true;
+        if (arg != "--no-debug" && arg != "--screenshot" && arg != "--frames" && arg != "--time" && arg != "--open")
+            directStart_ = true;
         const auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : nullptr; };
         if (arg == "--screenshot") {
             if (const char* v = next()) autoScreenshot_ = v;
@@ -265,6 +268,8 @@ bool App::parseArgs(int argc, char** argv) {
             if (const char* v = next()) gotoTownDistance_ = std::max(6.0, std::atof(v));
         } else if (arg == "--goto-water") {
             gotoWater_ = true;
+        } else if (arg == "--open") {
+            if (const char* v = next()) openWindows_ = v;
         } else if (arg == "--follow") {
             followFirst_ = true;
         } else if (arg == "--demo-network") {
@@ -345,22 +350,11 @@ bool App::init() {
     float xs = 1.0f, ys = 1.0f;
     glfwGetWindowContentScale(window_, &xs, &ys);
     uiScale_ = std::max(1.0f, xs);
-    ImGui::StyleColorsDark();
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 6.0f;
-    style.FrameRounding = 4.0f;
-    style.GrabRounding = 4.0f;
-    style.ScaleAllSizes(uiScale_);
-    // Prefer the bundled Roboto font, fall back to the built-in one.
-    bool fontLoaded = false;
-    for (const std::filesystem::path dir : {std::filesystem::path(exeDir_) / "fonts", std::filesystem::path("fonts")}) {
-        const std::filesystem::path font = dir / "Roboto-Medium.ttf";
-        std::error_code ec;
-        if (!fontLoaded && std::filesystem::exists(font, ec)) {
-            fontLoaded = io.Fonts->AddFontFromFileTTF(font.string().c_str(), 16.0f * uiScale_) != nullptr;
-        }
-    }
-    if (!fontLoaded) io.FontGlobalScale = uiScale_;
+    // The UI font ships next to the executable; fall back to the working directory.
+    std::filesystem::path font = std::filesystem::path(exeDir_) / "fonts" / "Roboto-Medium.ttf";
+    std::error_code ec;
+    if (!std::filesystem::exists(font, ec)) font = std::filesystem::path("fonts") / "Roboto-Medium.ttf";
+    ui::setup(font, uiScale_);
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
 
@@ -515,36 +509,80 @@ void App::updateExploration(double now) {
 }
 
 void App::processFeedback(double now) {
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    const bool mouseValid = mouse.x > -1000.0f && mouse.y > -1000.0f;
     for (const CommandFeedback& f : session_->takeFeedback()) {
         if (f.result.ok) {
             if (f.seq == pendingBuySeq_ && f.result.createdId != 0xFFFFFFFFu) {
                 selVehicle_ = VehicleId(f.result.createdId);
                 pendingBuySeq_ = 0;
             }
-            if (f.result.cost > 0) toasts_.push_back({std::format("-{}", formatMoney(f.result.cost)), now + 2.0, false});
-            else if (f.result.cost < 0)
-                toasts_.push_back({std::format("+{}", formatMoney(-f.result.cost)), now + 2.0, false});
+            if (f.result.cost != 0) {
+                // Costs float up from the mouse pointer, where the action happened.
+                Toast t{f.result.cost > 0 ? std::format("-{}", formatMoney(f.result.cost))
+                                          : std::format("+{}", formatMoney(-f.result.cost)),
+                        now + 1.6, false};
+                t.born = now;
+                t.x = mouseValid ? mouse.x : ImGui::GetIO().DisplaySize.x * 0.5f;
+                t.y = mouseValid ? mouse.y : ImGui::GetIO().DisplaySize.y * 0.5f;
+                toasts_.push_back(std::move(t));
+            }
         } else if (f.name != "Explore") {
             toasts_.push_back({std::format("{}: {}", f.name, f.result.error), now + 4.0, true});
         }
     }
-    while (toasts_.size() > 6) toasts_.pop_front();
+    while (toasts_.size() > 10) toasts_.pop_front();
 }
 
 void App::drawToasts(double now) {
     std::erase_if(toasts_, [&](const Toast& t) { return t.expires < now; });
     if (toasts_.empty()) return;
+    const float s = uiScale_;
+    ImDrawList* fg = ImGui::GetForegroundDrawList();
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 60.0f),
-                            ImGuiCond_Always, ImVec2(0.5f, 1.0f));
-    ImGui::SetNextWindowBgAlpha(0.6f);
-    ImGui::Begin("##toasts", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
-                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
-    for (const Toast& t : toasts_)
-        ImGui::TextColored(t.error ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f) : ImVec4(1.0f, 0.9f, 0.5f, 1.0f), "%s",
-                           t.text.c_str());
-    ImGui::End();
+    float cardY = vp->WorkPos.y + vp->WorkSize.y - dockHeight_ - 24.0f * s;
+    ImFont* small = ui::fonts().small;
+    ImFont* body = ui::fonts().body;
+    // Newest card at the bottom, older ones stacked above it.
+    for (auto it = toasts_.rbegin(); it != toasts_.rend(); ++it) {
+        Toast& t = *it;
+        if (t.born == 0.0) t.born = now;
+        const float age = static_cast<float>(now - t.born);
+        const float life = static_cast<float>(t.expires - t.born);
+        const float fadeIn = std::min(1.0f, age / 0.15f);
+        const float fadeOut = std::min(1.0f, static_cast<float>(t.expires - now) / 0.35f);
+        const float alpha = std::clamp(std::min(fadeIn, fadeOut), 0.0f, 1.0f);
+        if (t.x >= 0.0f) {
+            // Floating cost label.
+            const float k = std::clamp(age / std::max(0.1f, life), 0.0f, 1.0f);
+            const bool income = !t.text.empty() && t.text[0] == '+';
+            const ImU32 c = income ? ui::col::kGreen : ui::col::kAccent;
+            const ImVec2 ts = small->CalcTextSizeA(small->FontSize, FLT_MAX, 0.0f, t.text.c_str());
+            const ImVec2 at(t.x + 14.0f * s, t.y - 18.0f * s - k * 46.0f * s);
+            const ImVec2 mn(at.x - 8.0f * s, at.y - 3.0f * s), mx(at.x + ts.x + 8.0f * s, at.y + ts.y + 3.0f * s);
+            fg->AddRectFilled(mn, mx, ui::withAlpha(ui::col::kBar, 0.9f * alpha), (mx.y - mn.y) * 0.5f);
+            fg->AddRect(mn, mx, ui::withAlpha(c, 0.6f * alpha), (mx.y - mn.y) * 0.5f);
+            fg->AddText(small, small->FontSize, at, ui::withAlpha(c, alpha), t.text.c_str());
+            continue;
+        }
+        // Card: errors in red, notices in green.
+        const ImU32 c = t.error ? ui::col::kRed : ui::col::kGreen;
+        const float wrap = 460.0f * s;
+        const ImVec2 ts = body->CalcTextSizeA(body->FontSize, FLT_MAX, wrap, t.text.c_str());
+        const float w = ts.x + 54.0f * s, h = std::max(ts.y, 18.0f * s) + 20.0f * s;
+        const float slide = (1.0f - fadeIn) * 12.0f * s;
+        const ImVec2 mn(vp->WorkPos.x + (vp->WorkSize.x - w) * 0.5f, cardY - h + slide);
+        const ImVec2 mx(mn.x + w, mn.y + h);
+        ui::dropShadow(fg, mn, mx, 10.0f * s, 12.0f, 0.3f * alpha);
+        fg->AddRectFilled(mn, mx, ui::withAlpha(ui::col::kBar, 0.97f * alpha), 10.0f * s);
+        fg->AddRectFilled(mn, ImVec2(mn.x + 4.0f * s, mx.y), ui::withAlpha(c, alpha), 10.0f * s,
+                          ImDrawFlags_RoundCornersLeft);
+        ui::drawIcon(fg, t.error ? ui::Icon::Warning : ui::Icon::Check, ImVec2(mn.x + 24.0f * s, (mn.y + mx.y) * 0.5f),
+                     18.0f * s, ui::withAlpha(c, alpha));
+        fg->AddText(body, body->FontSize, ImVec2(mn.x + 42.0f * s, mn.y + (h - ts.y) * 0.5f),
+                    ui::withAlpha(ui::col::kText, alpha), t.text.c_str(), nullptr, wrap);
+        cardY = mn.y - 8.0f * s;
+    }
 }
 
 std::optional<glm::vec2> App::worldToScreen(const glm::dvec3& p) const {
@@ -560,55 +598,161 @@ std::optional<glm::vec2> App::worldToScreen(const glm::dvec3& p) const {
 
 void App::drawTownLabels() {
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    const World& w = world();
     const double maxDist = camera_.distance * 3.0 + 150.0;
-    for (const auto [id, t] : world().towns) {
+    for (const auto [id, t] : w.towns) {
         const double dx = t.centre.x + 0.5 - camera_.target.x;
         const double dz = t.centre.y + 0.5 - camera_.target.z;
         if (dx * dx + dz * dz > maxDist * maxDist) continue;
-        const double y = world().map.cornerHeight(t.centre.x, t.centre.y) * gfx::kHeightStep + 2.5;
+        const double y = w.map.cornerHeight(t.centre.x, t.centre.y) * gfx::kHeightStep + 2.5;
         const auto sp = worldToScreen({t.centre.x + 0.5, y, t.centre.y + 0.5});
         if (!sp) continue;
-        const std::string label = std::format("{}  {}", t.name, t.population);
-        const float scale = t.cls == TownClass::City ? 1.25f : (t.cls == TownClass::Town ? 1.1f : 1.0f);
-        ImFont* font = ImGui::GetFont();
-        const float size = ImGui::GetFontSize() * scale;
-        const ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0.0f, label.c_str());
-        const ImVec2 pos(sp->x - ts.x * 0.5f, sp->y - ts.y * 0.5f);
-        dl->AddRectFilled(ImVec2(pos.x - 6, pos.y - 3), ImVec2(pos.x + ts.x + 6, pos.y + ts.y + 3),
-                          IM_COL32(20, 24, 30, 150), 4.0f);
-        dl->AddText(font, size, pos, IM_COL32(255, 255, 255, 235), label.c_str());
+        const ImU32 dot = t.cls == TownClass::City ? ui::col::kAccent
+                          : t.cls == TownClass::Town ? ui::col::kBlue
+                                                     : ui::col::kLeaf;
+        const float scale = t.cls == TownClass::City ? 1.15f : (t.cls == TownClass::Town ? 1.05f : 0.95f);
+        const std::string pop = std::format("{}", t.population);
+        ui::worldLabel(dl, ImVec2(sp->x, sp->y), t.name.c_str(), pop.c_str(), dot, scale);
+    }
+    // Station signs when zoomed in.
+    if (camera_.distance > 110.0) return;
+    const double stationDist = camera_.distance * 2.0 + 40.0;
+    for (const auto [id, st] : w.stations) {
+        const double dx = st.sign.x + 0.5 - camera_.target.x;
+        const double dz = st.sign.y + 0.5 - camera_.target.z;
+        if (dx * dx + dz * dz > stationDist * stationDist) continue;
+        const double y = gfx::terrainHeightAt(w.map, st.sign.x + 0.5, st.sign.y + 0.5) + 1.1;
+        const auto sp = worldToScreen({st.sign.x + 0.5, y, st.sign.y + 0.5});
+        if (!sp) continue;
+        const Company* c = w.companies.tryGet(st.owner);
+        const ImU32 dot = ui::rgb(companyColourRgb(c ? c->colour : 14));
+        const usize waiting = st.waitingCount();
+        const std::string detail = waiting > 0 ? std::format("{} waiting", waiting) : std::string();
+        ui::worldLabel(dl, ImVec2(sp->x, sp->y), st.name.c_str(), waiting > 0 ? detail.c_str() : nullptr, dot, 0.85f);
     }
 }
 
 void App::drawHud() {
     World& w = world();
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + 6.0f), ImGuiCond_Always,
-                            ImVec2(0.5f, 0.0f));
-    ImGui::SetNextWindowBgAlpha(0.75f);
-    ImGui::Begin("##hud", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
-    const Company* co = w.companies.tryGet(session_->localCompany());
-    ImGui::Text("%s  %s", formatDate(w.clock.day()).c_str(), formatTimeOfDay(w.clock.minuteOfDay()).c_str());
-    ImGui::SameLine(0, 24);
-    if (co) {
-        ImGui::TextColored(co->money < 0 ? ImVec4(1, 0.4f, 0.4f, 1) : ImVec4(0.6f, 1, 0.6f, 1), "%s",
-                           formatMoney(co->money).c_str());
-        ImGui::SameLine(0, 24);
-        ImGui::TextUnformatted(co->name.c_str());
-        ImGui::SameLine(0, 24);
+    const float s = uiScale_;
+    const float rowH = 32.0f * s;
+    ui::beginBar("##hud", ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + 10.0f * s), ImVec2(0.5f, 0.0f),
+                 ImVec2(8, 6), 18.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const auto separator = [&] {
+        ImGui::SameLine(0, 8.0f * s);
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(1.0f, rowH));
+        dl->AddLine(ImVec2(pos.x, pos.y + 7.0f * s), ImVec2(pos.x, pos.y + rowH - 7.0f * s), ui::col::kBorderStrong);
+        ImGui::SameLine(0, 8.0f * s);
+    };
+    // An icon and a text, vertically centred in the bar, with an optional tooltip.
+    const auto item = [&](const char* id, ui::Icon icon, ImU32 iconCol, const char* text, ImU32 textCol,
+                          const ui::Tip& tip) {
+        ImFont* f = ui::fonts().body;
+        const ImVec2 ts = f->CalcTextSizeA(f->FontSize, FLT_MAX, 0.0f, text);
+        const float iconSz = 17.0f * s;
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton(id, ImVec2(iconSz + 7.0f * s + ts.x, rowH));
+        ui::drawIcon(dl, icon, ImVec2(pos.x + iconSz * 0.5f, pos.y + rowH * 0.5f), iconSz, iconCol);
+        dl->AddText(f, f->FontSize, ImVec2(pos.x + iconSz + 7.0f * s, pos.y + (rowH - ts.y) * 0.5f), textCol, text);
+        ui::itemTooltip(tip);
+    };
+
+    if (ui::iconButton("##menu", ui::Icon::Menu, 32, showGameMenu_, ui::col::kAccent,
+                       {"Game menu", "Save the game, or leave it", "Esc"}))
+        showGameMenu_ = !showGameMenu_;
+    separator();
+    const std::string date = formatDate(w.clock.day());
+    item("##date", ui::Icon::Calendar, ui::col::kTextMuted, date.c_str(), ui::col::kText, {});
+    ImGui::SameLine(0, 14.0f * s);
+    const i32 minute = static_cast<i32>(w.clock.minuteOfDay());
+    const bool daytime = minute >= 6 * 60 && minute < 19 * 60;
+    const std::string time = formatTimeOfDay(w.clock.minuteOfDay());
+    item("##time", daytime ? ui::Icon::Sun : ui::Icon::Moon, daytime ? ui::col::kAccent : ui::col::kBlue, time.c_str(),
+         ui::col::kText, {daytime ? "Daytime" : "Night", "People leave for work in the morning and head home in the evening."});
+    if (const Company* co = w.companies.tryGet(session_->localCompany())) {
+        separator();
+        const std::string money = formatMoney(co->money);
+        const std::string tipBody = std::format("Loan {}. Click to open the finances.", formatMoney(co->loan));
+        item("##money", ui::Icon::Coins, co->money < 0 ? ui::col::kRed : ui::col::kGreen, money.c_str(),
+             co->money < 0 ? ui::col::kRed : ui::col::kText, {"Bank balance", tipBody.c_str(), "F"});
+        if (ImGui::IsItemClicked()) showFinances_ = !showFinances_;
+        ImGui::SameLine(0, 14.0f * s);
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImFont* f = ui::fonts().body;
+        const ImVec2 ts = f->CalcTextSizeA(f->FontSize, FLT_MAX, 0.0f, co->name.c_str());
+        ImGui::Dummy(ImVec2(16.0f * s + ts.x, rowH));
+        dl->AddCircleFilled(ImVec2(pos.x + 6.0f * s, pos.y + rowH * 0.5f), 6.0f * s, ui::rgb(companyColourRgb(co->colour)));
+        dl->AddText(f, f->FontSize, ImVec2(pos.x + 18.0f * s, pos.y + (rowH - ts.y) * 0.5f), ui::col::kTextMuted,
+                    co->name.c_str());
     }
-    const int speeds[] = {0, 1, 2, 4, 8, 16};
-    const char* labels[] = {"||", "1x", "2x", "4x", "8x", "16x"};
-    for (int i = 0; i < 6; ++i) {
-        if (i) ImGui::SameLine();
-        const bool active = session_->speed() == speeds[i];
-        if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton(labels[i])) session_->setSpeed(speeds[i]); // network clients ignore this
-        if (active) ImGui::PopStyleColor();
+    separator();
+    static constexpr int kSpeeds[] = {0, 1, 2, 4, 8, 16};
+    static constexpr ui::Segment kSegments[] = {{nullptr, ui::Icon::Pause, "Pause (Space)"},
+                                                {"1x", ui::Icon::None, "Normal speed"},
+                                                {"2x", ui::Icon::None, "Double speed"},
+                                                {"4x", ui::Icon::None, "Four times as fast"},
+                                                {"8x", ui::Icon::None, "Eight times as fast"},
+                                                {"16x", ui::Icon::None, "Sixteen times as fast"}};
+    int current = -1;
+    for (int i = 0; i < 6; ++i)
+        if (session_->speed() == kSpeeds[i]) current = i;
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.0f * s);
+    if (const int clicked = ui::segmented("##speed", kSegments, current, 28.0f); clicked >= 0)
+        session_->setSpeed(kSpeeds[clicked]); // network clients ignore this
+    const ImVec2 barPos = ImGui::GetWindowPos(), barSize = ImGui::GetWindowSize();
+    ui::endBar();
+
+    if (session_->speed() == 0) {
+        // Paused badge under the bar.
+        ImDrawList* fg = ImGui::GetBackgroundDrawList();
+        ImFont* f = ui::fonts().small;
+        const char* text = "PAUSED";
+        const ImVec2 ts = f->CalcTextSizeA(f->FontSize, FLT_MAX, 0.0f, text);
+        const float pulse = 0.75f + 0.25f * std::sin(static_cast<float>(ImGui::GetTime()) * 4.0f);
+        const ImVec2 mn(barPos.x + (barSize.x - ts.x) * 0.5f - 12.0f * s, barPos.y + barSize.y + 6.0f * s);
+        const ImVec2 mx(mn.x + ts.x + 24.0f * s, mn.y + ts.y + 6.0f * s);
+        fg->AddRectFilled(mn, mx, ui::withAlpha(ui::col::kAccent, 0.9f * pulse), (mx.y - mn.y) * 0.5f);
+        fg->AddText(f, f->FontSize, ImVec2(mn.x + 12.0f * s, mn.y + 3.0f * s), ui::col::kTextOnAccent, text);
     }
-    ImGui::End();
+}
+
+void App::handleHotkeys() {
+    if (autoScreenshot_) return;
+    const ImGuiIO& io = ImGui::GetIO();
+    if (io.WantTextInput || io.KeyCtrl || io.KeyAlt) return;
+    const auto toggleGroup = [&](ToolGroup g) {
+        toolGroup_ = toolGroup_ == g ? ToolGroup::None : g;
+        tool_ = Tool::None;
+        dragStart_.reset();
+    };
+    if (ImGui::IsKeyPressed(ImGuiKey_1, false)) toggleGroup(ToolGroup::Land);
+    if (ImGui::IsKeyPressed(ImGuiKey_2, false)) toggleGroup(ToolGroup::Road);
+    if (ImGui::IsKeyPressed(ImGuiKey_3, false)) toggleGroup(ToolGroup::Tram);
+    if (ImGui::IsKeyPressed(ImGuiKey_4, false)) toggleGroup(ToolGroup::Rail);
+    if (ImGui::IsKeyPressed(ImGuiKey_5, false)) toggleGroup(ToolGroup::Water);
+    if (ImGui::IsKeyPressed(ImGuiKey_V, false)) showVehicleList_ = !showVehicleList_;
+    if (ImGui::IsKeyPressed(ImGuiKey_F, false)) showFinances_ = !showFinances_;
+    if (ImGui::IsKeyPressed(ImGuiKey_T, false)) showTownList_ = !showTownList_;
+    if (ImGui::IsKeyPressed(ImGuiKey_N, false)) showNews_ = !showNews_;
+    if (ImGui::IsKeyPressed(ImGuiKey_M, false)) showMinimap_ = !showMinimap_;
+    // Escape peels back one layer at a time: the active tool (handled by handleTools), the
+    // tool flyout, open windows and finally the game menu.
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !escConsumed_) {
+        if (toolGroup_ != ToolGroup::None) {
+            toolGroup_ = ToolGroup::None;
+            escConsumed_ = true;
+        } else if (selVehicle_.valid() || selDepot_.valid() || selStation_.valid() || selTown_.valid()) {
+            if (followVehicle_ == selVehicle_) followVehicle_ = {};
+            selVehicle_ = {};
+            selDepot_ = {};
+            selStation_ = {};
+            selTown_ = {};
+            escConsumed_ = true;
+        }
+    }
 }
 
 void App::drawDebugUi() {
@@ -694,9 +838,16 @@ int App::run(int argc, char** argv) {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+        escConsumed_ = false;
         if (ImGui::IsKeyPressed(ImGuiKey_F12)) pendingScreenshot_ = true;
 
         if (screen_ == Screen::MainMenu || !session_) {
+            if (!openWindows_.empty() && frameCount == 30) {
+                // Automation: show a page of the main menu.
+                if (openWindows_.find("newgame") != std::string::npos) menuPage_ = MenuPage::NewGame;
+                if (openWindows_.find("load") != std::string::npos) menuPage_ = MenuPage::Load;
+                if (openWindows_.find("join") != std::string::npos) menuPage_ = MenuPage::Join;
+            }
             updatePreview(dt);
             drawMainMenu();
             if (preview_) renderer_.render(preview_->world(), camera_, 15.5 * 60.0, timeSeconds_, preview_->tickFraction(), {});
@@ -764,6 +915,36 @@ int App::run(int argc, char** argv) {
                     }
                 }
             }
+            if (!openWindows_.empty() && frameCount >= 400) {
+                // Automation: open windows for screenshots once the demo network exists.
+                const auto wants = [&](std::string_view name) { return openWindows_.find(name) != std::string::npos; };
+                World& w = world();
+                if (wants("finances")) showFinances_ = true;
+                if (wants("vehicles")) showVehicleList_ = true;
+                if (wants("towns")) showTownList_ = true;
+                if (wants("news")) showNews_ = true;
+                if (wants("depot"))
+                    for (const auto [id, d] : w.depots) {
+                        selDepot_ = id;
+                        break;
+                    }
+                if (wants("station"))
+                    for (const auto [id, st] : w.stations) {
+                        selStation_ = id;
+                        break;
+                    }
+                if (wants("town")) {
+                    const Town* best = nullptr;
+                    for (const auto [id, t] : w.towns)
+                        if (!best || t.population > best->population) {
+                            best = &t;
+                            selTown_ = id;
+                        }
+                }
+                if (wants("rail")) toolGroup_ = ToolGroup::Rail;
+                if (wants("gamemenu")) showGameMenu_ = true;
+                openWindows_.clear();
+            }
             if (followFirst_ && frameCount >= 160) {
                 // Follow the first vehicle out on the network as soon as there is one.
                 for (const auto [id, v] : world().vehicles) {
@@ -785,6 +966,8 @@ int App::run(int argc, char** argv) {
             if (const Station* st = world().stations.tryGet(selStation_))
                 addCatchmentOverlay(overlays, st->tiles, st->catchment, gfx::rgba(90, 170, 255, 55));
             handleTools(overlays);
+            handleHotkeys();
+            drawTownLabels();
 
             drawHud();
             drawToolbar();
@@ -797,7 +980,6 @@ int App::run(int argc, char** argv) {
             drawMinimap(now);
             const double minute =
                 fixedTimeOfDay_ ? *fixedTimeOfDay_ : world().clock.exactMinuteOfDay(session_->tickFraction());
-            drawTownLabels();
             renderer_.render(world(), camera_, minute, timeSeconds_, session_->tickFraction(), overlays);
         }
         ImGui::Render();

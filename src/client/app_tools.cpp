@@ -1,6 +1,7 @@
 // Construction tools, map clicks and the build toolbar.
 
 #include "client/app.hpp"
+#include "client/ui/widgets.hpp"
 
 #include <imgui.h>
 
@@ -125,10 +126,12 @@ void App::handleClick() {
 
 void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
     if (autoScreenshot_) return;
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape) || (!mouseOverUi_ && ImGui::IsMouseClicked(ImGuiMouseButton_Right) &&
-                                                 tool_ != Tool::None && !dragStart_)) {
+    const bool esc = ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !ImGui::GetIO().WantTextInput;
+    if ((esc && tool_ != Tool::None) || (!mouseOverUi_ && ImGui::IsMouseClicked(ImGuiMouseButton_Right) &&
+                                         tool_ != Tool::None && !dragStart_)) {
         tool_ = Tool::None;
         dragStart_.reset();
+        if (esc) escConsumed_ = true;
     }
     if (tool_ == Tool::None) {
         handleClick();
@@ -143,10 +146,18 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
         return testCommand(w, c);
     };
     const auto showResult = [&](const CommandResult& r) {
-        if (r.ok)
-            ImGui::SetTooltip("%s", r.cost > 0 ? std::format("Cost: {}", formatMoney(r.cost)).c_str() : "OK");
-        else
-            ImGui::SetTooltip("%s", r.error.c_str());
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * uiScale_, 7.0f * uiScale_));
+        if (ImGui::BeginTooltip()) {
+            if (r.ok && r.cost > 0)
+                ui::iconText(ui::Icon::Coins, ui::col::kAccent, std::format("Cost {}", formatMoney(r.cost)).c_str());
+            else if (r.ok)
+                ui::iconText(ui::Icon::Check, ui::col::kGreen, r.cost < 0 ? std::format("Refund {}", formatMoney(-r.cost)).c_str()
+                                                                          : "Free");
+            else
+                ui::iconText(ui::Icon::Warning, ui::col::kRed, r.error.c_str(), ui::col::kRed);
+            ImGui::EndTooltip();
+        }
+        ImGui::PopStyleVar();
     };
     constexpr u32 kOk = gfx::rgba(120, 240, 120, 110);
     constexpr u32 kBad = gfx::rgba(250, 90, 80, 120);
@@ -299,101 +310,164 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) session_->submit(*cmd);
 }
 
+namespace {
+
+struct GroupInfo {
+    ToolGroup group;
+    ui::Icon icon;
+    const char* name;
+    const char* body;
+    const char* key;
+    ImU32 colour;
+};
+
+constexpr GroupInfo kGroups[] = {
+    {ToolGroup::Land, ui::Icon::Landscape, "Landscape", "Raise and lower land, demolish and plant trees", "1", ui::col::kLand},
+    {ToolGroup::Road, ui::Icon::Road, "Roads", "Roads, bus stops and bus depots", "2", ui::col::kRoad},
+    {ToolGroup::Tram, ui::Icon::Tram, "Trams", "Tram track, tram stops and tram depots", "3", ui::col::kTram},
+    {ToolGroup::Rail, ui::Icon::Train, "Railways", "Track, signals, stations and train depots", "4", ui::col::kRail},
+    {ToolGroup::Water, ui::Icon::Ship, "Waterways", "Docks and shipyards for ferries", "5", ui::col::kWater},
+};
+
+struct ToolInfo {
+    Tool tool;
+    ToolGroup group;
+    ui::Icon icon;
+    const char* label;
+    const char* tip;
+    bool remove;
+};
+
+constexpr ToolInfo kTools[] = {
+    {Tool::Raise, ToolGroup::Land, ui::Icon::Raise, "Raise", "Click a corner to raise the land", false},
+    {Tool::Lower, ToolGroup::Land, ui::Icon::Lower, "Lower", "Click a corner to lower the land", false},
+    {Tool::Clear, ToolGroup::Land, ui::Icon::Bulldoze, "Bulldoze", "Drag to demolish everything in an area", false},
+    {Tool::Trees, ToolGroup::Land, ui::Icon::Tree, "Trees", "Drag to plant trees", false},
+    {Tool::Road, ToolGroup::Road, ui::Icon::Road, "Road", "Drag to build a straight road", false},
+    {Tool::RemoveRoad, ToolGroup::Road, ui::Icon::Road, "Remove", "Drag to remove road", true},
+    {Tool::BusStop, ToolGroup::Road, ui::Icon::BusStop, "Bus stop", "Build a drive-through stop on a straight road",
+     false},
+    {Tool::RoadDepot, ToolGroup::Road, ui::Icon::Depot, "Depot", "Build a bus depot next to a road", false},
+    {Tool::TramTrack, ToolGroup::Tram, ui::Icon::Track, "Track", "Drag to lay tram track, on roads or on its own",
+     false},
+    {Tool::RemoveTram, ToolGroup::Tram, ui::Icon::Track, "Remove", "Drag to remove tram track", true},
+    {Tool::TramStop, ToolGroup::Tram, ui::Icon::BusStop, "Tram stop", "Build a tram stop on straight track", false},
+    {Tool::TramDepot, ToolGroup::Tram, ui::Icon::Depot, "Depot", "Build a tram depot next to tram track", false},
+    {Tool::RailTrack, ToolGroup::Rail, ui::Icon::Track, "Track",
+     "Drag to lay railway track: straight first, then diagonally towards the cursor", false},
+    {Tool::RemoveRail, ToolGroup::Rail, ui::Icon::Track, "Remove",
+     "Drag to remove track, or click a tile to clear all of its track", true},
+    {Tool::Signal, ToolGroup::Rail, ui::Icon::Signal, "Signal",
+     "Click straight track to add a signal; click again to cycle two-way, one-way, reversed and none", false},
+    {Tool::RailStation, ToolGroup::Rail, ui::Icon::Station, "Station",
+     "Drag along flat ground or straight track to build platforms", false},
+    {Tool::RailDepot, ToolGroup::Rail, ui::Icon::Depot, "Depot", "Build a train depot facing the track", false},
+    {Tool::Dock, ToolGroup::Water, ui::Icon::Anchor, "Dock",
+     "Build a dock on the shore; ships moor at the water tile in front of it", false},
+    {Tool::ShipDepot, ToolGroup::Water, ui::Icon::Shipyard, "Shipyard",
+     "Build a shipyard on the shore, facing the water", false},
+};
+
+const GroupInfo* groupInfo(ToolGroup g) {
+    for (const GroupInfo& gi : kGroups)
+        if (gi.group == g) return &gi;
+    return nullptr;
+}
+
+} // namespace
+
 void App::drawToolbar() {
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
-                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
-                                   ImGuiWindowFlags_NoNav;
-    const auto pushActive = [](bool active) {
-        if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        return active;
-    };
-    const auto button = [&](const char* label, Tool t, const char* tip) {
-        const bool active = pushActive(tool_ == t);
-        if (ImGui::Button(label)) {
-            tool_ = active ? Tool::None : t;
-            dragStart_.reset();
-        }
-        if (active) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
-        ImGui::SameLine();
-    };
+    const float s = uiScale_;
 
-    // Main row: tool groups and windows.
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 8.0f),
-                            ImGuiCond_Always, ImVec2(0.5f, 1.0f));
-    ImGui::SetNextWindowBgAlpha(0.8f);
-    ImGui::Begin("##tools", nullptr, flags);
-    const auto group = [&](const char* label, ToolGroup g, const char* tip) {
-        const bool active = pushActive(toolGroup_ == g);
-        if (ImGui::Button(label)) {
-            toolGroup_ = active ? ToolGroup::None : g;
+    // --- The dock: tool groups and windows ---------------------------------------------
+    ui::beginBar("##dock", ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 12.0f * s),
+                 ImVec2(0.5f, 1.0f), ImVec2(9, 8), 20.0f);
+    for (const GroupInfo& g : kGroups) {
+        ImGui::PushID(static_cast<int>(g.group));
+        if (ui::iconButton("##group", g.icon, 46, toolGroup_ == g.group, g.colour, {g.name, g.body, g.key})) {
+            toolGroup_ = toolGroup_ == g.group ? ToolGroup::None : g.group;
             tool_ = Tool::None;
             dragStart_.reset();
         }
-        if (active) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
-        ImGui::SameLine();
-    };
-    group("Landscape", ToolGroup::Land, "Terraform, demolish and plant trees");
-    group("Roads", ToolGroup::Road, "Roads, bus stops and bus depots");
-    group("Trams", ToolGroup::Tram, "Tram track, stops and depots");
-    group("Railways", ToolGroup::Rail, "Railway track, signals, stations and train depots");
-    group("Waterways", ToolGroup::Water, "Docks and shipyards");
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
-    if (ImGui::Button("Vehicles")) showVehicleList_ = !showVehicleList_;
-    ImGui::SameLine();
-    if (ImGui::Button("Finances")) showFinances_ = !showFinances_;
-    ImGui::SameLine();
-    if (ImGui::Button("Towns")) showTownList_ = !showTownList_;
-    ImGui::SameLine();
-    if (ImGui::Button("News")) showNews_ = !showNews_;
-    ImGui::SameLine();
-    if (ImGui::Button("Map")) showMinimap_ = !showMinimap_;
-    const float mainHeight = ImGui::GetWindowHeight();
-    ImGui::End();
-
-    if (toolGroup_ == ToolGroup::None) return;
-    ImGui::SetNextWindowPos(
-        ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 14.0f - mainHeight),
-        ImGuiCond_Always, ImVec2(0.5f, 1.0f));
-    ImGui::SetNextWindowBgAlpha(0.8f);
-    ImGui::Begin("##subtools", nullptr, flags);
-    switch (toolGroup_) {
-    case ToolGroup::Land:
-        button("Raise", Tool::Raise, "Raise a terrain corner");
-        button("Lower", Tool::Lower, "Lower a terrain corner");
-        button("Bulldoze", Tool::Clear, "Drag to demolish an area");
-        button("Trees", Tool::Trees, "Drag to plant trees");
-        break;
-    case ToolGroup::Road:
-        button("Road", Tool::Road, "Drag to build a straight road");
-        button("Remove road", Tool::RemoveRoad, "Drag to remove road");
-        button("Bus stop", Tool::BusStop, "Build a drive-through bus stop on a straight road");
-        button("Bus depot", Tool::RoadDepot, "Build a bus depot next to a road");
-        break;
-    case ToolGroup::Tram:
-        button("Tram track", Tool::TramTrack, "Drag to lay tram track (on roads or on its own)");
-        button("Remove track", Tool::RemoveTram, "Drag to remove tram track");
-        button("Tram stop", Tool::TramStop, "Build a tram stop on straight track");
-        button("Tram depot", Tool::TramDepot, "Build a tram depot next to tram track");
-        break;
-    case ToolGroup::Rail:
-        button("Track", Tool::RailTrack, "Drag to lay railway track: straight, then diagonal towards the cursor");
-        button("Remove track", Tool::RemoveRail, "Drag to remove track, or click a tile to clear all of its track");
-        button("Signal", Tool::Signal,
-               "Click straight track to add a signal; click again to cycle two-way / one-way / reversed / none");
-        button("Station", Tool::RailStation, "Drag along flat ground or straight track to build platforms");
-        button("Train depot", Tool::RailDepot, "Build a train depot facing the track");
-        break;
-    case ToolGroup::Water:
-        button("Dock", Tool::Dock, "Build a dock on the shore; ships moor at the water tile in front of it");
-        button("Shipyard", Tool::ShipDepot, "Build a shipyard (ship depot) on the shore, facing the water");
-        break;
-    case ToolGroup::None: break;
+        ImGui::PopID();
+        ImGui::SameLine(0, 4.0f * s);
     }
-    ImGui::End();
+    {
+        ImGui::SameLine(0, 8.0f * s);
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(1.0f, 46.0f * s));
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(pos.x, pos.y + 9.0f * s), ImVec2(pos.x, pos.y + 37.0f * s),
+                                            ui::col::kBorderStrong);
+        ImGui::SameLine(0, 12.0f * s);
+    }
+    struct WindowButton {
+        const char* id;
+        ui::Icon icon;
+        bool* flag;
+        ui::Tip tip;
+    };
+    const WindowButton windows[] = {
+        {"##vehicles", ui::Icon::Bus, &showVehicleList_, {"Vehicles", "All of your buses, trams, trains and ships", "V"}},
+        {"##finances", ui::Icon::Coins, &showFinances_, {"Finances", "Income, expenses and your loan", "F"}},
+        {"##towns", ui::Icon::Town, &showTownList_, {"Towns", "Every town you have discovered", "T"}},
+        {"##news", ui::Icon::News, &showNews_, {"News", "What has been happening", "N"}},
+        {"##map", ui::Icon::Map, &showMinimap_, {"Map", "Overview of the explored world", "M"}},
+    };
+    for (const WindowButton& b : windows) {
+        if (ui::iconButton(b.id, b.icon, 46, *b.flag, ui::col::kAccent, b.tip)) *b.flag = !*b.flag;
+        if (&b != &windows[std::size(windows) - 1]) ImGui::SameLine(0, 4.0f * s);
+    }
+    dockHeight_ = ImGui::GetWindowSize().y;
+    ui::endBar();
+
+    // --- Flyout with the tools of the open group -----------------------------------------
+    const GroupInfo* g = groupInfo(toolGroup_);
+    float hintBottom = vp->WorkPos.y + vp->WorkSize.y - dockHeight_ - 22.0f * s;
+    if (g) {
+        ui::beginBar("##flyout", ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, hintBottom), ImVec2(0.5f, 1.0f),
+                     ImVec2(12, 10), 18.0f);
+        {
+            ui::FontScope f(ui::fonts().small);
+            ui::iconInline(g->icon, g->colour);
+            ImGui::SameLine(0, 6.0f * s);
+            ImGui::PushStyleColor(ImGuiCol_Text, ui::vec(g->colour));
+            ImGui::TextUnformatted(g->name);
+            ImGui::PopStyleColor();
+        }
+        bool first = true;
+        for (const ToolInfo& t : kTools) {
+            if (t.group != toolGroup_) continue;
+            if (!first) ImGui::SameLine(0, 6.0f * s);
+            first = false;
+            ImGui::PushID(static_cast<int>(t.tool));
+            if (ui::toolTile("##tool", t.icon, t.label, tool_ == t.tool, g->colour, {t.label, t.tip}, t.remove)) {
+                tool_ = tool_ == t.tool ? Tool::None : t.tool;
+                dragStart_.reset();
+            }
+            ImGui::PopID();
+        }
+        hintBottom = ImGui::GetWindowPos().y - 10.0f * s;
+        ui::endBar();
+    }
+
+    // --- Hint for the active tool ---------------------------------------------------------
+    const ToolInfo* active = nullptr;
+    for (const ToolInfo& t : kTools)
+        if (t.tool == tool_) active = &t;
+    if (active && g) {
+        ImDrawList* dl = ImGui::GetForegroundDrawList();
+        ImFont* f = ui::fonts().small;
+        const std::string text = std::format("{}  -  right-click or Esc to stop", active->tip);
+        const ImVec2 ts = f->CalcTextSizeA(f->FontSize, FLT_MAX, 0.0f, text.c_str());
+        const float w = ts.x + 44.0f * s, h = ts.y + 14.0f * s;
+        const ImVec2 mn(vp->WorkPos.x + (vp->WorkSize.x - w) * 0.5f, hintBottom - h);
+        const ImVec2 mx(mn.x + w, mn.y + h);
+        dl->AddRectFilled(mn, mx, ui::withAlpha(ui::col::kBar, 0.92f), h * 0.5f);
+        dl->AddRect(mn, mx, ui::withAlpha(g->colour, 0.5f), h * 0.5f);
+        ui::drawIcon(dl, active->icon, ImVec2(mn.x + 18.0f * s, (mn.y + mx.y) * 0.5f), 14.0f * s, g->colour);
+        dl->AddText(f, f->FontSize, ImVec2(mn.x + 32.0f * s, mn.y + 7.0f * s), ui::col::kText, text.c_str());
+    }
 }
 
 } // namespace tp

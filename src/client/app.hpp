@@ -66,6 +66,7 @@ private:
     void drawDebugUi();
     void drawToasts(double now);
     void drawTownLabels();
+    void handleHotkeys();
     std::optional<glm::vec2> worldToScreen(const glm::dvec3& p) const;
     void processFeedback(double now);
     bool parseArgs(int argc, char** argv);
@@ -134,6 +135,8 @@ private:
     gfx::TerrainHit hover_;
     gfx::Ray mouseRay_;
     bool mouseOverUi_ = false;
+    bool escConsumed_ = false; // Escape already handled this frame (tool, flyout, windows, menu)
+    float dockHeight_ = 0.0f;  // height of the bottom dock, for placing things above it
     Tool tool_ = Tool::None;
     ToolGroup toolGroup_ = ToolGroup::None;
     std::optional<TilePos> dragStart_;
@@ -171,6 +174,9 @@ private:
         std::string text;
         double expires;
         bool error;
+        double born = 0.0; // set when first shown
+        float x = -1.0f;   // screen position for floating cost labels, < 0 for cards
+        float y = -1.0f;
     };
     std::deque<Toast> toasts_;
 
@@ -181,7 +187,7 @@ private:
     double timeSeconds_ = 0.0;
     float uiScale_ = 1.0f;
     u64 seed_ = 20261017;
-    bool showDebug_ = true;
+    bool showDebug_ = false; // F3
     std::optional<double> fixedTimeOfDay_; // overrides the game clock for screenshots
 
     // Command line automation: render a number of frames, save a screenshot and quit.
@@ -198,6 +204,7 @@ private:
     bool followFirst_ = false;      // automation: follow the first vehicle
     bool directStart_ = false;      // skip the main menu (command line options given)
     std::string joinAddress_;       // --join host[:port]
+    std::string openWindows_;       // automation: --open depot,station,town,finances,vehicles,towns,news
 };
 
 } // namespace tp

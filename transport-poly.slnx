@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+
 <!--
   Visual Studio 2026 solution for transport-poly.
 
@@ -16,7 +16,7 @@
     <Platform Name="x64" />
   </Configurations>
   <Folder Name="/Game/">
-    <Project Path="build/windows-vs2026/src/transport-poly.vcxproj" DefaultStartup="true">
+    <Project Path="build/windows-vs2026/src/transport-poly.vcxproj" DefaultStartup="true" Id="167b5cf3-3c6c-3fa6-9aa9-4127dfe50731">
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/_deps/glfw-build/src/glfw.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/tp_imgui.vcxproj" />
@@ -25,7 +25,7 @@
       <BuildDependency Project="build/windows-vs2026/src/tp_net.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/tp_render.vcxproj" />
     </Project>
-    <Project Path="build/windows-vs2026/src/transport-poly-server.vcxproj">
+    <Project Path="build/windows-vs2026/src/transport-poly-server.vcxproj" Id="0e72ffdf-4c6b-3e66-ba47-8b2d0bdd7b58">
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/tp_core.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/tp_sim.vcxproj" />
@@ -33,26 +33,26 @@
     </Project>
   </Folder>
   <Folder Name="/Libraries/">
-    <Project Path="build/windows-vs2026/src/tp_core.vcxproj">
+    <Project Path="build/windows-vs2026/src/tp_core.vcxproj" Id="1649533e-e67d-35e2-8438-ce72bf415be9">
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
     </Project>
-    <Project Path="build/windows-vs2026/src/tp_sim.vcxproj">
+    <Project Path="build/windows-vs2026/src/tp_sim.vcxproj" Id="f2f576d0-029e-3ea8-82b6-2f6144dc1a37">
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/tp_core.vcxproj" />
     </Project>
-    <Project Path="build/windows-vs2026/src/tp_net.vcxproj">
+    <Project Path="build/windows-vs2026/src/tp_net.vcxproj" Id="3d62d24a-2416-3c84-8d65-03c24bea3751">
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/tp_core.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/tp_sim.vcxproj" />
     </Project>
-    <Project Path="build/windows-vs2026/src/tp_render.vcxproj">
+    <Project Path="build/windows-vs2026/src/tp_render.vcxproj" Id="c4140d3a-23e2-3d9b-a15c-3b76876b93cb">
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/tp_core.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/tp_sim.vcxproj" />
     </Project>
   </Folder>
   <Folder Name="/Tests/">
-    <Project Path="build/windows-vs2026/tests/tp_tests.vcxproj">
+    <Project Path="build/windows-vs2026/tests/tp_tests.vcxproj" Id="c0f47320-fe91-33f5-a5fc-8a0c50b26689">
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/tp_core.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/tp_sim.vcxproj" />
@@ -60,30 +60,30 @@
     </Project>
   </Folder>
   <Folder Name="/Third party/">
-    <Project Path="build/windows-vs2026/_deps/glfw-build/src/glfw.vcxproj">
+    <Project Path="build/windows-vs2026/_deps/glfw-build/src/glfw.vcxproj" Id="e4f61fb7-ffff-3a71-905a-60fdc93d2b36">
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
     </Project>
-    <Project Path="build/windows-vs2026/tp_imgui.vcxproj">
+    <Project Path="build/windows-vs2026/tp_imgui.vcxproj" Id="eadf6eeb-931d-3cc4-a7a2-515fc9ea75b4">
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/_deps/glfw-build/src/glfw.vcxproj" />
     </Project>
   </Folder>
   <Folder Name="/CMake/">
-    <Project Path="build/windows-vs2026/ZERO_CHECK.vcxproj" />
-    <Project Path="build/windows-vs2026/ALL_BUILD.vcxproj">
+    <Project Path="build/windows-vs2026/ZERO_CHECK.vcxproj" Id="9328ebd1-4ed6-3b31-89c8-bf4c5d893237" />
+    <Project Path="build/windows-vs2026/ALL_BUILD.vcxproj" Id="6a1c05b6-ac09-3970-abe5-5294365fd805">
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/transport-poly.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/src/transport-poly-server.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/tests/tp_tests.vcxproj" />
     </Project>
-    <Project Path="build/windows-vs2026/RUN_TESTS.vcxproj">
+    <Project Path="build/windows-vs2026/RUN_TESTS.vcxproj" Id="74a890c3-6a0f-3dc5-8324-0882a72cb33f">
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
-      <Build Solution="*|*" Project="false" />
+      <Build Project="false" />
     </Project>
-    <Project Path="build/windows-vs2026/PACKAGE.vcxproj">
+    <Project Path="build/windows-vs2026/PACKAGE.vcxproj" Id="3830b720-98b7-3061-a865-32b5fc78ed42">
       <BuildDependency Project="build/windows-vs2026/ALL_BUILD.vcxproj" />
       <BuildDependency Project="build/windows-vs2026/ZERO_CHECK.vcxproj" />
-      <Build Solution="*|*" Project="false" />
+      <Build Project="false" />
     </Project>
   </Folder>
   <Folder Name="/Solution Items/">
