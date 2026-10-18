@@ -1,6 +1,7 @@
 #include "sim/road.hpp"
 
 #include "sim/map.hpp"
+#include "sim/rail.hpp"
 
 namespace tp {
 
@@ -9,7 +10,17 @@ namespace {
 // Corner indices (NW, NE, SE, SW) of the edge facing each direction.
 constexpr int kEdgeCorners[4][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}};
 
-bool tileAcceptsRoad(const Tile& t) { return t.type == TileType::Clear || t.type == TileType::Road; }
+bool tileAcceptsRoad(const Tile& t) {
+    return t.type == TileType::Clear || t.type == TileType::Road || t.type == TileType::Rail;
+}
+
+bool crossingAllows(const Map& map, TilePos pos, const Tile& t, Dir d, bool tram) {
+    if (!t.rail) return true;
+    if (tram || !map.slope(pos).isFlat() || t.extra || t.extra2) return false;
+    const u8 roadAxis = (t.rail == kTrackNS) ? axisBits(Dir::E) :
+                        (t.rail == kTrackEW) ? axisBits(Dir::N) : 0;
+    return (dirBit(d) & roadAxis) != 0;
+}
 
 } // namespace
 
@@ -54,6 +65,7 @@ bool canConnectRoad(const Map& map, TilePos a, Dir d, bool tram) {
     const Tile* tb = map.tile(b);
     if (!ta || !tb || !tileAcceptsRoad(*ta) || !tileAcceptsRoad(*tb)) return false;
     const Dir od = opposite(d);
+    if (!crossingAllows(map, a, *ta, d, tram) || !crossingAllows(map, b, *tb, od, tram)) return false;
     if ((layerPieces(*ta, tram) & dirBit(d)) && (layerPieces(*tb, tram) & dirBit(od))) return false; // connected
     const u8 bit = tram ? static_cast<u8>(dirBit(d) << 4) : dirBit(d);
     const u8 obit = tram ? static_cast<u8>(dirBit(od) << 4) : dirBit(od);
@@ -75,6 +87,7 @@ bool canConnectRoad(const Map& map, TilePos a, Dir d, bool tram) {
 bool addRoadPiece(Map& map, TilePos t, Dir d, u8 owner, bool tram) {
     Tile* tile = map.tile(t);
     if (!tile || !tileAcceptsRoad(*tile)) return false;
+    if (!crossingAllows(map, t, *tile, d, tram)) return false;
     const u8 bit = tram ? static_cast<u8>(dirBit(d) << 4) : dirBit(d);
     const u8 newRoad = static_cast<u8>(tile->road | bit);
     const u8 all = static_cast<u8>((newRoad & 0x0F) | (newRoad >> 4));
@@ -89,6 +102,7 @@ bool addRoadPiece(Map& map, TilePos t, Dir d, u8 owner, bool tram) {
         tile->owner = kOwnerNone;
         if (tile->ground == Ground::Rock || tile->ground == Ground::Rough) tile->ground = Ground::Grass;
     }
+    if (tile->type == TileType::Rail) tile->type = TileType::Road;
     if (tram) {
         if (tramPieces(*tile) == 0) tile->owner = owner;
     } else if (roadPieces(*tile) == 0) {

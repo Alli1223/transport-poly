@@ -4,6 +4,7 @@
 #include "sim/commands.hpp"
 #include "sim/water_path.hpp"
 #include "sim/world.hpp"
+#include "sim/prices.hpp"
 
 using namespace tp;
 
@@ -72,6 +73,101 @@ TEST_CASE("ships: water paths stay on water and never cut corners") {
     // Land-locked goal: no path.
     const TilePos inland[] = {TilePos{28, 15}};
     CHECK(!findWaterPath(lw.w, from, inland).has_value());
+}
+
+TEST_CASE("canals: flooding an island opens a shorter navigable route and charges once") {
+    LakeWorld lw;
+    const TilePos goals[] = {{46, 16}};
+    const auto before = findWaterPath(lw.w, {12, 16}, goals);
+    REQUIRE(before.has_value());
+    const auto distance = [](const std::vector<u8>& path) {
+        i32 total = 0;
+        for (const u8 h : path) total += headingLength(h);
+        return total;
+    };
+    lw.w.map.tile({28, 16})->trees = 3;
+    const auto state = toBytes(lw.w, kSaveVersion);
+    const Command flood = cmd(lw.co, CmdEditWater{{24, 16}, {34, 16}, true});
+    const auto preview = testCommand(lw.w, flood);
+    REQUIRE(preview.ok);
+    CHECK(toBytes(lw.w, kSaveVersion) == state);
+    const Money money = lw.w.companies[lw.co].money;
+    const auto built = executeCommand(lw.w, flood);
+    REQUIRE(built.ok);
+    CHECK_EQ(built.cost, 6 * prices::kCanalTile + 3 * prices::kRemoveTree);
+    CHECK_EQ(built.cost, preview.cost);
+    CHECK_EQ(lw.w.companies[lw.co].money, money - built.cost);
+    for (i32 x = 26; x <= 31; ++x) {
+        const Tile& t = *lw.w.map.tile({x, 16});
+        CHECK(t.type == TileType::Water);
+        CHECK_EQ(t.owner, lw.co.value);
+        CHECK_EQ(t.trees, 0);
+    }
+    const auto after = findWaterPath(lw.w, {12, 16}, goals);
+    REQUIRE(after.has_value());
+    CHECK(distance(*after) < distance(*before));
+    CHECK_EQ(distance(*after), 34 * kTileUnits);
+    CHECK(!executeCommand(lw.w, flood).ok);
+    World copy;
+    fromBytes(toBytes(lw.w, kSaveVersion), copy, kSaveVersion);
+    CHECK(copy.map.chunk({0, 0})->tiles == lw.w.map.chunk({0, 0})->tiles);
+    CHECK_EQ(copy.map.tile({28, 16})->owner, lw.co.value);
+    REQUIRE(lw.run(CmdEditWater{{28, 16}, {28, 16}, false}).ok);
+    CHECK(lw.w.map.tile({28, 16})->type == TileType::Clear);
+    CHECK(lw.w.map.tile({28, 16})->ground == Ground::Sand);
+    CHECK_EQ(lw.w.map.tile({28, 16})->owner, kOwnerNone);
+}
+
+TEST_CASE("canals: invalid areas fail atomically and owned canals cannot be stolen") {
+    LakeWorld lw;
+    REQUIRE(lw.run(CmdEditWater{{26, 16}, {31, 16}, true}).ok);
+    const auto created = lw.run(CmdCreateCompany{"Competitor", 1});
+    REQUIRE(created.ok);
+    const CompanyId other(static_cast<u8>(created.createdId));
+    CHECK(!executeCommand(lw.w, cmd(other, CmdEditWater{{28, 16}, {28, 16}, false})).ok);
+    CHECK(!lw.run(CmdTerraform{{28, 16}, 1}).ok);
+    lw.w.map.setCornerHeight(30, 18, 1);
+    const auto before = toBytes(lw.w, kSaveVersion);
+    CHECK(!lw.run(CmdEditWater{{26, 18}, {31, 18}, true}).ok);
+    CHECK(toBytes(lw.w, kSaveVersion) == before);
+    CHECK(!lw.run(CmdEditWater{{0, 0}, {65, 65}, true}).ok);
+    CHECK(!lw.run(CmdEditWater{{70, 12}, {70, 12}, true}).ok);
+    CHECK(toBytes(lw.w, kSaveVersion) == before);
+}
+
+TEST_CASE("canals: reclamation protects ships, their next tile, docks and shipyards") {
+    LakeWorld lw;
+    REQUIRE(lw.run(CmdBuildDock{{9, 16}, Dir::E}).ok);
+    REQUIRE(lw.run(CmdBuildShipDepot{{9, 18}, Dir::E}).ok);
+    CHECK(!lw.run(CmdEditWater{{10, 16}, {10, 16}, false}).ok);
+    CHECK(!lw.run(CmdEditWater{{10, 18}, {10, 18}, false}).ok);
+    Vehicle ship;
+    ship.model = 13;
+    ship.owner = lw.co;
+    ship.state = VehicleState::Driving;
+    ship.tile = {12, 16};
+    ship.heading = headingOf(Dir::E);
+    ship.moving = true;
+    lw.w.vehicles.create(ship);
+    CHECK(!lw.run(CmdEditWater{{12, 16}, {12, 16}, false}).ok);
+    CHECK(!lw.run(CmdEditWater{{13, 16}, {13, 16}, false}).ok);
+    REQUIRE(lw.run(CmdEditWater{{14, 16}, {14, 16}, false}).ok);
+}
+
+TEST_CASE("canals: monthly upkeep charges owned water and command packets round trip") {
+    LakeWorld lw;
+    lw.w.settings.interestPercent = 0;
+    REQUIRE(lw.run(CmdEditWater{{26, 16}, {31, 16}, true}).ok);
+    const Money before = lw.w.companies[lw.co].money;
+    lw.w.clock.tick = lw.w.clock.tickOfDay(daysFromCivil(1950, 2, 1)) - 1;
+    lw.w.tick();
+    CHECK_EQ(lw.w.companies[lw.co].money, before - 6 * prices::kCanalMaintenance);
+    const Command original = cmd(lw.co, CmdEditWater{{26, 16}, {31, 16}, false});
+    Command decoded;
+    fromBytes(toBytes(original), decoded);
+    CHECK(toBytes(original) == toBytes(decoded));
+    REQUIRE(executeCommand(lw.w, decoded).ok);
+    CHECK(!isWaterTile(lw.w, {28, 16}));
 }
 
 TEST_CASE("ships: docks and shipyards need a shore facing water") {

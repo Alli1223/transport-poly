@@ -72,3 +72,35 @@ transport-poly-server --port 3979 --seed 12345
 ```
 
 Clients connect through *Multiplayer → Join* in the main menu.
+
+Press **F5** in a game to write `saves/quicksave.tpsave`; load it through the
+normal load menu. In multiplayer the host saves the game. Monthly autosaves
+continue independently.
+
+Click the clock in the top bar to toggle **Always daylight**. Lighting stays at
+midday while the simulation clock and citizens' schedules continue normally.
+Click again to restore the day / night cycle. This preference is local to the
+client, including in multiplayer.
+
+Build a straight road across straight railway track (or railway across a road)
+on flat land to create a level crossing. Road traffic waits at red crossing lights
+while a train has reserved the track; trains wait for road vehicles to clear.
+Use the road or rail removal tool to remove only that layer. Tram tracks, signals
+and stops cannot be added on a crossing.
+
+The railway toolbar has separate **Path signal** and **Block signal** tools.
+Path signals reserve the chosen route through a junction. Block signals wait
+until all connected branches ahead are clear, up to the next signals. Click
+again with the same tool to cycle two-way, one-way, reversed and removed;
+selecting the other signal tool changes the type while preserving its direction.
+
+In the water toolbar, drag **Canal** over clear, level land at sea level to make
+it navigable. Use the landscaping tools to lower the terrain first. **Reclaim**
+turns water into clear land; it protects ships, active sailing steps and dock /
+shipyard berths. Canals have company ownership and monthly maintenance. Raised
+waterways and locks are not yet implemented.
+
+New worlds include sea-level rivers and lakes. Older saves retain their original
+terrain generator so exploring beyond previously visited chunks remains seamless.
+Companies pay monthly property maintenance for their road and track pieces,
+signals, station tiles and depots; town-owned roads are maintained by the town.

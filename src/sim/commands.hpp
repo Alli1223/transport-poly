@@ -193,9 +193,10 @@ struct CmdRemoveRail {
 // Cycles the signal on a straight track tile: none -> two way -> one way -> other way -> none.
 struct CmdCycleSignal {
     TilePos tile;
+    bool block = false;
     template <class Ar>
     void serialize(Ar& ar) {
-        ar(tile);
+        ar(tile, block);
     }
 };
 
@@ -274,12 +275,21 @@ struct CmdUnshareOrders {
     }
 };
 
+// Flood clear, flat sea-level land, or reclaim existing water, in a rectangle.
+struct CmdEditWater {
+    TilePos a;
+    TilePos b;
+    bool water = true;
+    template <class Ar>
+    void serialize(Ar& ar) { ar(a, b, water); }
+};
+
 using CommandPayload =
     std::variant<CmdActivateChunks, CmdCreateCompany, CmdSetLoan, CmdTerraform, CmdClearArea, CmdPlantTrees, CmdBuildRoad,
                  CmdRemoveRoad, CmdBuildRoadStop, CmdBuildRoadDepot, CmdBuyVehicle, CmdSellVehicle, CmdStartStopVehicle,
                  CmdSendToDepot, CmdSetOrders, CmdSkipOrder, CmdBuildRail, CmdRemoveRail, CmdCycleSignal,
                  CmdBuildRailStation, CmdBuildRailDepot, CmdAddCarriage, CmdRemoveCarriage, CmdBuildDock,
-                 CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders>;
+                 CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

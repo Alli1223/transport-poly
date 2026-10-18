@@ -9,6 +9,7 @@
 
 #include "core/types.hpp"
 #include "sim/coords.hpp"
+#include "sim/ids.hpp"
 #include "sim/road.hpp"
 #include "sim/slope.hpp"
 #include "sim/tile.hpp"
@@ -95,6 +96,7 @@ Surface railSurface(const Slope& s, u8 bits);
 // bit 0 = signal for trains travelling towards N (NS track) / E (EW track), bit 1 = the other way.
 inline constexpr u8 kSignalForward = 1;
 inline constexpr u8 kSignalBackward = 2;
+inline constexpr u8 kSignalBlock = 4; // otherwise a path signal; direction bits remain in bits 0-1
 // Signal bits facing a train travelling towards edge `travel` on a straight tile.
 constexpr u8 signalFacing(u8 straightBit, Dir travel) {
     if (straightBit == kTrackNS) return travel == Dir::N ? kSignalForward : kSignalBackward;
@@ -108,6 +110,10 @@ u8 railPieces(const Tile& t);
 bool canAddTrack(const Map& map, TilePos t, u8 bit);
 // Whether trains can pass from tile `a` through its edge `d` into the neighbour.
 bool railLinkOpen(const World& w, TilePos a, Dir d);
+// Includes the rear of road vehicles that have only just left the crossing.
+bool crossingRoadOccupied(const World& w, TilePos tile);
+// Whole connected block, bounded by signals. Own reservations may be ignored when entering.
+bool blockSignalClear(const World& w, TilePos signal, Dir travel, VehicleId ignore = {});
 
 struct RailStep {
     TilePos tile;

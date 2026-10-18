@@ -79,6 +79,8 @@ CommandResult handle(World& w, const Command& c, const CmdTerraform& x, bool exe
     for (const TilePos t : tiles) {
         const Tile* tile = w.map.tile(t);
         if (!tile) return CommandResult::failure("Area not explored");
+        if (tile->type == TileType::Water && tile->owner != kOwnerNone)
+            return CommandResult::failure("Reclaim the canal before terraforming");
         if (tile->type != TileType::Clear && tile->type != TileType::Water)
             return CommandResult::failure("Something is in the way - demolish it first");
     }

@@ -15,6 +15,7 @@ u8 railExits(const World& w, TilePos t, Dir entry, DepotId allowDepot) {
     const Tile* tile = w.map.tile(t);
     if (!tile) return 0;
     switch (tile->type) {
+    case TileType::Road:
     case TileType::Rail: {
         u8 exits = 0;
         const u8 pieces = tile->rail & tracksAtEdge(entry);

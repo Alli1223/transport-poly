@@ -233,6 +233,15 @@ void drive(World& w, VehicleId id) {
     else v.speed = std::max(desired, v.speed - 6);
     if (v.speed == 0 && desired == 0) ++v.blockedTicks;
 
+    // A rail reservation closes a crossing. This is a hard stop, including after
+    // the road gridlock timeout; pathfinding still treats the road as connected.
+    const auto closedCrossing = [&](TilePos pos) {
+        const Tile* tile = w.map.tile(pos);
+        return tile && tile->type == TileType::Road && tile->rail && (tile->extra2 & tile->rail);
+    };
+    if (closedCrossing(neighbour(v.tile, v.exit)))
+        v.speed = std::min(v.speed, std::max(0, pathLength(v.entry, v.exit) - v.progress - 1));
+
     v.progress += v.speed;
     for (int guard = 0; guard < 4; ++guard) {
         const i32 len = pathLength(v.entry, v.exit);
@@ -242,6 +251,11 @@ void drive(World& w, VehicleId id) {
             return;
         }
         if (v.progress < len) return;
+        if (closedCrossing(neighbour(v.tile, v.exit))) {
+            v.progress = len - 1;
+            v.speed = 0;
+            return;
+        }
         v.progress -= len;
         const VehicleType type = m.type;
         const DepotId allow = allowedDepot(v);

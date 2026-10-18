@@ -654,10 +654,11 @@ void App::drawHud() {
         const ImVec2 ts = f->CalcTextSizeA(f->FontSize, FLT_MAX, 0.0f, text);
         const float iconSz = 17.0f * s;
         const ImVec2 pos = ImGui::GetCursorScreenPos();
-        ImGui::InvisibleButton(id, ImVec2(iconSz + 7.0f * s + ts.x, rowH));
+        const bool clicked = ImGui::InvisibleButton(id, ImVec2(iconSz + 7.0f * s + ts.x, rowH));
         ui::drawIcon(dl, icon, ImVec2(pos.x + iconSz * 0.5f, pos.y + rowH * 0.5f), iconSz, iconCol);
         dl->AddText(f, f->FontSize, ImVec2(pos.x + iconSz + 7.0f * s, pos.y + (rowH - ts.y) * 0.5f), textCol, text);
         ui::itemTooltip(tip);
+        return clicked;
     };
 
     if (ui::iconButton("##menu", ui::Icon::Menu, 32, showGameMenu_, ui::col::kAccent,
@@ -668,10 +669,14 @@ void App::drawHud() {
     item("##date", ui::Icon::Calendar, ui::col::kTextMuted, date.c_str(), ui::col::kText, {});
     ImGui::SameLine(0, 14.0f * s);
     const i32 minute = static_cast<i32>(w.clock.minuteOfDay());
-    const bool daytime = minute >= 6 * 60 && minute < 19 * 60;
+    const bool daytime = daylightOnly_ || (minute >= 6 * 60 && minute < 19 * 60);
     const std::string time = formatTimeOfDay(w.clock.minuteOfDay());
-    item("##time", daytime ? ui::Icon::Sun : ui::Icon::Moon, daytime ? ui::col::kAccent : ui::col::kBlue, time.c_str(),
-         ui::col::kText, {daytime ? "Daytime" : "Night", "People leave for work in the morning and head home in the evening."});
+    if (item("##time", daytime ? ui::Icon::Sun : ui::Icon::Moon, daytime ? ui::col::kAccent : ui::col::kBlue, time.c_str(),
+         daylightOnly_ ? ui::col::kAccent : ui::col::kText,
+         {daylightOnly_ ? "Always daylight" : "Day / night cycle",
+          daylightOnly_ ? "Click to restore the day / night cycle. The game clock continues normally."
+                        : "Click to keep the world in daylight. The game clock continues normally."}))
+        daylightOnly_ = !daylightOnly_;
     if (const Company* co = w.companies.tryGet(session_->localCompany())) {
         separator();
         const std::string money = formatMoney(co->money);
@@ -723,6 +728,7 @@ void App::handleHotkeys() {
     if (autoScreenshot_) return;
     const ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput || io.KeyCtrl || io.KeyAlt) return;
+    if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) quicksave();
     const auto toggleGroup = [&](ToolGroup g) {
         toolGroup_ = toolGroup_ == g ? ToolGroup::None : g;
         tool_ = Tool::None;
@@ -942,6 +948,7 @@ int App::run(int argc, char** argv) {
                         }
                 }
                 if (wants("rail")) toolGroup_ = ToolGroup::Rail;
+                if (wants("water")) toolGroup_ = ToolGroup::Water;
                 if (wants("gamemenu")) showGameMenu_ = true;
                 openWindows_.clear();
             }
@@ -979,7 +986,8 @@ int App::run(int argc, char** argv) {
             drawNews(now);
             drawMinimap(now);
             const double minute =
-                fixedTimeOfDay_ ? *fixedTimeOfDay_ : world().clock.exactMinuteOfDay(session_->tickFraction());
+                daylightOnly_ ? 12.0 * 60.0 :
+                (fixedTimeOfDay_ ? *fixedTimeOfDay_ : world().clock.exactMinuteOfDay(session_->tickFraction()));
             renderer_.render(world(), camera_, minute, timeSeconds_, session_->tickFraction(), overlays);
         }
         ImGui::Render();

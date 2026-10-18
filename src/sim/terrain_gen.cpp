@@ -4,6 +4,7 @@
 #include "sim/chunk.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 
 namespace tp {
 
@@ -46,6 +47,8 @@ enum Salt : u32 {
     kForestDetail,
     kGroundJitter,
     kTreeJitter,
+    kRiverBend,
+    kLakeSite,
 };
 
 // Piecewise linear flattening of the continent term with slopes <= 1: coastal plains.
@@ -84,7 +87,37 @@ i64 TerrainGenerator::rawHeight(i32 x, i32 y) const {
 
     const i64 detail = (valueNoise(seed_, kDetail, x, y, 4) * hillMask) >> 16;
 
-    return flatten(continent) + hills + mountains + detail;
+    const i64 terrain = flatten(continent) + hills + mountains + detail;
+    if (!waterways_) return terrain; // preserve exploration boundaries in pre-waterway saves
+
+    // Sea-level waterways are carved into the height field itself. Taking the minimum
+    // of slope-bounded fields preserves the adjacent-corner rule, including at banks.
+    // Rivers run across the world, with smooth bends independent of chunk activation.
+    const i64 bend = 128 * valueNoise(seed_, kRiverBend, x, 0, 9);
+    const i64 phase = static_cast<i64>(hashCoords(seed_, 0, 0, kRiverBend) % 1024) * kOne;
+    constexpr i64 period = 1024 * kOne;
+    i64 across = (static_cast<i64>(y) * kOne - bend - phase) % period;
+    if (across < 0) across += period;
+    const i64 river = std::min(across, period - across) / 2 - 3 * kOne;
+    i64 waterBed = river;
+
+    // One optional lake per 512-tile cell. Inspect neighbouring cells as well so
+    // basins are identical on either side of cell and chunk boundaries.
+    const i32 cellX = x >> 9, cellY = y >> 9;
+    for (i32 dy = -1; dy <= 1; ++dy) {
+        for (i32 dx = -1; dx <= 1; ++dx) {
+            const u32 site = hashCoords(seed_, cellX + dx, cellY + dy, kLakeSite);
+            if (site % 3 != 0) continue;
+            const i64 cx = static_cast<i64>(cellX + dx) * 512 + 64 + ((site >> 2) % 384);
+            const i64 cy = static_cast<i64>(cellY + dy) * 512 + 64 + ((site >> 11) % 384);
+            const i64 ax = std::abs(static_cast<i64>(x) - cx);
+            const i64 ay = std::abs(static_cast<i64>(y) - cy);
+            const i64 distance = std::max(std::max(ax, ay), (ax + ay) * 3 / 4);
+            const i64 radius = 20 + ((site >> 20) % 28);
+            waterBed = std::min(waterBed, (distance - radius) * kOne / 2);
+        }
+    }
+    return std::min(terrain, waterBed);
 }
 
 u8 TerrainGenerator::quantise(i64 raw) {

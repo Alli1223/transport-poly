@@ -1,12 +1,14 @@
 #include "sim/world.hpp"
 
 #include <format>
+#include <bit>
 
 #include "core/hash.hpp"
+#include "sim/prices.hpp"
 
 namespace tp {
 
-World::World(const WorldSettings& s) : settings(s), rng(s.seed, 0x5EED), map(s.seed) {
+World::World(const WorldSettings& s) : settings(s), rng(s.seed, 0x5EED), map(s.seed, s.waterways) {
     clock.startDay = daysFromCivil(s.startYear, 1, 1);
     // Start on the first Monday of the year so the week structure is easy to follow.
     while (weekdayFromDays(clock.startDay) != Weekday::Monday) ++clock.startDay;
@@ -35,6 +37,25 @@ void World::onNewMonth() {
     towns::spawnNewTowns(*this);
     stations::monthly(*this);
     people::jobMarket(*this);
+    // Road and track ownership are independent (town roads may carry company trams).
+    // Charge each facility tile once; station/depot pools refer to these same tiles.
+    for (const ChunkPos cp : map.activeChunks()) {
+        for (const Tile& tile : map.chunk(cp)->tiles) {
+            const auto charge = [&](u8 owner, Money amount) {
+                if (amount > 0)
+                    if (Company* c = companies.tryGet(CompanyId{owner}))
+                        c->spend(Expense::PropertyMaintenance, amount);
+            };
+            charge(tile.roadOwner, std::popcount(static_cast<unsigned>(tile.road & 0x0F)) * prices::kRoadMaintenance);
+            Money track = std::popcount(static_cast<unsigned>(tile.road >> 4)) * prices::kTramMaintenance +
+                          std::popcount(static_cast<unsigned>(tile.rail & 0x3F)) * prices::kRailMaintenance;
+            if (tile.type == TileType::Rail && tile.extra) track += prices::kSignalMaintenance;
+            if (tile.type == TileType::Station) track += prices::kStationMaintenance;
+            if (tile.type == TileType::Depot) track += prices::kDepotMaintenance;
+            if (tile.type == TileType::Water) track += prices::kCanalMaintenance;
+            charge(tile.owner, track);
+        }
+    }
     for (auto [id, c] : companies) {
         // Monthly loan interest.
         if (c.loan > 0) {
@@ -82,7 +103,8 @@ void World::rebuildSignalIndex() {
         for (i32 ly = 0; ly < kChunkSize; ++ly)
             for (i32 lx = 0; lx < kChunkSize; ++lx) {
                 const Tile& t = c->tile(lx, ly);
-                if (t.type == TileType::Rail && t.extra) signalTiles.insert(ChunkPos{o.x + lx, o.y + ly}.key());
+                if ((t.type == TileType::Rail && t.extra) || (t.type == TileType::Road && t.rail))
+                    signalTiles.insert(ChunkPos{o.x + lx, o.y + ly}.key());
             }
     }
 }

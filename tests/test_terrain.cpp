@@ -67,6 +67,67 @@ TEST_CASE("terrain: chunk generation is deterministic and seamless") {
             if (a.tile(lx, ly).type == TileType::Water) CHECK_EQ(a.corners(lx, ly).max(), 0);
 }
 
+TEST_CASE("terrain: waterways are seamless in every chunk activation order") {
+    for (const u64 seed : {1ULL, 7ULL, 12345ULL}) {
+        const TerrainGenerator gen(seed);
+        for (const ChunkPos cp : {ChunkPos{-17, -33}, ChunkPos{0, 0}, ChunkPos{31, 15}}) {
+            Chunk centre, west, north, again;
+            gen.generateChunk({cp.x - 1, cp.y}, west);
+            gen.generateChunk({cp.x, cp.y - 1}, north);
+            gen.generateChunk(cp, centre);
+            gen.generateChunk(cp, again);
+            CHECK(centre.tiles == again.tiles);
+            for (i32 i = 0; i < kChunkCorners; ++i) {
+                CHECK_EQ(west.height(kChunkSize, i), centre.height(0, i));
+                CHECK_EQ(north.height(i, kChunkSize), centre.height(i, 0));
+            }
+            const TilePos o = chunkOrigin(cp);
+            for (i32 y = 0; y < kChunkSize; ++y)
+                for (i32 x = 0; x < kChunkSize; ++x) {
+                    CHECK_EQ(centre.height(x, y), gen.cornerHeight(o.x + x, o.y + y));
+                    if (centre.tile(x, y).type == TileType::Water) {
+                        CHECK_EQ(centre.corners(x, y).max(), 0);
+                        CHECK_EQ(centre.tile(x, y).trees, 0);
+                    }
+                }
+        }
+    }
+}
+
+TEST_CASE("terrain: rivers continue across a full region of inland terrain") {
+    const TerrainGenerator gen(20261017);
+    // Each column across several chunk borders contains a navigable-width channel.
+    // The full river period is searched, without depending on its internal seed salts.
+    for (i32 x = -70; x <= 70; x += 7) {
+        bool channel = false;
+        for (i32 y = -1024; y < 1024 && !channel; ++y) {
+            channel = true;
+            for (i32 dy = 0; dy <= 4; ++dy)
+                if (gen.rawHeight(x, y + dy) >= 0 || gen.rawHeight(x + 1, y + dy) >= 0) {
+                    channel = false;
+                    break;
+                }
+        }
+        CHECK(channel);
+    }
+}
+
+TEST_CASE("terrain: lakes form inland basins surrounded by dry land") {
+    const TerrainGenerator gen(12345);
+    const TerrainGenerator land(12345, false);
+    bool found = false;
+    for (i32 y = -1024; y < 1024 && !found; y += 16)
+        for (i32 x = -1024; x < 1024 && !found; x += 16) {
+            if (land.rawHeight(x, y) <= 5 * kHeightOne || gen.rawHeight(x, y) >= 0) continue;
+            bool dryRing = true;
+            for (i32 dy = -1; dy <= 1; ++dy)
+                for (i32 dx = -1; dx <= 1; ++dx)
+                    if ((dx || dy) && gen.rawHeight(x + 80 * dx, y + 80 * dy) <= 0) dryRing = false;
+            found = dryRing;
+        }
+    CHECK(found);
+}
+
 TEST_CASE("map: activation, tile access and corner sharing") {
     Map map(42);
     CHECK(!map.isActive({0, 0}));

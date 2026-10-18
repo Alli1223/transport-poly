@@ -7,6 +7,8 @@
 #include "sim/water_path.hpp"
 #include "sim/world.hpp"
 
+#include <set>
+
 namespace tp::cmd {
 
 namespace {
@@ -29,6 +31,81 @@ std::string whyNotCoastal(const World& w, CompanyId company, TilePos t, Dir faci
 }
 
 } // namespace
+
+CommandResult handle(World& w, const Command& c, const CmdEditWater& x, bool exec) {
+    if (!w.companies.contains(c.company)) return CommandResult::failure("Only companies can edit waterways");
+    const Rect r = normalise(x.a, x.b);
+    // Validate extents before iterating, including requests received over the network.
+    if (static_cast<i64>(r.x1) - r.x0 >= 64 || static_cast<i64>(r.y1) - r.y0 >= 64)
+        return CommandResult::failure("Water editing area too large (max 64 x 64)");
+    std::set<u64> busy;
+    const auto key = [](TilePos p) { return ChunkPos{p.x, p.y}.key(); };
+    for (const auto [id, v] : w.vehicles) {
+        if (v.state == VehicleState::InDepot) continue;
+        busy.insert(key(v.tile));
+        if (v.info().type == VehicleType::Ship && v.moving) {
+            const TilePos next = headingStep(v.tile, v.heading);
+            busy.insert(key(next));
+            if (v.heading & 1) {
+                busy.insert(key({next.x, v.tile.y}));
+                busy.insert(key({v.tile.x, next.y}));
+            }
+        }
+    }
+    std::vector<TilePos> changed;
+    Money cost = 0;
+    for (i64 yy = r.y0; yy <= r.y1; ++yy) {
+        for (i64 xx = r.x0; xx <= r.x1; ++xx) {
+            const TilePos p{static_cast<i32>(xx), static_cast<i32>(yy)};
+            const Tile* tile = w.map.tile(p);
+            if (!tile) return CommandResult::failure("Area not explored");
+            if (x.water && tile->type == TileType::Water) continue;
+            if (!x.water && tile->type == TileType::Clear) continue;
+            if (tile->type != (x.water ? TileType::Clear : TileType::Water))
+                return CommandResult::failure("Clear the site before editing water");
+            if (tile->owner != kOwnerNone && tile->owner != c.company.value)
+                return CommandResult::failure("Waterway owned by another company");
+            if (w.map.corners(p).max() != 0)
+                return CommandResult::failure("Lower and level the land to sea level first");
+            if (busy.contains(key(p))) return CommandResult::failure("Vehicle in the way");
+            if (!x.water) {
+                for (const Dir d : kDirs) {
+                    const Tile* other = w.map.tile(neighbour(p, d));
+                    if (!other) continue;
+                    const bool dock = other->type == TileType::Station &&
+                                      static_cast<StopKind>(other->extra) == StopKind::Dock &&
+                                      static_cast<Dir>(other->extra2) == opposite(d);
+                    const bool yard = other->type == TileType::Depot &&
+                                      w.depots.tryGet(DepotId{other->index}) &&
+                                      w.depots[DepotId{other->index}].kind == DepotKind::Ship &&
+                                      static_cast<Dir>(other->extra) == opposite(d);
+                    if (dock || yard) return CommandResult::failure("Remove the dock or shipyard using this water first");
+                }
+            }
+            if (const std::string why = towns::authorityRefusal(w, c.company, p, kRatingRefuseBuild); !why.empty())
+                return CommandResult::failure(why);
+            cost += x.water ? prices::kCanalTile + tile->trees * prices::kRemoveTree : prices::kReclaimWater;
+            changed.push_back(p);
+        }
+    }
+    if (changed.empty()) return CommandResult::failure(x.water ? "Already water" : "No water to reclaim");
+    if (exec) {
+        for (const TilePos p : changed) {
+            Tile& tile = *w.map.tile(p);
+            if (tile.trees)
+                towns::changeRating(w, towns::townAt(w, p), c.company, kRatingRemoveTrees, kRatingRefuseBuild);
+            tile = Tile{};
+            tile.type = x.water ? TileType::Water : TileType::Clear;
+            tile.ground = x.water ? Ground::Water : Ground::Sand;
+            tile.owner = x.water ? c.company.value : kOwnerNone;
+            w.map.touch(p);
+            for (const Dir d : kDirs) w.map.touch(neighbour(p, d));
+        }
+        // Ships re-plan from their current position when a waterway is edited.
+        vehicles::invalidatePaths(w);
+    }
+    return CommandResult::success(cost, Expense::Construction);
+}
 
 CommandResult handle(World& w, const Command& c, const CmdBuildDock& x, bool exec) {
     if (!w.companies.contains(c.company)) return CommandResult::failure("Only companies can build docks");

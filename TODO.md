@@ -37,7 +37,7 @@ relies on every peer computing exactly the same game state.
 - [x] 2.1 Tile / chunk coordinate types, floor-div helpers, directions & neighbours
 - [x] 2.2 Deterministic integer value noise + fractal sum with bounded slope (guarantees OpenTTD-like corner height rules everywhere, across chunk borders)
 - [x] 2.3 Terrain generator: continents & sea, plains, hills, mountains; ground types (grass, sand, rock, snow); forests
-- [ ] 2.4 Rivers & lakes (deterministic, crossing chunk borders)
+- [x] 2.4 Rivers & lakes (deterministic, crossing chunk borders; sea-level basins, old saves retain their generator)
 - [x] 2.5 Chunk storage: corner heights, ground, trees, road / tram / rail layers, structures, owner
 - [x] 2.6 Active chunk map; activation = deterministic generation (pure function of seed + coordinate)
 - [x] 2.7 Tile slope classification (flat, inclined, steep) and foundations
@@ -93,15 +93,15 @@ relies on every peer computing exactly the same game state.
 - [x] 6.2 Road rendering (straight, curves, junctions, slopes, dead ends)
 - [x] 6.3 Rails: 6 track bits per tile (incl. diagonals), drag building, slopes
 - [x] 6.4 Rail rendering (ballast, sleepers, rails; diagonals)
-- [ ] 6.5 Level crossings (road + rail)
-- [~] 6.6 Signals: block, path and one-way path signals; signal rendering (two-way and one-way path signals with red / green lamps; block signals behave as path signals)
+- [x] 6.5 Level crossings (flat perpendicular road + rail, either build order; traffic lights, train reservations and road clearance)
+- [x] 6.6 Signals: block, path and one-way path signals; signal rendering (distinct block occupancy checks across all branches, path reservations, direction cycling and red / green lamps)
 - [x] 6.7 Tram tracks (on roads and tram-only)
 - [ ] 6.8 Bridges and tunnels for road / rail
-- [ ] 6.9 Canals and water tiles editing
+- [x] 6.9 Canals and water tiles editing (sea-level flooding / reclamation tools, ownership, costs, maintenance and protection for ships and berths; elevated waterways / locks are not implemented)
 - [x] 6.10 Stations: bus stop, tram stop, rail station (platform length / count), dock; names; joining adjacent tiles; catchment radius
 - [x] 6.11 Depots: road, tram, rail, ship (shipyards on the shore)
 - [x] 6.12 Demolish tool with cost; ownership checks
-- [ ] 6.13 Infrastructure maintenance costs
+- [x] 6.13 Infrastructure maintenance costs (monthly, per owner and infrastructure piece / facility tile)
 
 ## M7 — Vehicles
 - [x] 7.1 Vehicle model catalogue (buses, trams, locomotives, multiple units, carriages, ferries) with stats & intro dates
@@ -110,7 +110,7 @@ relies on every peer computing exactly the same game state.
 - [x] 7.4 Road pathfinder (A* over the road graph with deterministic tie breaking)
 - [x] 7.5 Road vehicle movement: lanes, curves, junctions, queueing, gridlock breaker
 - [x] 7.6 Tram movement (tram network, articulated trams)
-- [~] 7.7 Rail pathfinder and train movement: consists, acceleration / braking, curve speed limits, slopes (consists, acceleration, braking to reservation end, slopes; curve limits later)
+- [x] 7.7 Rail pathfinder and train movement: consists, acceleration / braking, curve speed limits, slopes (braking for upcoming curves; restriction until the last carriage clears)
 - [x] 7.8 Signal logic, path reservation, collision prevention
 - [x] 7.9 Ship pathfinder over water tiles and ship movement
 - [x] 7.10 Loading / unloading at stations, dwell time
@@ -129,7 +129,7 @@ relies on every peer computing exactly the same game state.
 
 ## M9 — Save / Load
 - [x] 9.1 Full world serialisation (versioned)
-- [~] 9.2 Save / load UI, autosave every N months, quicksave (save / load menus and monthly autosave; quicksave key later)
+- [x] 9.2 Save / load UI, autosave every N months, quicksave (save / load menus, monthly autosave, F5 quicksave; host-only in multiplayer)
 - [x] 9.3 Round-trip determinism test (save → load → continue ⇒ same hash)
 
 ## M10 — Multiplayer

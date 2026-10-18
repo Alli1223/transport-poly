@@ -232,6 +232,8 @@ bool leaveDepot(World& w, VehicleId id);
 void releaseAll(World& w, VehicleId id);
 i32 consistLength(const Vehicle& v); // in progress units
 i32 maxSpeed(const Vehicle& v);      // units per tick
+// Limit for curves under the consist and braking for curves on reserved track ahead.
+i32 trackSpeedLimit(const Vehicle& v);
 
 } // namespace trains
 

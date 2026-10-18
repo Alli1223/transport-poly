@@ -3,6 +3,8 @@
 #include "core/serialize.hpp"
 #include "sim/commands.hpp"
 #include "sim/rail.hpp"
+#include "sim/road_path.hpp"
+#include "sim/rail_path.hpp"
 #include "sim/world.hpp"
 
 #include <algorithm>
@@ -11,6 +13,34 @@
 #include <map>
 
 using namespace tp;
+
+TEST_CASE("rail: trains brake before curves and wait for the tail to clear") {
+    Vehicle v;
+    for (u16 i = 0; i < vehicleModels().size(); ++i)
+        if (vehicleModel(i).type == VehicleType::Rail && vehicleModel(i).maxSpeedKmh >= 160) {
+            v.model = i;
+            break;
+        }
+    REQUIRE(v.info().type == VehicleType::Rail);
+    v.trail.push_back({{0, 0}, Dir::W, Dir::E});
+    CHECK_EQ(trains::trackSpeedLimit(v), trains::maxSpeed(v));
+    v.ahead.push_back({{1, 0}, Dir::W, Dir::N});
+    const i32 approach = trains::trackSpeedLimit(v);
+    CHECK(approach < trains::maxSpeed(v));
+    CHECK(approach > speedUnits(60));
+    v.progress = kTileUnits;
+    CHECK_EQ(trains::trackSpeedLimit(v), speedUnits(60));
+    v.trail.push_back({{-1, 0}, Dir::S, Dir::E});
+    v.ahead.clear();
+    v.progress = 0;
+    CHECK_EQ(trains::trackSpeedLimit(v), speedUnits(60));
+    v.trail.pop_back();
+    CHECK_EQ(trains::trackSpeedLimit(v), trains::maxSpeed(v));
+    // A distant bend must not slow a train before its braking distance.
+    for (i32 x = 1; x < 40; ++x) v.ahead.push_back({{x, 0}, Dir::W, Dir::E});
+    v.ahead.push_back({{40, 0}, Dir::W, Dir::N});
+    CHECK_EQ(trains::trackSpeedLimit(v), trains::maxSpeed(v));
+}
 
 namespace {
 
@@ -79,6 +109,154 @@ TEST_CASE("rail: planned lines are connected chains of pieces") {
             CHECK(linked);
         }
     }
+}
+
+TEST_CASE("crossings: rail over road preserves ownership and both routes") {
+    RailWorld rw;
+    REQUIRE(rw.run(CmdBuildRoad{{8, 16}, {24, 16}}).ok);
+    const auto created = rw.run(CmdCreateCompany{"Road and Rail", 1});
+    REQUIRE(created.ok);
+    const CompanyId railCo(static_cast<u8>(created.createdId));
+    REQUIRE(executeCommand(rw.w, cmd(railCo, CmdBuildRail{{16, 8}, {16, 24}})).ok);
+    const Tile& crossing = *rw.w.map.tile({16, 16});
+    CHECK(crossing.type == TileType::Road);
+    CHECK_EQ(crossing.rail, kTrackNS);
+    CHECK_EQ(crossing.roadOwner, rw.co.value);
+    CHECK_EQ(crossing.owner, railCo.value);
+    CHECK(railLinkOpen(rw.w, {16, 15}, Dir::S));
+    CHECK(railLinkOpen(rw.w, {16, 16}, Dir::S));
+    CHECK(findRailPath(rw.w, {16, 8}, Dir::N, {{16, 24}}, DepotId{}).has_value());
+    CHECK(findRoadPath(rw.w, {8, 16}, Dir::W, {{24, 16}}, VehicleType::Road, DepotId{}).has_value());
+    CHECK(!rw.run(CmdBuildRoadStop{{16, 16}, false}).ok);
+    CHECK(!rw.run(CmdCycleSignal{{16, 16}}).ok);
+    CHECK(!rw.run(CmdRemoveRail{{16, 16}, {16, 16}}).ok);
+    CHECK(!rw.run(CmdClearArea{{16, 16}, {16, 16}}).ok);
+    REQUIRE(executeCommand(rw.w, cmd(railCo, CmdRemoveRail{{16, 16}, {16, 16}})).ok);
+    CHECK_EQ(crossing.rail, 0);
+    CHECK_EQ(crossing.roadOwner, rw.co.value);
+    CHECK(crossing.type == TileType::Road);
+    CHECK(!rw.w.signalTiles.contains(ChunkPos{16, 16}.key()));
+}
+
+TEST_CASE("signals: block signals check every branch and respect block boundaries") {
+    RailWorld rw;
+    REQUIRE(rw.run(CmdBuildRail{{8, 16}, {24, 16}}).ok);
+    rw.lay({16, 16}, kTrackSW);
+    REQUIRE(rw.run(CmdBuildRail{{16, 17}, {16, 24}}).ok);
+    REQUIRE(rw.run(CmdCycleSignal{{10, 16}, true}).ok);
+    REQUIRE(rw.run(CmdCycleSignal{{22, 16}}).ok);
+    REQUIRE(rw.run(CmdCycleSignal{{16, 22}}).ok);
+    CHECK(blockSignalClear(rw.w, {10, 16}, Dir::E));
+    rw.w.map.tile({16, 20})->extra2 = kTrackNS;
+    CHECK(!blockSignalClear(rw.w, {10, 16}, Dir::E));
+    CHECK(blockSignalClear(rw.w, {10, 16}, Dir::W));
+    Vehicle own;
+    own.model = 7;
+    own.trail.push_back({{16, 20}, Dir::N, Dir::S});
+    const VehicleId id = rw.w.vehicles.create(own);
+    CHECK(blockSignalClear(rw.w, {10, 16}, Dir::E, id));
+    rw.w.map.tile({16, 20})->extra2 = 0;
+    rw.w.map.tile({16, 23})->extra2 = kTrackNS;
+    rw.w.map.tile({23, 16})->extra2 = kTrackEW;
+    CHECK(blockSignalClear(rw.w, {10, 16}, Dir::E));
+    World copy;
+    fromBytes(toBytes(rw.w, kSaveVersion), copy, kSaveVersion);
+    CHECK_EQ(copy.map.tile({10, 16})->extra, 3 | kSignalBlock);
+    CHECK(blockSignalClear(copy, {10, 16}, Dir::E));
+}
+
+TEST_CASE("signals: switching kind preserves directions and cycles all variants") {
+    RailWorld rw;
+    REQUIRE(rw.run(CmdBuildRail{{8, 16}, {24, 16}}).ok);
+    REQUIRE(rw.run(CmdCycleSignal{{12, 16}, true}).ok);
+    CHECK_EQ(rw.w.map.tile({12, 16})->extra, 3 | kSignalBlock);
+    REQUIRE(rw.run(CmdCycleSignal{{12, 16}, true}).ok);
+    CHECK_EQ(rw.w.map.tile({12, 16})->extra, kSignalForward | kSignalBlock);
+    REQUIRE(rw.run(CmdCycleSignal{{12, 16}, false}).ok);
+    CHECK_EQ(rw.w.map.tile({12, 16})->extra, kSignalForward);
+    REQUIRE(rw.run(CmdCycleSignal{{12, 16}, true}).ok);
+    CHECK_EQ(rw.w.map.tile({12, 16})->extra, kSignalForward | kSignalBlock);
+    REQUIRE(rw.run(CmdCycleSignal{{12, 16}, true}).ok);
+    CHECK_EQ(rw.w.map.tile({12, 16})->extra, kSignalBackward | kSignalBlock);
+    REQUIRE(rw.run(CmdCycleSignal{{12, 16}, true}).ok);
+    CHECK_EQ(rw.w.map.tile({12, 16})->extra, 0);
+    CHECK(!rw.w.signalTiles.contains(ChunkPos{12, 16}.key()));
+    const Command original = cmd(rw.co, CmdCycleSignal{{12, 16}, true});
+    Command decoded;
+    fromBytes(toBytes(original), decoded);
+    REQUIRE(executeCommand(rw.w, decoded).ok);
+    CHECK_EQ(rw.w.map.tile({12, 16})->extra, 3 | kSignalBlock);
+}
+
+TEST_CASE("crossings: road over rail supports removal and save round trips") {
+    RailWorld rw;
+    REQUIRE(rw.run(CmdBuildRail{{8, 16}, {24, 16}}).ok);
+    REQUIRE(rw.run(CmdBuildRoad{{16, 8}, {16, 24}}).ok);
+    REQUIRE(rw.w.map.tile({16, 16})->type == TileType::Road);
+    CHECK_EQ(rw.w.map.tile({16, 16})->rail, kTrackEW);
+    CHECK(railLinkOpen(rw.w, {15, 16}, Dir::E));
+    CHECK(roadLinkOpen(rw.w, {16, 15}, Dir::S, VehicleType::Road, DepotId{}));
+    World copy;
+    fromBytes(toBytes(rw.w, kSaveVersion), copy, kSaveVersion);
+    CHECK(copy.signalTiles.contains(ChunkPos{16, 16}.key()));
+    CHECK(copy.map.chunk({0, 0})->tiles == rw.w.map.chunk({0, 0})->tiles);
+    REQUIRE(rw.run(CmdRemoveRoad{{16, 16}, {16, 16}, false}).ok);
+    CHECK(rw.w.map.tile({16, 16})->type == TileType::Rail);
+    CHECK_EQ(rw.w.map.tile({16, 16})->rail, kTrackEW);
+    CHECK_EQ(rw.w.map.tile({16, 16})->owner, rw.co.value);
+    CHECK(!rw.w.signalTiles.contains(ChunkPos{16, 16}.key()));
+    REQUIRE(rw.run(CmdBuildRoad{{16, 8}, {16, 24}}).ok);
+    REQUIRE(rw.run(CmdClearArea{{16, 16}, {16, 16}}).ok);
+    CHECK_EQ(rw.w.map.tile({16, 16})->rail, 0);
+    CHECK_EQ(rw.w.map.tile({16, 16})->road, 0);
+}
+
+TEST_CASE("crossings: reject parallel tracks, trams, slopes and signalled track") {
+    RailWorld rw;
+    REQUIRE(rw.run(CmdBuildRoad{{8, 16}, {24, 16}}).ok);
+    const auto before = toBytes(rw.w, kSaveVersion);
+    CHECK(!rw.run(CmdBuildRail{{10, 16}, {20, 16}}).ok);
+    CHECK(toBytes(rw.w, kSaveVersion) == before);
+    REQUIRE(rw.run(CmdBuildRail{{16, 8}, {16, 24}}).ok);
+    CHECK(!rw.run(CmdBuildRoad{{8, 16}, {24, 16}, true}).ok);
+    CHECK(!rw.run(CmdBuildRoad{{16, 8}, {16, 24}, false}).ok);
+    rw.w.map.setCornerHeight(18, 16, 4);
+    CHECK(!rw.run(CmdBuildRail{{18, 8}, {18, 24}}).ok);
+    REQUIRE(rw.run(CmdCycleSignal{{16, 12}}).ok);
+    CHECK(!rw.run(CmdBuildRoad{{8, 12}, {24, 12}, false}).ok);
+}
+
+TEST_CASE("crossings: road vehicles wait at reserved rail even after gridlock timeout") {
+    RailWorld rw;
+    REQUIRE(rw.run(CmdBuildRoad{{8, 16}, {24, 16}}).ok);
+    REQUIRE(rw.run(CmdBuildRail{{16, 8}, {16, 24}}).ok);
+    rw.w.map.tile({16, 16})->extra2 = kTrackNS;
+    Vehicle bus;
+    bus.owner = rw.co;
+    bus.model = 0;
+    bus.stopped = false;
+    bus.state = VehicleState::Driving;
+    bus.tile = {15, 16};
+    bus.entry = Dir::W;
+    bus.exit = Dir::E;
+    bus.progress = kTileUnits - 2;
+    bus.speed = speedUnits(bus.info().maxSpeedKmh);
+    bus.blockedTicks = 1000;
+    const VehicleId id = rw.w.vehicles.create(bus);
+    for (int i = 0; i < 700; ++i) {
+        vehicles::tickAll(rw.w);
+        REQUIRE(rw.w.vehicles[id].tile == (TilePos{15, 16}));
+    }
+    CHECK_EQ(rw.w.vehicles[id].speed, 0);
+    rw.w.map.tile({16, 16})->extra2 = 0;
+    for (int i = 0; i < 8; ++i) vehicles::tickAll(rw.w);
+    CHECK(rw.w.vehicles[id].tile == (TilePos{16, 16}));
+    CHECK(crossingRoadOccupied(rw.w, {16, 16}));
+    rw.w.vehicles[id].tile = {17, 16};
+    rw.w.vehicles[id].progress = 0;
+    CHECK(crossingRoadOccupied(rw.w, {16, 16}));
+    rw.w.vehicles[id].progress = kTileUnits;
+    CHECK(!crossingRoadOccupied(rw.w, {16, 16}));
 }
 
 TEST_CASE("rail: a train shuttles between two terminus stations") {
@@ -244,6 +422,77 @@ struct ShuttleLine {
 };
 
 } // namespace
+
+TEST_CASE("crossings: trains wait for road traffic to clear before reserving") {
+    ShuttleLine line;
+    World& w = line.rw.w;
+    REQUIRE(line.rw.run(CmdBuildRoad{{30, 10}, {30, 23}}).ok);
+    Vehicle bus;
+    bus.model = 0;
+    bus.owner = line.rw.co;
+    bus.tile = {30, 16};
+    bus.entry = Dir::N;
+    bus.exit = Dir::S;
+    bus.state = VehicleState::Driving;
+    bus.stopped = true;
+    const VehicleId road = w.vehicles.create(bus);
+    REQUIRE(line.rw.run(CmdStartStopVehicle{line.train}).ok);
+    for (int i = 0; i < 4000; ++i) {
+        w.tick();
+        REQUIRE(w.vehicles[line.train].tile.x < 30);
+        REQUIRE(w.map.tile({30, 16})->extra2 == 0);
+    }
+    w.vehicles[road].stopped = false;
+    bool arrived = false;
+    for (int i = 0; i < 6000; ++i) {
+        w.tick();
+        if (w.map.tile({30, 16})->extra2) CHECK(!crossingRoadOccupied(w, {30, 16}));
+        arrived = arrived || w.stations[line.b].lastVisitTick > 0;
+    }
+    CHECK(arrived);
+    World copy;
+    fromBytes(toBytes(w, kSaveVersion), copy, kSaveVersion);
+    for (int i = 0; i < 1000; ++i) {
+        w.tick();
+        copy.tick();
+    }
+    CHECK(toBytes(w, kSaveVersion) == toBytes(copy, kSaveVersion));
+}
+
+TEST_CASE("signals: block waits for an occupied branch while a path signal allows a clear route") {
+    ShuttleLine line;
+    World& block = line.rw.w;
+    line.rw.lay({30, 16}, kTrackSW);
+    REQUIRE(line.rw.run(CmdBuildRail{{30, 17}, {30, 23}}).ok);
+    REQUIRE(line.rw.run(CmdCycleSignal{{20, 16}, true}).ok);
+    block.map.tile({30, 20})->extra2 = kTrackNS;
+    REQUIRE(line.rw.run(CmdStartStopVehicle{line.train}).ok);
+    World path;
+    fromBytes(toBytes(block, kSaveVersion), path, kSaveVersion);
+    path.map.tile({20, 16})->extra = 3;
+    bool pathArrived = false;
+    for (int i = 0; i < 4000; ++i) {
+        block.tick();
+        path.tick();
+        REQUIRE(block.vehicles[line.train].tile.x < 20);
+        pathArrived = pathArrived || path.stations[line.b].lastVisitTick > 0;
+    }
+    CHECK(pathArrived);
+    block.map.tile({30, 20})->extra2 = 0;
+    bool blockArrived = false;
+    for (int i = 0; i < 4000; ++i) {
+        block.tick();
+        blockArrived = blockArrived || block.stations[line.b].lastVisitTick > 0;
+    }
+    CHECK(blockArrived);
+    World restored;
+    fromBytes(toBytes(block, kSaveVersion), restored, kSaveVersion);
+    for (int i = 0; i < 1000; ++i) {
+        block.tick();
+        restored.tick();
+    }
+    CHECK(toBytes(block, kSaveVersion) == toBytes(restored, kSaveVersion));
+}
 
 TEST_CASE("vehicles: breakdowns stop vehicles and services restore reliability") {
     ShuttleLine line;

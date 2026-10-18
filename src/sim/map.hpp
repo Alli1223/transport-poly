@@ -14,7 +14,7 @@ namespace tp {
 
 class Map {
 public:
-    explicit Map(u64 seed = 1) : gen_(seed) {}
+    explicit Map(u64 seed = 1, bool waterways = true) : gen_(seed, waterways) {}
 
     const TerrainGenerator& generator() const { return gen_; }
 

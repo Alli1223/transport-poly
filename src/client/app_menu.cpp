@@ -503,6 +503,19 @@ void App::drawChat() {
     ImGui::End();
 }
 
+void App::quicksave() {
+    if (!session_ || !session_->ready()) return;
+    if (dynamic_cast<net::NetClientSession*>(session_.get())) {
+        toasts_.push_back({"Only the host can save a multiplayer game", glfwGetTime() + 3.0, true});
+        return;
+    }
+    std::string err;
+    if (saveGame(world(), session_->localCompany(), std::format("{}/quicksave.tpsave", kSaveDir), err))
+        toasts_.push_back({"Quicksaved", glfwGetTime() + 3.0, false});
+    else
+        toasts_.push_back({"Quicksave failed: " + err, glfwGetTime() + 5.0, true});
+}
+
 void App::autosave() {
     if (!session_ || !session_->ready() || dynamic_cast<net::NetClientSession*>(session_.get())) return;
     const i32 month = static_cast<i32>(world().clock.date().month);

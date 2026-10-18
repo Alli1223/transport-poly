@@ -59,7 +59,13 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRail& x, bool exe
         if (t->type == TileType::Rail && (t->rail & s.bit)) continue; // already there
         if (t->type == TileType::Rail && t->owner != c.company.value)
             return CommandResult::failure("Owned by another company");
+        if (t->type == TileType::Road && t->rail) {
+            if (t->owner != c.company.value) return CommandResult::failure("Owned by another company");
+            if (t->rail & s.bit) continue;
+        }
         if (!canAddTrack(w.map, s.tile, s.bit)) return CommandResult::failure(whyNoRail(w, s.tile));
+        if (t->type == TileType::Road && crossingRoadOccupied(w, s.tile))
+            return CommandResult::failure("Vehicle in the way");
         cost += prices::kRailPiece + (t->type == TileType::Clear ? t->trees * prices::kRemoveTree : 0);
         ++built;
         if (exec) {
@@ -73,6 +79,8 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRail& x, bool exe
                 if (t->ground == Ground::Rock || t->ground == Ground::Rough) t->ground = Ground::Grass;
             }
             t->rail = static_cast<u8>(t->rail | s.bit);
+            t->owner = c.company.value;
+            if (t->type == TileType::Road) w.signalTiles.insert(ChunkPos{s.tile.x, s.tile.y}.key());
             w.map.touch(s.tile);
         }
     }
@@ -86,14 +94,14 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveRail& x, bool ex
     if (x.from == x.to) {
         // Single tile: remove all of its track.
         const Tile* t = w.map.tile(x.from);
-        if (t && t->type == TileType::Rail) steps.push_back({x.from, t->rail});
+        if (t && (t->type == TileType::Rail || t->type == TileType::Road)) steps.push_back({x.from, t->rail});
     }
     Money cost = 0;
     int removed = 0;
     for (const RailStep& s : steps) {
         Tile* t = w.map.tile(s.tile);
         if (!t) return CommandResult::failure("Area not explored");
-        if (t->type != TileType::Rail || !(t->rail & s.bit)) continue;
+        if ((t->type != TileType::Rail && t->type != TileType::Road) || !(t->rail & s.bit)) continue;
         if (t->owner != c.company.value) return CommandResult::failure("Owned by another company");
         if (t->extra2 & s.bit) return CommandResult::failure("Train in the way");
         const u8 bits = t->rail & s.bit;
@@ -103,7 +111,8 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveRail& x, bool ex
             t->rail = static_cast<u8>(t->rail & ~bits);
             if (!isStraightTrack(t->rail)) t->extra = 0; // signals need a single straight track
             if (t->rail == 0) {
-                t->type = TileType::Clear;
+                w.signalTiles.erase(ChunkPos{s.tile.x, s.tile.y}.key());
+                t->type = t->road ? TileType::Road : TileType::Clear;
                 t->owner = kOwnerNone;
                 t->extra = 0;
                 t->extra2 = 0;
@@ -123,7 +132,10 @@ CommandResult handle(World& w, const Command& c, const CmdCycleSignal& x, bool e
     if (!isStraightTrack(t->rail)) return CommandResult::failure("Signals need a single straight track");
     if (t->extra2) return CommandResult::failure("Train in the way");
     static constexpr u8 kNext[4] = {3, 2, 0, 1}; // 0 -> 3 (two way) -> 1 -> 2 -> 0
-    const u8 next = kNext[t->extra & 3];
+    const u8 directions = t->extra & 3;
+    const bool changeKind = directions && ((t->extra & kSignalBlock) != 0) != x.block;
+    const u8 nextDirections = changeKind ? directions : kNext[directions];
+    const u8 next = nextDirections ? static_cast<u8>(nextDirections | (x.block ? kSignalBlock : 0)) : 0;
     const Money cost = t->extra == 0 ? prices::kSignal : 0;
     if (exec) {
         t->extra = next;

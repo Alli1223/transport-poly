@@ -26,7 +26,7 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 4;
+inline constexpr u32 kSaveVersion = 6;
 inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
@@ -37,10 +37,15 @@ struct WorldSettings {
     i32 interestPercent = 4;
     i32 maxActiveChunks = 20'000;
     i32 maxChunksPerCommand = 64;
+    bool waterways = true;
 
     template <class Ar>
     void serialize(Ar& ar) {
         ar(seed, startYear, initialLoan, maxLoan, interestPercent, maxActiveChunks, maxChunksPerCommand);
+        if (ar.version == 0 || ar.version >= 5)
+            ar(waterways);
+        else if constexpr (Ar::kReading)
+            waterways = false;
     }
 };
 
@@ -82,7 +87,7 @@ public:
     std::priority_queue<PersonEvent, std::vector<PersonEvent>, std::greater<PersonEvent>> personEvents;
     // Chunk key -> stations whose catchment touches the chunk.
     std::unordered_map<u64, std::vector<StationId>> stationIndex;
-    // Tile keys of rail tiles carrying signals (for rendering).
+    // Tile keys carrying rail signals or level crossing lights (for rendering).
     std::set<u64> signalTiles;
     // Tile key -> vehicles on the tile (rebuilt every tick).
     std::unordered_map<u64, std::vector<VehicleId>> vehicleTiles;
@@ -103,7 +108,7 @@ public:
     template <class Ar>
     void serialize(Ar& ar) {
         ar(settings);
-        if constexpr (Ar::kReading) map = Map(settings.seed);
+        if constexpr (Ar::kReading) map = Map(settings.seed, settings.waterways);
         ar(clock, rng, map, companies, towns, buildings, people, stations, depots, vehicles, processedTownCells,
            nextSerial, news);
         if constexpr (Ar::kReading) {

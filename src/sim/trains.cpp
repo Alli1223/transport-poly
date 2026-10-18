@@ -55,6 +55,7 @@ std::vector<TilePos> goalsFor(const World& w, const Order& o) {
 bool reservable(const World& w, TilePos t, u8 bit) {
     const Tile* tile = w.map.tile(t);
     if (!tile) return false;
+    if (tile->type == TileType::Road && tile->rail && crossingRoadOccupied(w, t)) return false;
     const u8 r = tile->extra2 & kTrackAll;
     for (u8 b = 1; b <= kTrackNW; b = static_cast<u8>(b << 1))
         if ((r & b) && tracksConflict(b, bit)) return false;
@@ -108,6 +109,10 @@ Extend extend(World& w, VehicleId id) {
     const Dir entry = opposite(last.exit);
     const std::vector<TilePos> goals = goalsFor(w, *o);
     if (goals.empty()) return Extend::NoPath;
+    if (const Tile* tile = w.map.tile(start);
+        tile && tile->type == TileType::Rail && (tile->extra & kSignalBlock) &&
+        (tile->extra & signalFacing(tile->rail, opposite(entry))) &&
+        !blockSignalClear(w, start, opposite(entry), id)) return Extend::Blocked;
     const auto path = findRailPath(w, start, entry, goals, allowedDepot(v));
     if (!path) return Extend::NoPath;
 
@@ -282,6 +287,25 @@ i32 maxSpeed(const Vehicle& v) {
     return std::max(1, speedUnits(kmh));
 }
 
+i32 trackSpeedLimit(const Vehicle& v) {
+    i32 limit = maxSpeed(v);
+    const i32 curve = speedUnits(60);
+    if (v.trail.empty() || limit <= curve) return limit;
+    // Keep the restriction until the last carriage has cleared the curve.
+    for (const TrackSeg& s : v.trail)
+        if (!isStraightTrack(segBit(s))) return curve;
+    i64 distance = std::max(0, segLen(v.trail.front()) - v.progress);
+    for (const TrackSeg& s : v.ahead) {
+        if (!isStraightTrack(segBit(s))) {
+            const u64 safeSquared = static_cast<u64>(curve * curve + 2 * kDecel * distance);
+            limit = std::min(limit, static_cast<i32>(isqrt(safeSquared)));
+        }
+        distance += segLen(s);
+        if (2 * kDecel * distance >= static_cast<i64>(limit) * limit) break;
+    }
+    return limit;
+}
+
 void releaseAll(World& w, VehicleId id) {
     Vehicle& v = w.vehicles[id];
     for (const TrackSeg& s : v.trail) unreserve(w, s);
@@ -352,6 +376,7 @@ void tick(World& w, VehicleId id) {
 
     const i32 dist = std::max(0, reservedDistance(v) - kStopMargin);
     i32 desired = std::min<i32>(vmax, static_cast<i32>(isqrt(static_cast<u64>(2 * kDecel * dist))));
+    desired = std::min(desired, trackSpeedLimit(v));
     if (const auto up = w.map.slope(v.tile).rampUphill(); up && *up == v.exit && desired > vmax * 3 / 4)
         desired = vmax * 3 / 4; // climbing
     if (v.speed < desired) v.speed = std::min(desired, v.speed + acceleration(v));

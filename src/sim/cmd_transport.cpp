@@ -5,6 +5,7 @@
 #include "sim/prices.hpp"
 #include "sim/road.hpp"
 #include "sim/road_path.hpp"
+#include "sim/rail.hpp"
 #include "sim/world.hpp"
 
 #include <bit>
@@ -68,16 +69,23 @@ CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, co
     }
     case TileType::Water: return CommandResult::failure("Can't clear water");
     case TileType::Road: {
+        if (tile->rail && tile->owner != ownerByte(company))
+            return CommandResult::failure("Railway owned by another company");
+        if (tile->rail && tile->extra2) return CommandResult::failure("Train in the way");
         if (roadPieces(*tile) && tile->roadOwner == kOwnerTown) return CommandResult::failure("Town road - can't remove");
         if (roadPieces(*tile) && tile->roadOwner != ownerByte(company) && tile->roadOwner != kOwnerNone)
             return CommandResult::failure("Owned by another company");
         if (tramPieces(*tile) && tile->owner != ownerByte(company) && tile->owner != kOwnerNone)
             return CommandResult::failure("Tram track owned by another company");
         if (occupied(busy, t)) return CommandResult::failure("Vehicle in the way");
-        const Money cost = std::popcount(static_cast<unsigned>(tile->road)) * prices::kRemoveRoadPiece;
+        const Money cost = std::popcount(static_cast<unsigned>(tile->road)) * prices::kRemoveRoadPiece +
+                           std::popcount(static_cast<unsigned>(tile->rail)) * prices::kRemoveRailPiece;
         if (exec) {
+            if (tile->rail) w.signalTiles.erase(ChunkPos{t.x, t.y}.key());
             tile->type = TileType::Clear;
             tile->road = 0;
+            tile->rail = 0;
+            tile->extra2 = 0;
             tile->owner = kOwnerNone;
             tile->roadOwner = kOwnerNone;
             w.map.touch(t);
@@ -236,7 +244,11 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRoad& x, bool exe
         if (ta->type == TileType::Clear) cost += ta->trees * prices::kRemoveTree;
         if (tb->type == TileType::Clear && i + 2 == tiles.size()) cost += tb->trees * prices::kRemoveTree;
         ++built;
-        if (exec) connectRoad(w.map, a, dir, ownerByte(c.company), x.tram);
+        if (exec) {
+            connectRoad(w.map, a, dir, ownerByte(c.company), x.tram);
+            for (const TilePos pos : {a, b})
+                if (w.map.tile(pos)->rail) w.signalTiles.insert(ChunkPos{pos.x, pos.y}.key());
+        }
     }
     if (built == 0) return CommandResult::failure("Already built");
     if (exec) vehicles::invalidatePaths(w);
@@ -270,8 +282,9 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveRoad& x, bool ex
         if (exec) {
             t->road = static_cast<u8>(t->road & ~(x.tram ? (have << 4) : have));
             if (t->road == 0) {
-                t->type = TileType::Clear;
-                t->owner = kOwnerNone;
+                if (t->rail) w.signalTiles.erase(ChunkPos{tiles[i].x, tiles[i].y}.key());
+                t->type = t->rail ? TileType::Rail : TileType::Clear;
+                if (!t->rail) t->owner = kOwnerNone;
                 t->roadOwner = kOwnerNone;
             }
             w.map.touch(tiles[i]);
@@ -287,6 +300,7 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRoadStop& x, bool
     Tile* t = w.map.tile(x.tile);
     if (!t) return CommandResult::failure("Area not explored");
     if (t->type != TileType::Road) return CommandResult::failure(x.tram ? "Build on a tram track" : "Build on a road");
+    if (t->rail) return CommandResult::failure("Can't build a stop on a level crossing");
     const u8 pieces = layerPieces(*t, x.tram);
     if (!isStraight(pieces)) return CommandResult::failure("The road must be straight here");
     if (!w.map.slope(x.tile).isFlat()) return CommandResult::failure("Land must be flat");

@@ -2,10 +2,11 @@
 // Deterministic infinite terrain. Every value is a pure function of (seed, coordinate) computed
 // with integer arithmetic only, so all peers generate identical chunks independently.
 //
-// The height field is a sum of value-noise octaves whose combined per-tile slope is provably
+// The land field is a sum of value-noise octaves whose combined per-tile slope is provably
 // below one height level; flooring it to integer levels therefore guarantees that adjacent
 // corners never differ by more than one level - the OpenTTD terrain rule that keeps every tile
 // a buildable slope type - without any neighbour-dependent fix-up across chunk borders.
+// Rivers and lakes carve this field with slope-bounded sea-level basins.
 
 #include "core/types.hpp"
 #include "sim/coords.hpp"
@@ -21,7 +22,7 @@ inline constexpr i32 kHeightOne = 1 << 16; // fixed point scale of raw heights
 
 class TerrainGenerator {
 public:
-    explicit TerrainGenerator(u64 seed = 1) : seed_(seed) {}
+    explicit TerrainGenerator(u64 seed = 1, bool waterways = true) : seed_(seed), waterways_(waterways) {}
 
     u64 seed() const { return seed_; }
 
@@ -42,6 +43,7 @@ public:
 
 private:
     u64 seed_;
+    bool waterways_;
 };
 
 } // namespace tp

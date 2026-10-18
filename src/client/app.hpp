@@ -37,10 +37,13 @@ enum class Tool {
     RailTrack,
     RemoveRail,
     Signal,
+    BlockSignal,
     RailStation,
     RailDepot,
     Dock,
     ShipDepot,
+    Canal,
+    ReclaimWater,
     PickOrder, // click a station to append it to the selected vehicle's orders
 };
 
@@ -90,6 +93,7 @@ private:
     void returnToMainMenu();
     void updatePreview(double dt);
     void autosave();
+    void quicksave();
     void placeCameraAtStart();
 
     // app_windows.cpp
@@ -189,6 +193,7 @@ private:
     u64 seed_ = 20261017;
     bool showDebug_ = false; // F3
     std::optional<double> fixedTimeOfDay_; // overrides the game clock for screenshots
+    bool daylightOnly_ = false; // local lighting preference; simulation clock keeps running
 
     // Command line automation: render a number of frames, save a screenshot and quit.
     std::optional<std::string> autoScreenshot_;

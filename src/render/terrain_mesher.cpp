@@ -369,7 +369,7 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 quadOnSurface(ground, top, x0, z0, 0.04f, 0.04f, 0.96f, 0.96f, 0.012f, kPlaza);
                 if (tile.rail) addRail(ground, top, x0, z0, tile.rail, static_cast<Dir>(tile.extra));
             }
-            if (structure && rail) addRail(ground, top, x0, z0, tile.rail);
+            if (structure && (rail || (roadLike && tile.rail))) addRail(ground, top, x0, z0, tile.rail);
             if (structure && railStation) {
                 addRail(ground, top, x0, z0, tile.rail);
                 addPlatforms(ground, x0, z0, static_cast<float>(top.level) * kHeightStep, tile.rail);

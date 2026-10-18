@@ -347,21 +347,41 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
         const double dx = tp.x + 0.5 - focus.x, dz = tp.y + 0.5 - focus.z;
         if (dx * dx + dz * dz > radius * radius * 0.25) continue;
         const Tile* t = world.map.tile(tp);
-        if (!t || t->type != TileType::Rail || !t->extra) continue;
+        if (!t) continue;
+        if (t->type == TileType::Road && t->rail) {
+            const bool nsRoad = t->rail == kTrackEW;
+            const u32 tint = (t->extra2 & t->rail) ? kRed : kGreen;
+            for (const float side : {-1.0f, 1.0f}) {
+                const glm::vec2 at = nsRoad ? glm::vec2(0.86f, 0.5f + side * 0.4f)
+                                          : glm::vec2(0.5f + side * 0.4f, 0.86f);
+                const float y = roadSurfaceY(world, tp, at.x, at.y);
+                const Dir face = nsRoad ? (side < 0 ? Dir::N : Dir::S) : (side < 0 ? Dir::W : Dir::E);
+                dynamic_.add(models::kSignal,
+                             makeInstance(glm::vec3(tp.x + at.x - origin.x, y, tp.y + at.y - origin.z),
+                                          facingYaw(face), 1.0f, tint));
+            }
+            continue;
+        }
+        if (t->type != TileType::Rail || !t->extra) continue;
         const bool ns = t->rail == kTrackNS;
-        const u32 tint = (t->extra2 & t->rail) ? kGreen : kRed;
         for (const u8 bit : {kSignalForward, kSignalBackward}) {
             if (!(t->extra & bit)) continue;
             // Direction of travel the signal applies to; it stands on the right of the track,
             // facing the approaching train.
             const glm::vec2 travel = ns ? glm::vec2(0.0f, bit == kSignalForward ? -1.0f : 1.0f)
                                         : glm::vec2(bit == kSignalForward ? 1.0f : -1.0f, 0.0f);
+            const Dir direction = ns ? (bit == kSignalForward ? Dir::N : Dir::S)
+                                     : (bit == kSignalForward ? Dir::E : Dir::W);
+            const u32 tint = (t->extra & kSignalBlock)
+                                 ? (blockSignalClear(world, tp, direction) ? kGreen : kRed)
+                                 : ((t->extra2 & t->rail) ? kGreen : kRed);
             const glm::vec2 right(-travel.y, travel.x);
             const glm::vec2 at = glm::vec2(0.5f) + right * 0.24f;
             const float y = roadSurfaceY(world, tp, at.x, at.y);
             const float yaw = std::atan2(travel.y, -travel.x); // lamp (+X) faces against travel
             dynamic_.add(models::kSignal,
-                         makeInstance(glm::vec3(tp.x + at.x - origin.x, y, tp.y + at.y - origin.z), yaw, 1.0f, tint));
+                         makeInstance(glm::vec3(tp.x + at.x - origin.x, y, tp.y + at.y - origin.z), yaw,
+                                      (t->extra & kSignalBlock) ? 1.2f : 1.0f, tint));
         }
     }
     dynamic_.upload();

@@ -24,7 +24,7 @@ namespace {
 bool isDragTool(Tool t) {
     return t == Tool::Road || t == Tool::RemoveRoad || t == Tool::TramTrack || t == Tool::RemoveTram ||
            t == Tool::Clear || t == Tool::Trees || t == Tool::RailTrack || t == Tool::RemoveRail ||
-           t == Tool::RailStation;
+           t == Tool::RailStation || t == Tool::Canal || t == Tool::ReclaimWater;
 }
 
 // Tools dragged along a straight line.
@@ -78,6 +78,8 @@ std::optional<CommandPayload> App::dragCommand(TilePos a, TilePos b) const {
     case Tool::RailTrack: return CmdBuildRail{a, b};
     case Tool::RemoveRail: return CmdRemoveRail{a, b};
     case Tool::RailStation: return CmdBuildRailStation{a, straighten(a, b)};
+    case Tool::Canal: return CmdEditWater{a, b, true};
+    case Tool::ReclaimWater: return CmdEditWater{a, b, false};
     default: return std::nullopt;
     }
 }
@@ -236,6 +238,7 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
         break;
     }
     case Tool::Signal: cmd = CmdCycleSignal{hover_.tile}; break;
+    case Tool::BlockSignal: cmd = CmdCycleSignal{hover_.tile, true}; break;
     case Tool::RailDepot: {
         // Face track on the side of the tile the cursor is closest to, or any adjacent track.
         Dir facing = hover_.edge;
@@ -326,7 +329,7 @@ constexpr GroupInfo kGroups[] = {
     {ToolGroup::Road, ui::Icon::Road, "Roads", "Roads, bus stops and bus depots", "2", ui::col::kRoad},
     {ToolGroup::Tram, ui::Icon::Tram, "Trams", "Tram track, tram stops and tram depots", "3", ui::col::kTram},
     {ToolGroup::Rail, ui::Icon::Train, "Railways", "Track, signals, stations and train depots", "4", ui::col::kRail},
-    {ToolGroup::Water, ui::Icon::Ship, "Waterways", "Docks and shipyards for ferries", "5", ui::col::kWater},
+    {ToolGroup::Water, ui::Icon::Ship, "Waterways", "Canals, water reclamation, docks and shipyards", "5", ui::col::kWater},
 };
 
 struct ToolInfo {
@@ -357,8 +360,10 @@ constexpr ToolInfo kTools[] = {
      "Drag to lay railway track: straight first, then diagonally towards the cursor", false},
     {Tool::RemoveRail, ToolGroup::Rail, ui::Icon::Track, "Remove",
      "Drag to remove track, or click a tile to clear all of its track", true},
-    {Tool::Signal, ToolGroup::Rail, ui::Icon::Signal, "Signal",
-     "Click straight track to add a signal; click again to cycle two-way, one-way, reversed and none", false},
+    {Tool::Signal, ToolGroup::Rail, ui::Icon::Signal, "Path signal",
+     "Reserves a route through junctions. Click to cycle two-way, one-way, reversed and none", false},
+    {Tool::BlockSignal, ToolGroup::Rail, ui::Icon::Signal, "Block signal",
+     "Waits until every branch of the block ahead is clear. Click to cycle directions", false},
     {Tool::RailStation, ToolGroup::Rail, ui::Icon::Station, "Station",
      "Drag along flat ground or straight track to build platforms", false},
     {Tool::RailDepot, ToolGroup::Rail, ui::Icon::Depot, "Depot", "Build a train depot facing the track", false},
@@ -366,6 +371,10 @@ constexpr ToolInfo kTools[] = {
      "Build a dock on the shore; ships moor at the water tile in front of it", false},
     {Tool::ShipDepot, ToolGroup::Water, ui::Icon::Shipyard, "Shipyard",
      "Build a shipyard on the shore, facing the water", false},
+    {Tool::Canal, ToolGroup::Water, ui::Icon::Ship, "Canal",
+     "Drag to flood clear land at sea level. Lower and level the terrain first", false},
+    {Tool::ReclaimWater, ToolGroup::Water, ui::Icon::Landscape, "Reclaim",
+     "Drag over water to reclaim land. Ships and dock berths must be cleared first", true},
 };
 
 const GroupInfo* groupInfo(ToolGroup g) {

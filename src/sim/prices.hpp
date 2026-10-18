@@ -28,4 +28,15 @@ inline constexpr Money kSignal = 500;
 inline constexpr Money kRailStationTile = 2'500;
 inline constexpr Money kRailDepot = 6'000;
 
+// Monthly upkeep per owned piece / facility tile, in the same units as construction.
+inline constexpr Money kRoadMaintenance = 2;
+inline constexpr Money kTramMaintenance = 3;
+inline constexpr Money kRailMaintenance = 4;
+inline constexpr Money kSignalMaintenance = 5;
+inline constexpr Money kStationMaintenance = 25;
+inline constexpr Money kDepotMaintenance = 50;
+inline constexpr Money kCanalTile = 1'200;
+inline constexpr Money kReclaimWater = 2'000;
+inline constexpr Money kCanalMaintenance = 8;
+
 } // namespace tp::prices

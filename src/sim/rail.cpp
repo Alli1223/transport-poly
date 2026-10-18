@@ -6,6 +6,8 @@
 #include "sim/world.hpp"
 
 #include <cstdlib>
+#include <map>
+#include <set>
 
 namespace tp {
 
@@ -22,7 +24,8 @@ Surface railSurface(const Slope& s, u8 bits) {
 
 u8 railPieces(const Tile& t) {
     switch (t.type) {
-    case TileType::Rail: return t.rail;
+    case TileType::Rail:
+    case TileType::Road: return t.rail; // level crossing
     case TileType::Station: return static_cast<StopKind>(t.extra) == StopKind::Rail ? t.rail : 0;
     case TileType::Depot: return t.rail; // the depot's straight piece; only its facing edge is open
     default: return 0;
@@ -32,6 +35,14 @@ u8 railPieces(const Tile& t) {
 bool canAddTrack(const Map& map, TilePos t, u8 bit) {
     const Tile* tile = map.tile(t);
     if (!tile) return false;
+    if (tile->type == TileType::Road) {
+        // Crossings are flat, perpendicular straight road and track. Tram tracks
+        // cannot share the rail owner's slot and are deliberately excluded.
+        const u8 road = roadPieces(*tile);
+        return map.slope(t).isFlat() && !tile->rail && !tramPieces(*tile) &&
+               ((bit == kTrackNS && road == axisBits(Dir::E)) ||
+                (bit == kTrackEW && road == axisBits(Dir::N)));
+    }
     if (tile->type != TileType::Clear && tile->type != TileType::Rail) return false;
     if (tile->type == TileType::Rail && (tile->rail & bit)) return false;
     const u8 bits = static_cast<u8>((tile->type == TileType::Rail ? tile->rail : 0) | bit);
@@ -43,6 +54,16 @@ bool canAddTrack(const Map& map, TilePos t, u8 bit) {
     // Signals are only allowed on single straight tracks.
     if (tile->type == TileType::Rail && tile->extra != 0) return false;
     return true;
+}
+
+bool crossingRoadOccupied(const World& w, TilePos tile) {
+    for (const auto [id, v] : w.vehicles) {
+        if (v.state == VehicleState::InDepot ||
+            (v.info().type != VehicleType::Road && v.info().type != VehicleType::Tram)) continue;
+        if (v.tile == tile) return true;
+        if (neighbour(v.tile, v.entry) == tile && v.progress < v.info().length * 16 + 4) return true;
+    }
+    return false;
 }
 
 bool railLinkOpen(const World& w, TilePos a, Dir d) {
@@ -62,6 +83,37 @@ bool railLinkOpen(const World& w, TilePos a, Dir d) {
     };
     const TileCorners ca = w.map.corners(a), cb = w.map.corners(b);
     return roadEdgeHalfLevels(ca, surfaceOf(a, *ta), d) == roadEdgeHalfLevels(cb, surfaceOf(b, *tb), opposite(d));
+}
+
+bool blockSignalClear(const World& w, TilePos signal, Dir travel, VehicleId ignore) {
+    // Reservations are authoritative, including a train's tail and its route ahead.
+    std::map<u64, u8> own;
+    const auto key = [](TilePos p) { return ChunkPos{p.x, p.y}.key(); };
+    if (const Vehicle* v = w.vehicles.tryGet(ignore)) {
+        for (const TrackSeg& s : v->trail) own[key(s.tile)] |= trackBetween(s.entry, s.exit);
+        for (const TrackSeg& s : v->ahead) own[key(s.tile)] |= trackBetween(s.entry, s.exit);
+    }
+    std::vector<TilePos> pending{signal};
+    std::set<u64> seen{key(signal)};
+    for (usize i = 0; i < pending.size(); ++i) {
+        if (pending.size() > 16384) return false; // bound work; oversized / unexplored blocks stay red
+        const TilePos p = pending[i];
+        const Tile* tile = w.map.tile(p);
+        if (!tile || !railPieces(*tile)) return false;
+        if (p != signal && tile->type == TileType::Rail && (tile->extra & 3)) continue;
+        const auto ownIt = own.find(key(p));
+        const u8 ownBits = ownIt == own.end() ? 0 : ownIt->second;
+        if ((tile->extra2 & kTrackAll & ~ownBits) != 0) return false;
+        if (tile->type == TileType::Road && crossingRoadOccupied(w, p)) return false;
+        for (const Dir d : kDirs) {
+            if (p == signal && d != travel) continue;
+            if (!(railPieces(*tile) & tracksAtEdge(d))) continue;
+            const TilePos n = neighbour(p, d);
+            if (!w.map.tile(n)) return false;
+            if (railLinkOpen(w, p, d) && seen.insert(key(n)).second) pending.push_back(n);
+        }
+    }
+    return true;
 }
 
 std::vector<RailStep> planRailLine(TilePos from, TilePos to) {

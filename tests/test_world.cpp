@@ -5,6 +5,7 @@
 #include "net/session.hpp"
 #include "sim/commands.hpp"
 #include "sim/world.hpp"
+#include "sim/prices.hpp"
 
 #include <memory>
 
@@ -65,6 +66,51 @@ TEST_CASE("world: exploration activates chunks via commands") {
     CHECK(executeCommand(w, makeCommand(CompanyId{}, CmdActivateChunks{{{0, 0}, {1, 0}}})).ok);
     CHECK(w.map.isActive({1, 0}));
     CHECK(!executeCommand(w, makeCommand(CompanyId{}, CmdActivateChunks{{{0, 0}}})).ok); // already explored
+}
+
+TEST_CASE("world: monthly upkeep respects separate road and track ownership") {
+    WorldSettings settings;
+    settings.interestPercent = 0;
+    World w(settings);
+    const CompanyId roadCo = createCompany(w);
+    const CompanyId trackCo = createCompany(w);
+    w.map.activate({0, 0}); // no towns: isolate maintenance from growth
+    Tile& mixed = *w.map.tile({2, 2});
+    mixed = Tile{};
+    mixed.type = TileType::Road;
+    mixed.road = 0x55; // two road and two tram pieces
+    mixed.roadOwner = roadCo.value;
+    mixed.owner = trackCo.value;
+    Tile& rail = *w.map.tile({3, 2});
+    rail = Tile{};
+    rail.type = TileType::Rail;
+    rail.rail = 1;
+    rail.extra = 1;
+    rail.owner = trackCo.value;
+    Tile& stop = *w.map.tile({4, 2});
+    stop = Tile{};
+    stop.type = TileType::Station;
+    stop.owner = trackCo.value;
+    Tile& depot = *w.map.tile({5, 2});
+    depot = Tile{};
+    depot.type = TileType::Depot;
+    depot.owner = roadCo.value;
+    Tile& publicRoad = *w.map.tile({6, 2});
+    publicRoad = mixed;
+    publicRoad.roadOwner = kOwnerTown;
+    publicRoad.owner = kOwnerNone;
+    const Money roadBefore = w.companies[roadCo].money;
+    const Money trackBefore = w.companies[trackCo].money;
+    w.clock.tick = w.clock.tickOfDay(daysFromCivil(settings.startYear, 2, 1)) - 1;
+    w.tick();
+    const Money roadCost = 2 * prices::kRoadMaintenance + prices::kDepotMaintenance;
+    const Money trackCost = 2 * prices::kTramMaintenance + prices::kRailMaintenance +
+                            prices::kSignalMaintenance + prices::kStationMaintenance;
+    CHECK_EQ(w.companies[roadCo].money, roadBefore - roadCost);
+    CHECK_EQ(w.companies[trackCo].money, trackBefore - trackCost);
+    CHECK_EQ(w.companies[trackCo].thisYear.amounts[static_cast<usize>(Expense::PropertyMaintenance)], -trackCost);
+    w.tick();
+    CHECK_EQ(w.companies[roadCo].money, roadBefore - roadCost);
 }
 
 TEST_CASE("world: terraform costs money and requires explored land") {
@@ -142,4 +188,24 @@ TEST_CASE("server: local session queues commands for the next tick") {
     session.setSpeed(2);
     const int ticks = session.server().update(1.0);
     CHECK(ticks > 0);
+}
+
+TEST_CASE("world: old saves retain their original terrain when exploring") {
+    WorldSettings settings;
+    settings.seed = 12345;
+    settings.waterways = false;
+    World original(settings);
+    original.map.activate({-1, -1});
+    World loaded;
+    fromBytes(toBytes(original, 4), loaded, 4);
+    CHECK(!loaded.settings.waterways);
+    original.map.activate({0, -1});
+    loaded.map.activate({0, -1});
+    CHECK(original.map.chunk({0, -1})->heights == loaded.map.chunk({0, -1})->heights);
+    CHECK(original.map.chunk({0, -1})->tiles == loaded.map.chunk({0, -1})->tiles);
+    // Saving the migrated world in the current format must retain that choice.
+    World resaved;
+    fromBytes(toBytes(loaded, kSaveVersion), resaved, kSaveVersion);
+    CHECK(!resaved.settings.waterways);
+    CHECK_EQ(resaved.map.generator().cornerHeight(700, -30), original.map.generator().cornerHeight(700, -30));
 }
