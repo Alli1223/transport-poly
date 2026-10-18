@@ -6,6 +6,7 @@
 #include "sim/road.hpp"
 #include "sim/road_path.hpp"
 #include "sim/rail.hpp"
+#include "sim/water_path.hpp"
 #include "sim/world.hpp"
 
 #include <bit>
@@ -436,6 +437,10 @@ CommandResult handle(World& w, const Command& c, const CmdSetOrders& x, bool exe
     if (x.orders.size() > 64) return CommandResult::failure("Too many orders");
     const VehicleType type = v->info().type;
     for (const Order& o : x.orders) {
+        if (o.flags & ~(kOrderNonStop | kOrderFullLoad | kOrderUnloadOnly | kOrderNoLoading))
+            return CommandResult::failure("Unknown order flags");
+        if ((o.flags & kOrderFullLoad) && (o.flags & (kOrderNonStop | kOrderUnloadOnly | kOrderNoLoading)))
+            return CommandResult::failure("Full load requires a stopping order that permits loading");
         if (o.kind == OrderKind::Station) {
             const Station* s = w.stations.tryGet(o.station);
             if (!s || s->owner != c.company) return CommandResult::failure("Invalid station in orders");
@@ -446,10 +451,18 @@ CommandResult handle(World& w, const Command& c, const CmdSetOrders& x, bool exe
                     ok = true;
             }
             if (!ok) return CommandResult::failure(std::format("{} has no stop for this vehicle", s->name));
-        } else {
+        } else if (o.kind == OrderKind::Via) {
+            const Tile* tile = w.map.tile(o.waypoint);
+            const bool ok = tile && (type == VehicleType::Ship ? isWaterTile(w, o.waypoint)
+                : type == VehicleType::Rail ? tile->rail != 0 && tile->type != TileType::Depot
+                : drivablePieces(w, o.waypoint, type, DepotId{}) != 0 && tile->type != TileType::Depot);
+            if (!ok) return CommandResult::failure("Waypoint needs navigable infrastructure for this vehicle");
+        } else if (o.kind == OrderKind::Depot) {
             const Depot* d = w.depots.tryGet(o.depot);
             if (!d || d->owner != c.company || !depotKindMatches(type, d->kind))
                 return CommandResult::failure("Invalid depot in orders");
+        } else {
+            return CommandResult::failure("Unknown order kind");
         }
     }
     if (exec) {

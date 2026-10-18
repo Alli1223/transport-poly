@@ -288,8 +288,15 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
             tool_ = Tool::None;
             return;
         }
-        addTileOverlay(overlays, hover_.tile, t && t->type == TileType::Station ? kOk : kBad);
-        if (t && t->type == TileType::Station) {
+        addTileOverlay(overlays, hover_.tile, t && (pickViaOrder_ || t->type == TileType::Station || t->type == TileType::Depot) ? kOk : kBad);
+        if (pickViaOrder_ && t) {
+            std::vector<Order> orders = v->orders;
+            Order o;
+            o.kind = OrderKind::Via;
+            o.waypoint = hover_.tile;
+            orders.push_back(o);
+            cmd = CmdSetOrders{selVehicle_, orders};
+        } else if (t && t->type == TileType::Station) {
             std::vector<Order> orders = v->orders;
             Order o;
             o.station = StationId(t->index);
@@ -303,7 +310,7 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
             orders.push_back(o);
             cmd = CmdSetOrders{selVehicle_, orders};
         } else {
-            ImGui::SetTooltip("Click a station (or depot) to add it to the orders");
+            ImGui::SetTooltip("Click a station, depot, or enable Via waypoint to choose track / road / water");
             return;
         }
         break;

@@ -208,6 +208,54 @@ TEST_CASE("transport: a bus line carries passengers and earns money") {
     (void)moneyBefore;
 }
 
+TEST_CASE("orders: bus visits a waypoint without loading and rejects incompatible order flags") {
+    World w = makeWorld();
+    const auto net = buildLine(w);
+    REQUIRE(net.has_value());
+    Order via, stopA, stopB;
+    via.kind = OrderKind::Via; via.waypoint = w.stations[net->a].tiles.front();
+    stopA.station = net->a; stopB.station = net->b;
+    auto run = [&](CommandPayload p) { return executeCommand(w, cmd(net->company, std::move(p))); };
+    REQUIRE(run(CmdSetOrders{net->bus, {via, stopB, stopA}}).ok);
+    bool reachedB = false, viaPassed = false;
+    for (int i = 0; i < 1800 && !reachedB; ++i) {
+        w.tick();
+        viaPassed = viaPassed || w.vehicles[net->bus].orderIndex == 1;
+        CHECK_EQ(w.stations[net->a].lastVisitTick, -1);
+        reachedB = w.stations[net->b].lastVisitTick >= 0;
+    }
+    CHECK(viaPassed); CHECK(reachedB);
+    via.waypoint = {1'000'000, 1'000'000};
+    CHECK(!run(CmdSetOrders{net->bus, {via}}).ok);
+    stopA.flags = kOrderFullLoad | kOrderUnloadOnly;
+    CHECK(!run(CmdSetOrders{net->bus, {stopA}}).ok);
+    stopA.flags = kOrderFullLoad | kOrderNonStop;
+    CHECK(!run(CmdSetOrders{net->bus, {stopA}}).ok);
+}
+
+TEST_CASE("orders: unload-only alights through passengers and never boards") {
+    World w;
+    const auto a = w.stations.create(), b = w.stations.create();
+    w.stations[a].sign = {0, 0}; w.stations[b].sign = {20, 0};
+    Vehicle v; v.model = 0;
+    Order oa, ob; oa.station = a; oa.flags = kOrderUnloadOnly; ob.station = b;
+    v.orders = {oa, ob};
+    Person rider; rider.state = PersonState::Riding; rider.station = a; rider.targetStation = b; rider.finalStation = b;
+    rider.tripTo2 = {41, 1};
+    const PersonId riding = w.people.create(rider);
+    v.passengers = {riding};
+    const VehicleId vid = w.vehicles.create(v);
+    w.people[riding].vehicle = vid;
+    Person waiting; waiting.state = PersonState::Waiting; waiting.station = a; waiting.targetStation = b;
+    const PersonId queue = w.people.create(waiting);
+    w.stations[a].waiting[b] = {queue};
+    CHECK_EQ(passengers::exchangeAtStop(w, vid, a), 1);
+    CHECK(w.vehicles[vid].passengers.empty());
+    CHECK(w.people[riding].state != PersonState::Riding);
+    CHECK(w.people[queue].state == PersonState::Waiting);
+    CHECK_EQ(w.stations[a].waitingCount(), 1u);
+}
+
 TEST_CASE("transport: network state is deterministic and survives save/load") {
     World a = makeWorld();
     World b = makeWorld();

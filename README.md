@@ -132,6 +132,12 @@ The inspector shows upcoming activities and a live activity log. Walking citizen
 and waiting passengers are drawn near the camera. The vehicle directory also
 filters by company, vehicle type and operating status.
 
+Each station order has a mode selector: normal stop, full load, unload all,
+no loading, or pass through. Enable **Via waypoint** when adding orders to pick
+a road, track or water tile. Waypoints guide vehicles without loading passengers;
+only stopping stations appear in the passenger service graph. Orders also support
+depot visits, skipping and sharing through vehicle cloning.
+
 The map window's display selector shows station catchments, current passenger
 flows, or town zones. Town details include monthly station boardings and the
 share of residents covered by recently served stops. Stations have capacity

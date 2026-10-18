@@ -106,7 +106,7 @@ relies on every peer computing exactly the same game state.
 ## M7 — Vehicles
 - [x] 7.1 Vehicle model catalogue (buses, trams, locomotives, multiple units, carriages, ferries) with stats & intro dates
 - [x] 7.2 Buy / sell / clone vehicles in depots; start / stop; send to depot
-- [~] 7.3 Orders: go to station (stop / non-stop), go via, full load, unload, depot service; shared orders; skip order (station + depot orders, full load, no loading, skip, shared orders; via orders later)
+- [x] 7.3 Orders: station stop / pass-through, road / rail / water waypoints, full load, unload all / no loading, depot service, shared orders and skip; waypoint-aware passenger routing
 - [x] 7.4 Road pathfinder (A* over the road graph with deterministic tie breaking)
 - [x] 7.5 Road vehicle movement: lanes, curves, junctions, queueing, gridlock breaker
 - [x] 7.6 Tram movement (tram network, articulated trams)

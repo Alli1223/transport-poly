@@ -953,6 +953,8 @@ int App::run(int argc, char** argv) {
                 World& w = world();
                 if (wants("finances")) showFinances_ = true;
                 if (wants("vehicles")) showVehicleList_ = true;
+                if (wants("orders"))
+                    for (const auto [id, v] : w.vehicles) { selVehicle_ = id; break; }
                 if (wants("towns")) showTownList_ = true;
                 if (wants("news")) showNews_ = true;
                 if (wants("depot"))

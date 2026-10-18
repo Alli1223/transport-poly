@@ -423,6 +423,31 @@ struct ShuttleLine {
 
 } // namespace
 
+TEST_CASE("orders: train passes a platform and waypoint then stops and survives save continuation") {
+    ShuttleLine line;
+    Order pass, via, stop, back;
+    pass.station = line.a; pass.flags = kOrderNonStop;
+    via.kind = OrderKind::Via; via.waypoint = {25, 16};
+    stop.station = line.b; back.station = line.a;
+    REQUIRE(line.rw.run(CmdSetOrders{line.train, {pass, via, stop, back}}).ok);
+    REQUIRE(line.rw.run(CmdStartStopVehicle{line.train}).ok);
+    bool reachedVia = false, visitedB = false;
+    for (int i = 0; i < 1500 && !visitedB; ++i) {
+        line.rw.w.tick();
+        const auto& v = line.rw.w.vehicles[line.train];
+        reachedVia = reachedVia || (v.tile.x >= 25 && v.orderIndex == 2);
+        CHECK_EQ(line.rw.w.stations[line.a].lastVisitTick, -1);
+        visitedB = line.rw.w.stations[line.b].lastVisitTick >= 0;
+    }
+    CHECK(reachedVia);
+    CHECK(visitedB);
+    World copy;
+    fromBytes(toBytes(line.rw.w, kSaveVersion), copy, kSaveVersion);
+    for (int i = 0; i < 1500; ++i) { line.rw.w.tick(); copy.tick(); }
+    CHECK_EQ(copy.stateHash(), line.rw.w.stateHash());
+    CHECK(line.rw.w.stations[line.a].lastVisitTick >= 0);
+}
+
 TEST_CASE("crossings: trains wait for road traffic to clear before reserving") {
     ShuttleLine line;
     World& w = line.rw.w;

@@ -760,7 +760,8 @@ void App::drawVehicleWindow() {
             ImGui::PushID(static_cast<int>(i));
             const bool current = i == v->orderIndex % std::max<usize>(1, orders.size());
             const Station* st = o.kind == OrderKind::Station ? w.stations.tryGet(o.station) : nullptr;
-            const std::string name = o.kind == OrderKind::Station ? (st ? st->name : std::string("(removed)")) : "Service at depot";
+            const std::string name = o.kind == OrderKind::Station ? (st ? st->name : std::string("(removed)"))
+                : o.kind == OrderKind::Via ? std::format("Via {}, {}", o.waypoint.x, o.waypoint.y) : "Service at depot";
             const ImVec2 p = ImGui::GetCursorScreenPos();
             const float avail = ImGui::GetContentRegionAvail().x;
             const float h = 34.0f * s;
@@ -768,6 +769,7 @@ void App::drawVehicleWindow() {
             ImGui::InvisibleButton("##row", ImVec2(avail - buttons, h));
             const bool hovered = ImGui::IsItemHovered();
             if (ImGui::IsItemClicked() && st) focusOn(st->sign);
+            if (ImGui::IsItemClicked() && o.kind == OrderKind::Via) focusOn(o.waypoint);
             dl->AddRectFilled(p, ImVec2(p.x + avail, p.y + h),
                               current ? ui::withAlpha(spec.accent, 0.14f) : (hovered ? ui::col::kCardHover : ui::col::kCard), 9.0f * s);
             if (current) dl->AddRectFilled(p, ImVec2(p.x + 3.0f * s, p.y + h), spec.accent, 9.0f * s, ImDrawFlags_RoundCornersLeft);
@@ -798,7 +800,7 @@ void App::drawVehicleWindow() {
                 if (o.kind == OrderKind::Station &&
                     ui::miniButton("##full", ui::Icon::People, (o.flags & kOrderFullLoad) ? ui::col::kTeal : ui::col::kTextMuted,
                                    "Wait for a full load")) {
-                    o.flags ^= kOrderFullLoad;
+                    o.flags = (o.flags & kOrderFullLoad) ? 0 : kOrderFullLoad;
                     changed = true;
                 }
                 if (o.kind != OrderKind::Station) ImGui::Dummy(ImVec2(ImGui::GetFrameHeight() * 0.85f, 1));
@@ -814,6 +816,17 @@ void App::drawVehicleWindow() {
             }
             ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h + 5.0f * s));
             ImGui::Dummy(ImVec2(0, 0));
+            if (o.kind == OrderKind::Station) {
+                int mode = (o.flags & kOrderNonStop) ? 4 : (o.flags & kOrderUnloadOnly) ? 2
+                    : (o.flags & kOrderNoLoading) ? 3 : (o.flags & kOrderFullLoad) ? 1 : 0;
+                ImGui::BeginDisabled(!mine);
+                ImGui::SetNextItemWidth(-1.0f);
+                if (ImGui::Combo("##mode", &mode, "Stop normally\0Full load\0Unload all, no loading\0No loading\0Pass through\0")) {
+                    constexpr u8 flags[] = {0, kOrderFullLoad, kOrderUnloadOnly, kOrderNoLoading, kOrderNonStop};
+                    o.flags = flags[mode]; changed = true;
+                }
+                ImGui::EndDisabled();
+            }
             ImGui::PopID();
         }
         if (orders.empty()) ui::emptyState(ui::Icon::Station, "No orders yet - add some stations");
@@ -828,6 +841,7 @@ void App::drawVehicleWindow() {
         if (changed) session_->submit(CmdSetOrders{selVehicle_, orders});
         if (mine) {
             const bool picking = tool_ == Tool::PickOrder;
+            ImGui::Checkbox("Via waypoint (road / track / water tile)", &pickViaOrder_);
             if (ui::button(picking ? "Click stations on the map - Esc when done" : "Add stop or depot",
                            picking ? ui::Icon::Target : ui::Icon::Plus, picking ? ui::Btn::Primary : ui::Btn::Secondary,
                            ImVec2(-1.0f, 0.0f)))

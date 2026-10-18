@@ -39,7 +39,9 @@ DepotId allowedDepot(const Vehicle& v) {
 std::vector<TilePos> goalsFor(const World& w, const Vehicle& v, const Order& o) {
     std::vector<TilePos> goals;
     const VehicleType type = v.info().type;
-    if (o.kind == OrderKind::Station) {
+    if (o.kind == OrderKind::Via) {
+        goals.push_back(o.waypoint);
+    } else if (o.kind == OrderKind::Station) {
         if (const Station* s = w.stations.tryGet(o.station)) {
             for (const TilePos t : s->tiles) {
                 const Tile* tile = w.map.tile(t);
@@ -55,7 +57,7 @@ std::vector<TilePos> goalsFor(const World& w, const Vehicle& v, const Order& o) 
 
 bool isStopTarget(const World& w, const Vehicle& v, TilePos t) {
     const auto o = targetOrder(v);
-    if (!o || o->kind != OrderKind::Station) return false;
+    if (!o || o->kind != OrderKind::Station || o->passThrough()) return false;
     const Tile* tile = w.map.tile(t);
     return tile && tile->type == TileType::Station && tile->index == o->station.value && stopMatches(*tile, v.info().type);
 }
@@ -290,6 +292,14 @@ void drive(World& w, VehicleId id) {
                 v.exit = v.entry;
                 continue;
             }
+        }
+        for (usize guardOrder = 0; guardOrder < v.orders.size(); ++guardOrder) {
+            const auto o = targetOrder(v);
+            if (!o || !o->passThrough()) break;
+            const bool reached = o->kind == OrderKind::Via ? v.tile == o->waypoint
+                : tile && tile->type == TileType::Station && tile->index == o->station.value;
+            if (!reached) break;
+            advanceOrder(v);
         }
         v.exit = chooseExit(w, id);
         v.stopAtMiddle = isStopTarget(w, v, v.tile) && turnKind(v.entry, v.exit) == TurnKind::Straight;

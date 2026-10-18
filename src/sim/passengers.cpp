@@ -41,7 +41,7 @@ i64 walkTiles(const Station& s, TilePos p2) {
 std::vector<StationId> stationOrders(const World& w, const Vehicle& v) {
     std::vector<StationId> list;
     for (const Order& o : v.orders) {
-        if (o.kind != OrderKind::Station || !w.stations.contains(o.station)) continue;
+        if (o.kind != OrderKind::Station || o.passThrough() || !w.stations.contains(o.station)) continue;
         if (!list.empty() && list.back() == o.station) continue;
         list.push_back(o.station);
     }
@@ -54,14 +54,14 @@ StationId nextStopAfterCurrent(const World& w, const Vehicle& v) {
     const usize n = v.orders.size();
     for (usize k = 1; k <= n; ++k) {
         const Order& o = v.orders[(v.orderIndex + k) % n];
-        if (o.kind == OrderKind::Station && w.stations.contains(o.station)) return o.station;
+        if (o.kind == OrderKind::Station && !o.passThrough() && w.stations.contains(o.station)) return o.station;
     }
     return StationId{};
 }
 
 bool vehicleVisits(const Vehicle& v, StationId s) {
     for (const Order& o : v.orders)
-        if (o.kind == OrderKind::Station && o.station == s) return true;
+        if (o.kind == OrderKind::Station && !o.passThrough() && o.station == s) return true;
     return false;
 }
 
@@ -257,13 +257,15 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
     Station* station = w.stations.tryGet(sid);
     if (!station) return 0;
     i32 moved = 0;
+    const auto o = v.currentOrder();
+    if (o && o->passThrough()) return 0;
     // Unload.
     std::vector<PersonId> staying;
     staying.reserve(v.passengers.size());
     for (const PersonId pid : v.passengers) {
         Person* p = w.people.tryGet(pid);
         if (!p) continue;
-        if (p->targetStation == sid || p->finalStation == sid || !vehicleVisits(v, p->targetStation)) {
+        if ((o && (o->flags & kOrderUnloadOnly)) || p->targetStation == sid || p->finalStation == sid || !vehicleVisits(v, p->targetStation)) {
             alight(w, pid, sid, v);
             ++moved;
         } else {
@@ -272,8 +274,7 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
     }
     v.passengers = std::move(staying);
     // Load passengers heading for our next stop.
-    const auto o = v.currentOrder();
-    if (o && (o->flags & kOrderNoLoading)) return moved;
+    if (o && (o->flags & (kOrderNoLoading | kOrderUnloadOnly))) return moved;
     const StationId next = nextStopAfterCurrent(w, v);
     if (!next.valid() || next == sid) return moved;
     station = w.stations.tryGet(sid);

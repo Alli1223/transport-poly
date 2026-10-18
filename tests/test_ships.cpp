@@ -179,6 +179,32 @@ TEST_CASE("ships: docks and shipyards need a shore facing water") {
     CHECK(lw.run(CmdBuildShipDepot{{9, 12}, Dir::E}).ok);
 }
 
+TEST_CASE("orders: ship sails via water and passes a dock without loading") {
+    LakeWorld lw;
+    REQUIRE(lw.run(CmdBuildDock{{9, 16}, Dir::E}).ok);
+    REQUIRE(lw.run(CmdBuildDock{{50, 17}, Dir::W}).ok);
+    const auto dep = lw.run(CmdBuildShipDepot{{9, 11}, Dir::E}); REQUIRE(dep.ok);
+    u16 model = 0;
+    for (u16 i = 0; i < vehicleModels().size(); ++i)
+        if (vehicleModel(i).type == VehicleType::Ship && vehicleModel(i).introYear <= 1950) model = i;
+    const auto buy = lw.run(CmdBuyVehicle{DepotId(dep.createdId), model}); REQUIRE(buy.ok);
+    const VehicleId id(buy.createdId);
+    const StationId a(lw.w.map.tile({9, 16})->index), b(lw.w.map.tile({50, 17})->index);
+    Order via, pass, stop;
+    via.kind = OrderKind::Via; via.waypoint = {18, 9};
+    pass.station = a; pass.flags = kOrderNonStop; stop.station = b;
+    REQUIRE(lw.run(CmdSetOrders{id, {via, pass, stop}}).ok);
+    REQUIRE(lw.run(CmdStartStopVehicle{id}).ok);
+    bool visitedVia = false, reachedB = false;
+    for (int i = 0; i < 2500 && !reachedB; ++i) {
+        lw.w.tick();
+        visitedVia = visitedVia || lw.w.vehicles[id].tile == via.waypoint;
+        CHECK_EQ(lw.w.stations[a].lastVisitTick, -1);
+        reachedB = lw.w.stations[b].lastVisitTick >= 0;
+    }
+    CHECK(visitedVia); CHECK(reachedB);
+}
+
 TEST_CASE("ships: a ferry shuttles between two docks around an island") {
     LakeWorld lw;
     REQUIRE(lw.run(CmdBuildDock{{9, 16}, Dir::E}).ok);

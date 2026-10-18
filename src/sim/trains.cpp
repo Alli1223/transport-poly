@@ -42,7 +42,9 @@ bool isPlatformOf(const World& w, TilePos t, StationId s) {
 
 std::vector<TilePos> goalsFor(const World& w, const Order& o) {
     std::vector<TilePos> goals;
-    if (o.kind == OrderKind::Station) {
+    if (o.kind == OrderKind::Via) {
+        goals.push_back(o.waypoint);
+    } else if (o.kind == OrderKind::Station) {
         if (const Station* s = w.stations.tryGet(o.station))
             for (const TilePos t : s->tiles)
                 if (isPlatformOf(w, t, o.station)) goals.push_back(t);
@@ -97,6 +99,7 @@ Extend extend(World& w, VehicleId id) {
     const auto o = targetOrder(v);
     if (!o) return Extend::NoOrders;
     const TrackSeg last = v.ahead.empty() ? v.trail.front() : v.ahead.back();
+    if (o->kind == OrderKind::Via && last.tile == o->waypoint) return Extend::AtTarget;
     // The reservation already ends at the far end of the target platform (or in the depot).
     if (o->kind == OrderKind::Station && isPlatformOf(w, last.tile, o->station) &&
         !isPlatformOf(w, neighbour(last.tile, last.exit), o->station))
@@ -125,6 +128,26 @@ Extend extend(World& w, VehicleId id) {
         const bool goal = std::find(goals.begin(), goals.end(), t) != goals.end();
         if (goal && tile->type == TileType::Depot) {
             const TrackSeg s{t, e, opposite(e)};
+            if (!reservable(w, t, segBit(s))) return Extend::Blocked;
+            collected.push_back(s);
+            break;
+        }
+        if (goal && o->kind == OrderKind::Via) {
+            // Choose the waypoint's exit towards the following order, including curves/junctions.
+            const u8 exits = railExits(w, t, e, allowedDepot(v));
+            Dir x = opposite(e);
+            if (v.orders.size() > 1) {
+                const Order& following = v.orders[(v.orderIndex + 1) % v.orders.size()];
+                const auto onward = findRailPath(w, t, e, goalsFor(w, following),
+                    following.kind == OrderKind::Depot ? following.depot : DepotId{});
+                if (onward && !onward->empty()) x = static_cast<Dir>((*onward)[0] & 3);
+            }
+            if (!(exits & dirBit(x))) {
+                bool found = false;
+                for (const Dir d : kDirs) if (exits & dirBit(d)) { x = d; found = true; break; }
+                if (!found) return Extend::NoPath;
+            }
+            const TrackSeg s{t, e, x};
             if (!reservable(w, t, segBit(s))) return Extend::Blocked;
             collected.push_back(s);
             break;
@@ -260,6 +283,15 @@ void advance(World& w, VehicleId id, i32 move) {
         v.ahead.pop_front();
         v.trail.push_front(next);
         const Tile* t = w.map.tile(next.tile);
+        for (usize guard = 0; guard < v.orders.size(); ++guard) {
+            const auto o = targetOrder(v);
+            if (!o || !o->passThrough()) break;
+            const bool reached = o->kind == OrderKind::Via ? next.tile == o->waypoint
+                : isPlatformOf(w, next.tile, o->station);
+            if (!reached) break;
+            v.orderIndex = static_cast<u8>((v.orderIndex + 1) % v.orders.size());
+            v.retryTicks = 0;
+        }
         if (t && t->type == TileType::Depot) {
             const auto o = targetOrder(v);
             if (o && o->kind == OrderKind::Depot && DepotId(t->index) == o->depot) {
@@ -389,7 +421,7 @@ void tick(World& w, VehicleId id) {
     // Arrived at the end of the target platform?
     if (v.ahead.empty() && segLen(v.trail.front()) - v.progress <= kStopMargin + 2) {
         const auto o = targetOrder(v);
-        if (o && o->kind == OrderKind::Station && isPlatformOf(w, v.tile, o->station)) {
+        if (o && o->kind == OrderKind::Station && !o->passThrough() && isPlatformOf(w, v.tile, o->station)) {
             v.speed = 0;
             arriveAtPlatform(w, id, o->station);
         }

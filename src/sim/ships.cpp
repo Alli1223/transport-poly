@@ -21,7 +21,9 @@ constexpr i32 kRetryTicks = 64; // after failing to find a route
 
 std::vector<TilePos> goalsFor(const World& w, const Order& o) {
     std::vector<TilePos> goals;
-    if (o.kind == OrderKind::Station) {
+    if (o.kind == OrderKind::Via) {
+        if (isWaterTile(w, o.waypoint)) goals.push_back(o.waypoint);
+    } else if (o.kind == OrderKind::Station) {
         if (const Station* s = w.stations.tryGet(o.station)) {
             for (const TilePos t : s->tiles) {
                 const Tile* tile = w.map.tile(t);
@@ -69,10 +71,20 @@ void arriveAtDock(World& w, VehicleId id, StationId sid) {
 // needed). Returns false when the ship has to stay put.
 bool atCentre(World& w, VehicleId id) {
     Vehicle& v = w.vehicles[id];
+    // Consume consecutive waypoints at this centre without loading or recursing.
+    for (usize guard = 0; guard < v.orders.size(); ++guard) {
+        const auto pass = targetOrder(v);
+        if (!pass || !pass->passThrough()) break;
+        const auto targets = goalsFor(w, *pass);
+        if (std::ranges::find(targets, v.tile) == targets.end()) break;
+        v.orderIndex = static_cast<u8>((v.orderIndex + 1) % v.orders.size());
+        v.path.clear(); v.pathIndex = 0; v.retryTicks = 0;
+    }
     const auto o = targetOrder(v);
     if (!o) return false;
     const std::vector<TilePos> goals = goalsFor(w, *o);
     if (std::ranges::find(goals, v.tile) != goals.end()) {
+        if (o->passThrough()) return false; // all orders are coincident waypoints
         v.path.clear();
         v.pathIndex = 0;
         if (o->kind == OrderKind::Depot)

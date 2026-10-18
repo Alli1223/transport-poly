@@ -65,18 +65,22 @@ enum OrderFlags : u8 {
     kOrderNoLoading = 1 << 3,
 };
 
-enum class OrderKind : u8 { Station, Depot };
+enum class OrderKind : u8 { Station, Depot, Via };
 
 struct Order {
     OrderKind kind = OrderKind::Station;
     StationId station;
     DepotId depot;
     u8 flags = 0;
+    TilePos waypoint;
+
+    bool passThrough() const { return kind == OrderKind::Via || (kind == OrderKind::Station && (flags & kOrderNonStop)); }
 
     friend bool operator==(const Order&, const Order&) = default;
     template <class Ar>
     void serialize(Ar& ar) {
         ar(kind, station, depot, flags);
+        if (ar.version == 0 || ar.version >= 9) ar(waypoint);
     }
 };
 
