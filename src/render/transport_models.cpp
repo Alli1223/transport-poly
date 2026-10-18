@@ -334,6 +334,13 @@ void shipyard(MeshBuilder& mb) {
                   {x0 + 0.08f, -0.6f, 1.05f}, kConcrete, {0, 1, 0.6f});
 }
 
+void smokeCloud(MeshBuilder& mb) {
+    constexpr u32 kSmokeGrey = rgba(96, 96, 100);
+    mb.icosphere({0.0f, 0.0f, 0.0f}, 0.09f, kSmokeGrey);
+    mb.icosphere({0.07f, 0.08f, 0.03f}, 0.07f, rgba(120, 120, 124));
+    mb.icosphere({-0.05f, 0.14f, -0.02f}, 0.06f, rgba(140, 140, 144));
+}
+
 void person(MeshBuilder& mb) {
     mb.box({-0.018f, 0.0f, -0.012f}, {0.018f, 0.07f, 0.012f}, tintable(1.0f));
     mb.box({-0.014f, 0.07f, -0.012f}, {0.014f, 0.098f, 0.012f}, rgba(226, 190, 160));
@@ -368,6 +375,7 @@ void buildTransportModels(MeshBuilder& out, ModelId id) {
     case models::ship(2): hydrofoil(out); break;
     case models::kDock: dockPier(out); break;
     case models::kShipDepot: shipyard(out); break;
+    case models::kSmoke: smokeCloud(out); break;
     default: break;
     }
 }

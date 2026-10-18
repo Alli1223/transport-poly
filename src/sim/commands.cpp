@@ -69,6 +69,8 @@ std::string_view commandName(const CommandPayload& payload) {
                           [](const CmdRemoveCarriage&) { return std::string_view("Remove carriage"); },
                           [](const CmdBuildDock&) { return std::string_view("Build dock"); },
                           [](const CmdBuildShipDepot&) { return std::string_view("Build shipyard"); },
+                          [](const CmdCloneVehicle&) { return std::string_view("Clone vehicle"); },
+                          [](const CmdUnshareOrders&) { return std::string_view("Unshare orders"); },
                       },
                       payload);
 }

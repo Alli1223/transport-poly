@@ -436,12 +436,60 @@ CommandResult handle(World& w, const Command& c, const CmdSetOrders& x, bool exe
         }
     }
     if (exec) {
-        v->orders = x.orders;
-        if (v->orderIndex >= v->orders.size()) v->orderIndex = 0;
-        v->path.clear();
-        v->pathIndex = 0;
+        const u32 group = v->orderGroup;
+        const CompanyId owner = v->owner;
+        for (auto [id, o] : w.vehicles) {
+            if (id != x.vehicle && (group == 0 || o.orderGroup != group || o.owner != owner)) continue;
+            o.orders = x.orders;
+            if (o.orderIndex >= o.orders.size()) o.orderIndex = 0;
+            o.path.clear();
+            o.pathIndex = 0;
+        }
         passengers::markDirty(w);
     }
+    return CommandResult::success();
+}
+
+CommandResult handle(World& w, const Command& c, const CmdCloneVehicle& x, bool exec) {
+    const Vehicle* src = ownedVehicle(w, c, x.source);
+    if (!src) return CommandResult::failure("No such vehicle");
+    const Depot* d = w.depots.tryGet(x.depot);
+    if (!d || d->owner != c.company) return CommandResult::failure("No such depot");
+    const VehicleModel& m = src->info();
+    if (!depotKindMatches(m.type, d->kind)) return CommandResult::failure("This depot can't build that vehicle");
+    if (w.vehicles.size() >= 60'000) return CommandResult::failure("Too many vehicles");
+    const std::vector<u16> cars = src->cars;
+    Money cost = 0;
+    if (cars.empty()) {
+        cost = m.price;
+    } else {
+        for (const u16 car : cars) cost += vehicleModel(car).price;
+    }
+    if (!exec) return CommandResult::success(cost, Expense::NewVehicles);
+    const u16 model = src->model;
+    const std::vector<Order> orders = src->orders;
+    u32 group = src->orderGroup;
+    if (x.shareOrders && group == 0) group = src->serial;
+    const VehicleId id = vehicles::buy(w, c.company, x.depot, model); // may move `src`
+    Vehicle& v = w.vehicles[id];
+    if (!cars.empty()) v.cars = cars;
+    v.value = cost;
+    v.orders = orders;
+    if (x.shareOrders) {
+        v.orderGroup = group;
+        w.vehicles[x.source].orderGroup = group;
+    }
+    passengers::markDirty(w);
+    CommandResult r = CommandResult::success(cost, Expense::NewVehicles);
+    r.createdId = id.value;
+    return r;
+}
+
+CommandResult handle(World& w, const Command& c, const CmdUnshareOrders& x, bool exec) {
+    Vehicle* v = ownedVehicle(w, c, x.vehicle);
+    if (!v) return CommandResult::failure("No such vehicle");
+    if (v->orderGroup == 0) return CommandResult::failure("Orders are not shared");
+    if (exec) v->orderGroup = 0;
     return CommandResult::success();
 }
 

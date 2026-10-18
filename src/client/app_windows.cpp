@@ -39,11 +39,13 @@ std::string App::vehicleStatus(const Vehicle& v) const {
     };
     if (v.state == VehicleState::InDepot) return v.stopped ? "Stopped in depot" : "Leaving depot";
     if (v.stopped) return "Stopped";
+    if (v.breakdownTicks > 0) return "Broken down!";
     if (v.state == VehicleState::Loading) {
         const Order* o = v.currentOrder();
         return o ? std::format("Loading at {}", stationName(o->station)) : "Loading";
     }
     if (v.sendToDepot) return "Heading for depot";
+    if (v.goingForService) return "Heading for depot (service)";
     if (v.lost) return "Lost - can't find a route!";
     if (const Order* o = v.currentOrder()) {
         if (o->kind == OrderKind::Station) return std::format("Heading for {}", stationName(o->station));
@@ -196,8 +198,11 @@ void App::drawVehicleWindow() {
     }
     bool open = true;
     const std::string title = std::format("{}###vehicle", vehicleName(*v));
-    ImGui::SetNextWindowSize(ImVec2(400, 0), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(460, 200), ImGuiCond_FirstUseEver);
+    // Off to the side, so that a followed vehicle in the middle of the screen stays visible.
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowSize(ImVec2(440, 0), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x - 460.0f, vp->WorkPos.y + 60.0f),
+                            ImGuiCond_FirstUseEver);
     if (ImGui::Begin(title.c_str(), &open)) {
         const VehicleModel& m = v->info();
         const bool mine = v->owner == session_->localCompany();
@@ -208,6 +213,18 @@ void App::drawVehicleWindow() {
         moneyText("Profit this year", v->profitThisYear);
         moneyText("Profit last year", v->profitLastYear);
         ImGui::Text("Passengers this year: %d   Value: %s", v->passengersThisYear, formatMoney(v->value).c_str());
+        {
+            const i32 age = vehicles::ageDays(w, *v);
+            const bool old = age > m.lifeYears * 365;
+            ImGui::TextColored(old ? ImVec4(1.0f, 0.55f, 0.45f, 1.0f) : ImVec4(1, 1, 1, 1), "Age: %d years (life %d)",
+                               age / 365, m.lifeYears);
+            ImGui::SameLine();
+            const float rel = v->reliability / 100.0f;
+            ImGui::TextColored(rel < 50.0f ? ImVec4(1.0f, 0.55f, 0.45f, 1.0f) : ImVec4(0.75f, 1.0f, 0.75f, 1.0f),
+                               "  Reliability: %.0f%%", rel);
+            ImGui::Text("Breakdowns: %d   Last serviced %s", v->breakdownsSinceService,
+                        formatDate(w.clock.startDay + static_cast<i32>(v->lastServiceTick / kTicksPerDay)).c_str());
+        }
         if (mine) {
             if (ImGui::Button(v->stopped ? "Start" : "Stop")) session_->submit(CmdStartStopVehicle{selVehicle_});
             ImGui::SameLine();
@@ -222,8 +239,27 @@ void App::drawVehicleWindow() {
             ImGui::SameLine();
             if (ImGui::Button("Sell")) session_->submit(CmdSellVehicle{selVehicle_});
         }
+        if (mine && w.depots.contains(v->depot)) {
+            if (ImGui::Button("Clone")) pendingBuySeq_ = session_->submit(CmdCloneVehicle{v->depot, selVehicle_, false});
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Buy a copy in its depot with a copy of the orders");
+            ImGui::SameLine();
+            if (ImGui::Button("Clone with shared orders"))
+                pendingBuySeq_ = session_->submit(CmdCloneVehicle{v->depot, selVehicle_, true});
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Buy a copy that shares this vehicle's order list");
+        }
 
         ImGui::SeparatorText("Orders");
+        if (v->orderGroup != 0) {
+            int sharing = 0;
+            for (const auto [oid, o] : w.vehicles)
+                if (oid != selVehicle_ && o.orderGroup == v->orderGroup && o.owner == v->owner) ++sharing;
+            ImGui::TextColored(ImVec4(0.7f, 0.85f, 1.0f, 1.0f), "Shared with %d other vehicle%s", sharing,
+                               sharing == 1 ? "" : "s");
+            if (mine) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Unshare")) session_->submit(CmdUnshareOrders{selVehicle_});
+            }
+        }
         std::vector<Order> orders = v->orders;
         bool changed = false;
         int remove = -1, moveUp = -1;

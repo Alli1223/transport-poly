@@ -38,7 +38,9 @@ inline constexpr ModelId kBuildingVariants = 3;
 inline constexpr ModelId kMaxBuildingTypes = 32;
 
 inline constexpr ModelId kVehicleBase = kBuildingBase + kMaxBuildingTypes * kBuildingVariants;
-inline constexpr ModelId kCount = kVehicleBase + 48;
+inline constexpr ModelId kEffectBase = kVehicleBase + 48;
+inline constexpr ModelId kSmoke = kEffectBase;
+inline constexpr ModelId kCount = kEffectBase + 8;
 
 constexpr ModelId building(u16 type, u8 variant) {
     return static_cast<ModelId>(kBuildingBase + type * kBuildingVariants + variant % kBuildingVariants);

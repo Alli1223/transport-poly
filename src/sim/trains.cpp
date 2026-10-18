@@ -29,17 +29,6 @@ enum class Extend { Extended, AtTarget, Blocked, NoPath, NoOrders };
 u8 segBit(const TrackSeg& s) { return s.entry == s.exit ? kTrackNS : trackBetween(s.entry, s.exit); }
 i32 segLen(const TrackSeg& s) { return trackLength(segBit(s)); }
 
-std::optional<Order> targetOrder(const Vehicle& v) {
-    if (v.sendToDepot) {
-        Order o;
-        o.kind = OrderKind::Depot;
-        o.depot = v.depot;
-        return o;
-    }
-    if (const Order* o = v.currentOrder()) return *o;
-    return std::nullopt;
-}
-
 DepotId allowedDepot(const Vehicle& v) {
     const auto o = targetOrder(v);
     return o && o->kind == OrderKind::Depot ? o->depot : DepotId{};
@@ -240,12 +229,7 @@ void enterDepot(World& w, VehicleId id, DepotId did) {
         v.entry = d->facing;
         v.exit = opposite(d->facing);
     }
-    if (v.sendToDepot) {
-        v.sendToDepot = false;
-        v.stopped = true;
-    } else if (!v.orders.empty()) {
-        v.orderIndex = static_cast<u8>((v.orderIndex + 1) % v.orders.size());
-    }
+    vehicles::arriveInDepot(w, id);
 }
 
 void arriveAtPlatform(World& w, VehicleId id, StationId sid) {

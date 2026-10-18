@@ -212,3 +212,108 @@ TEST_CASE("rail: two trains share a signalled loop safely") {
     }
     CHECK_EQ(copy.stateHash(), rw.w.stateHash());
 }
+
+namespace {
+
+// A terminus to terminus line with a depot behind the western platform and one train on it.
+struct ShuttleLine {
+    RailWorld rw;
+    DepotId depot;
+    VehicleId train;
+    StationId a, b;
+
+    ShuttleLine() {
+        REQUIRE(rw.run(CmdBuildRailStation{{5, 16}, {8, 16}}).ok);
+        REQUIRE(rw.run(CmdBuildRail{{9, 16}, {54, 16}}).ok);
+        REQUIRE(rw.run(CmdBuildRailStation{{55, 16}, {58, 16}}).ok);
+        rw.lay({4, 16}, kTrackEW);
+        const CommandResult dep = rw.run(CmdBuildRailDepot{{3, 16}, Dir::E});
+        REQUIRE(dep.ok);
+        depot = DepotId(dep.createdId);
+        const CommandResult buy = rw.run(CmdBuyVehicle{depot, 7});
+        REQUIRE(buy.ok);
+        train = VehicleId(buy.createdId);
+        REQUIRE(rw.run(CmdAddCarriage{train, 11}).ok);
+        a = StationId(rw.w.map.tile({5, 16})->index);
+        b = StationId(rw.w.map.tile({55, 16})->index);
+        Order oa, ob;
+        oa.station = a;
+        ob.station = b;
+        REQUIRE(rw.run(CmdSetOrders{train, {oa, ob}}).ok);
+    }
+};
+
+} // namespace
+
+TEST_CASE("vehicles: breakdowns stop vehicles and services restore reliability") {
+    ShuttleLine line;
+    World& w = line.rw.w;
+    REQUIRE(line.rw.run(CmdStartStopVehicle{line.train}).ok);
+    for (int t = 0; t < 1500; ++t) w.tick();
+    Vehicle& v = w.vehicles[line.train];
+    const u16 best = maxReliability(v.info());
+    REQUIRE(v.state == VehicleState::Driving);
+
+    // A neglected train breaks down sooner or later...
+    v.reliability = 300;
+    bool broke = false;
+    for (int d = 0; d < 500 && !broke; ++d) {
+        vehicles::daily(w);
+        broke = v.breakdownTicks > 0 && v.state == VehicleState::Driving;
+        if (!broke && v.state != VehicleState::Driving) w.tick();
+    }
+    REQUIRE(broke);
+    CHECK(v.breakdownsSinceService >= 1);
+    // ...and stands still while broken down.
+    const TilePos at = v.tile;
+    const i32 progress = v.progress;
+    for (int t = 0; t < 100; ++t) w.tick();
+    CHECK(v.tile == at);
+    CHECK_EQ(v.progress, progress);
+    for (int t = 0; t < 2 * kTicksPerHour; ++t) w.tick();
+    CHECK_EQ(v.breakdownTicks, 0);
+
+    // When a service is due it heads for its depot, gets serviced and carries on.
+    v.lastServiceTick = w.clock.tick - 400 * kTicksPerDay;
+    for (int d = 0; d < 20 && !v.goingForService; ++d) {
+        for (int t = 0; t < 200; ++t) w.tick();
+        vehicles::daily(w);
+    }
+    REQUIRE(v.goingForService);
+    for (int t = 0; t < kTicksPerDay && v.goingForService; ++t) w.tick();
+    CHECK(!v.goingForService);
+    CHECK_EQ(v.reliability, best);
+    CHECK_EQ(v.breakdownsSinceService, 0);
+    CHECK(!v.stopped);
+    for (int t = 0; t < 600; ++t) w.tick();
+    CHECK(v.state != VehicleState::InDepot);
+}
+
+TEST_CASE("vehicles: clones copy the consist and can share orders") {
+    ShuttleLine line;
+    RailWorld& rw = line.rw;
+    const CommandResult copy = rw.run(CmdCloneVehicle{line.depot, line.train, false});
+    REQUIRE(copy.ok);
+    const CommandResult shared = rw.run(CmdCloneVehicle{line.depot, line.train, true});
+    REQUIRE(shared.ok);
+    const VehicleId c1(copy.createdId), c2(shared.createdId);
+    CHECK(rw.w.vehicles[c1].cars == rw.w.vehicles[line.train].cars);
+    CHECK(rw.w.vehicles[c2].orders == rw.w.vehicles[line.train].orders);
+    CHECK_EQ(rw.w.vehicles[c1].orderGroup, 0u);
+    CHECK(rw.w.vehicles[c2].orderGroup != 0u);
+    CHECK_EQ(rw.w.vehicles[c2].orderGroup, rw.w.vehicles[line.train].orderGroup);
+
+    // Editing shared orders changes every vehicle in the group, but not the plain copy.
+    Order oa;
+    oa.station = line.a;
+    REQUIRE(rw.run(CmdSetOrders{c2, {oa}}).ok);
+    CHECK_EQ(rw.w.vehicles[line.train].orders.size(), 1u);
+    CHECK_EQ(rw.w.vehicles[c1].orders.size(), 2u);
+
+    REQUIRE(rw.run(CmdUnshareOrders{c2}).ok);
+    Order ob;
+    ob.station = line.b;
+    REQUIRE(rw.run(CmdSetOrders{c2, {ob, oa}}).ok);
+    CHECK_EQ(rw.w.vehicles[line.train].orders.size(), 1u);
+    CHECK(!rw.run(CmdUnshareOrders{c2}).ok);
+}

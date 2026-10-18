@@ -105,8 +105,8 @@ relies on every peer computing exactly the same game state.
 
 ## M7 — Vehicles
 - [x] 7.1 Vehicle model catalogue (buses, trams, locomotives, multiple units, carriages, ferries) with stats & intro dates
-- [~] 7.2 Buy / sell / clone vehicles in depots; start / stop; send to depot (buy / sell / start-stop / send to depot; clone later)
-- [~] 7.3 Orders: go to station (stop / non-stop), go via, full load, unload, depot service; shared orders; skip order (station + depot orders, full load, no loading, skip; shared orders later)
+- [x] 7.2 Buy / sell / clone vehicles in depots; start / stop; send to depot
+- [~] 7.3 Orders: go to station (stop / non-stop), go via, full load, unload, depot service; shared orders; skip order (station + depot orders, full load, no loading, skip, shared orders; via orders later)
 - [x] 7.4 Road pathfinder (A* over the road graph with deterministic tie breaking)
 - [x] 7.5 Road vehicle movement: lanes, curves, junctions, queueing, gridlock breaker
 - [x] 7.6 Tram movement (tram network, articulated trams)
@@ -114,7 +114,7 @@ relies on every peer computing exactly the same game state.
 - [x] 7.8 Signal logic, path reservation, collision prevention
 - [x] 7.9 Ship pathfinder over water tiles and ship movement
 - [x] 7.10 Loading / unloading at stations, dwell time
-- [ ] 7.11 Vehicle ageing, reliability, breakdowns, servicing at depots
+- [x] 7.11 Vehicle ageing, reliability, breakdowns, servicing at depots
 - [x] 7.12 Vehicle profit tracking (this year / last year), running costs
 
 ## M8 — Passengers & economy

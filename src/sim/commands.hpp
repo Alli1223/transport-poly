@@ -254,12 +254,32 @@ struct CmdBuildShipDepot {
     }
 };
 
+// Buys a copy of a vehicle (whole consist for trains) in a depot, copying or sharing its orders.
+struct CmdCloneVehicle {
+    DepotId depot;
+    VehicleId source;
+    bool shareOrders = false;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(depot, source, shareOrders);
+    }
+};
+
+// Gives a vehicle its own copy of a shared order list.
+struct CmdUnshareOrders {
+    VehicleId vehicle;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(vehicle);
+    }
+};
+
 using CommandPayload =
     std::variant<CmdActivateChunks, CmdCreateCompany, CmdSetLoan, CmdTerraform, CmdClearArea, CmdPlantTrees, CmdBuildRoad,
                  CmdRemoveRoad, CmdBuildRoadStop, CmdBuildRoadDepot, CmdBuyVehicle, CmdSellVehicle, CmdStartStopVehicle,
                  CmdSendToDepot, CmdSetOrders, CmdSkipOrder, CmdBuildRail, CmdRemoveRail, CmdCycleSignal,
                  CmdBuildRailStation, CmdBuildRailDepot, CmdAddCarriage, CmdRemoveCarriage, CmdBuildDock,
-                 CmdBuildShipDepot>;
+                 CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

@@ -311,6 +311,12 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
         m = glm::rotate(m, pose.yaw, glm::vec3(0, 1, 0));
         return glm::rotate(m, pose.pitch, glm::vec3(0, 0, 1));
     };
+    // A puff of smoke above broken down vehicles.
+    const auto addSmoke = [&](const VehiclePose& pose, i32 ticksLeft) {
+        const float s = 0.8f + 0.25f * std::sin(static_cast<float>(ticksLeft) * 0.15f);
+        const glm::vec3 p = glm::vec3(pose.pos - origin) + glm::vec3(0.0f, 0.42f, 0.0f);
+        dynamic_.add(models::kSmoke, makeInstance(p, static_cast<float>(ticksLeft) * 0.05f, s));
+    };
     std::vector<CarPose> cars;
     for (const auto [id, v] : world.vehicles) {
         if (v.state == VehicleState::InDepot) continue;
@@ -322,12 +328,14 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
             const u32 tint = companyTint(world, v.owner);
             for (const CarPose& c : cars)
                 dynamic_.add(vehicleModelId(vehicleModel(c.model)), makeInstance(poseMatrix(c.pose), tint));
+            if (v.breakdownTicks > 0 && !cars.empty()) addSmoke(cars.front().pose, v.breakdownTicks);
             ++stats_.vehiclesDrawn;
             continue;
         }
         const auto pose = vehiclePose(world, v, tickFraction);
         if (!pose) continue;
         dynamic_.add(vehicleModelId(v.info()), makeInstance(poseMatrix(*pose), companyTint(world, v.owner)));
+        if (v.breakdownTicks > 0) addSmoke(*pose, v.breakdownTicks);
         ++stats_.vehiclesDrawn;
     }
 

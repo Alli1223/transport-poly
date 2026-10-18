@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <format>
 
 namespace tp::vehicles {
 
@@ -28,18 +29,6 @@ Expense runningCategory(VehicleType t) {
 bool stopMatches(const Tile& t, VehicleType type) {
     const StopKind k = static_cast<StopKind>(t.extra);
     return type == VehicleType::Tram ? k == StopKind::Tram : k == StopKind::Bus;
-}
-
-// The order the vehicle is currently heading for (a "send to depot" overrides the order list).
-std::optional<Order> targetOrder(const Vehicle& v) {
-    if (v.sendToDepot) {
-        Order o;
-        o.kind = OrderKind::Depot;
-        o.depot = v.depot;
-        return o;
-    }
-    if (const Order* o = v.currentOrder()) return *o;
-    return std::nullopt;
 }
 
 DepotId allowedDepot(const Vehicle& v) {
@@ -137,12 +126,7 @@ void enterDepot(World& w, VehicleId id, DepotId did) {
     v.stopAtMiddle = false;
     v.path.clear();
     v.pathIndex = 0;
-    if (v.sendToDepot) {
-        v.sendToDepot = false;
-        v.stopped = true;
-    } else {
-        advanceOrder(v);
-    }
+    arriveInDepot(w, id);
 }
 
 bool tileBusyNear(const World& w, TilePos t, VehicleId self) {
@@ -329,6 +313,8 @@ VehicleId buy(World& w, CompanyId owner, DepotId depotId, u16 model) {
     v.exit = opposite(d.facing);
     v.value = m.price;
     v.builtTick = w.clock.tick;
+    v.reliability = maxReliability(m);
+    v.lastServiceTick = w.clock.tick;
     if (m.type == VehicleType::Rail) v.cars = {model};
     return id;
 }
@@ -375,6 +361,11 @@ void tickAll(World& w) {
                 v.speed = 0;
                 break;
             }
+            if (v.breakdownTicks > 0) {
+                --v.breakdownTicks;
+                v.speed = 0;
+                break;
+            }
             if (v.info().type == VehicleType::Rail)
                 trains::tick(w, id);
             else if (v.info().type == VehicleType::Ship)
@@ -386,12 +377,72 @@ void tickAll(World& w) {
     }
 }
 
+void arriveInDepot(World& w, VehicleId id) {
+    Vehicle& v = w.vehicles[id];
+    const VehicleModel& m = v.info();
+    // Old vehicles never quite get back to new condition.
+    const bool old = ageDays(w, v) > m.lifeYears * 365;
+    v.reliability = static_cast<u16>(maxReliability(m) - (old ? 1500 : 0));
+    v.lastServiceTick = w.clock.tick;
+    v.breakdownsSinceService = 0;
+    v.breakdownTicks = 0;
+    if (v.sendToDepot) {
+        v.sendToDepot = false;
+        v.goingForService = false;
+        v.stopped = true;
+    } else if (v.goingForService) {
+        v.goingForService = false;
+    } else if (!v.orders.empty()) {
+        v.orderIndex = static_cast<u8>((v.orderIndex + 1) % v.orders.size());
+    }
+}
+
+i32 ageDays(const World& w, const Vehicle& v) { return static_cast<i32>((w.clock.tick - v.builtTick) / kTicksPerDay); }
+
 void daily(World& w) {
+    constexpr i32 kBreakdownTicks = 2 * kTicksPerHour;
     for (auto [id, v] : w.vehicles) {
         if (v.state == VehicleState::InDepot && v.stopped) continue;
         const Money cost = (v.runningCost() + 182) / 365;
         if (Company* c = w.companies.tryGet(v.owner)) c->spend(runningCategory(v.info().type), cost);
         v.profitThisYear -= cost;
+        if (v.state == VehicleState::InDepot) continue;
+
+        // Wear: reliability drops every day, twice as fast once the vehicle is past its life span.
+        const VehicleModel& m = v.info();
+        const i32 age = ageDays(w, v);
+        const bool old = age > m.lifeYears * 365;
+        v.reliability = static_cast<u16>(std::max(0, v.reliability - (old ? 36 : 18)));
+        if (age == m.lifeYears * 365)
+            w.addNews(NewsKind::Vehicle,
+                      std::format("{} {} is getting old and should be replaced", vehicleTypeName(m.type), v.unitNumber),
+                      v.tile);
+
+        // Breakdowns: rare while well kept, frequent when neglected.
+        if (v.breakdownTicks == 0 && v.state == VehicleState::Driving && !v.stopped && v.reliability < 9000) {
+            const u32 gap = static_cast<u32>(9000 - v.reliability);
+            if (w.rng.below(100'000) < gap * gap / 15'000) {
+                v.breakdownTicks = kBreakdownTicks;
+                if (v.breakdownsSinceService < 255) ++v.breakdownsSinceService;
+            }
+        }
+
+        // Service visits.
+        if (v.goingForService && v.lost) {
+            // Can't reach the depot: give up for now and try again later.
+            v.goingForService = false;
+            v.lost = false;
+            v.lastServiceTick = w.clock.tick - serviceIntervalDays(m.type) * kTicksPerDay / 2;
+        }
+        const i64 sinceService = (w.clock.tick - v.lastServiceTick) / kTicksPerDay;
+        const Order* cur = v.currentOrder();
+        if (!v.goingForService && !v.sendToDepot && v.state == VehicleState::Driving &&
+            sinceService >= serviceIntervalDays(m.type) && w.depots.contains(v.depot) &&
+            !(cur && cur->kind == OrderKind::Depot)) {
+            v.goingForService = true;
+            v.path.clear();
+            v.pathIndex = 0;
+        }
     }
 }
 

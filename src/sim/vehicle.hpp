@@ -6,7 +6,9 @@
 #include "sim/coords.hpp"
 #include "sim/ids.hpp"
 
+#include <algorithm>
 #include <deque>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -35,6 +37,21 @@ struct VehicleModel {
 std::span<const VehicleModel> vehicleModels();
 const VehicleModel& vehicleModel(u16 index);
 std::string_view vehicleTypeName(VehicleType t);
+
+// Reliability in basis points (10000 = 100%): newer designs are more reliable.
+constexpr u16 maxReliability(const VehicleModel& m) {
+    return static_cast<u16>(std::clamp(7000 + (m.introYear - 1920) * 40, 7000, 9600));
+}
+// Days between services before a vehicle heads for its depot on its own.
+constexpr i32 serviceIntervalDays(VehicleType t) {
+    switch (t) {
+    case VehicleType::Road:
+    case VehicleType::Tram: return 120;
+    case VehicleType::Rail: return 180;
+    case VehicleType::Ship: return 240;
+    }
+    return 150;
+}
 
 // Simulation speed units: 1 tile = 256 units of progress. A 56 km/h bus covers ~0.18 tiles per
 // tick (about five tiles per real second at normal speed).
@@ -126,6 +143,14 @@ struct Vehicle {
     u8 prevHeading = 0;
     bool moving = false;
 
+    // Reliability (basis points), servicing and breakdowns.
+    u16 reliability = 10000;
+    i64 lastServiceTick = 0;
+    i32 breakdownTicks = 0; // ticks left standing broken down
+    u8 breakdownsSinceService = 0;
+    bool goingForService = false; // heading for its depot for a service; keeps its place in the orders
+    u32 orderGroup = 0;           // vehicles with the same non-zero group share one order list
+
     Money profitThisYear = 0;
     Money profitLastYear = 0;
     Money value = 0;
@@ -155,8 +180,22 @@ struct Vehicle {
            loadingUntil, cars, trail, ahead, retryTicks, profitThisYear, profitLastYear, value, builtTick,
            passengersThisYear);
         if (ar.version == 0 || ar.version >= 2) ar(heading, prevHeading, moving);
+        if (ar.version == 0 || ar.version >= 4)
+            ar(reliability, lastServiceTick, breakdownTicks, breakdownsSinceService, goingForService, orderGroup);
     }
 };
+
+// The order a vehicle is heading for: "send to depot" and service visits override the order list.
+inline std::optional<Order> targetOrder(const Vehicle& v) {
+    if (v.sendToDepot || v.goingForService) {
+        Order o;
+        o.kind = OrderKind::Depot;
+        o.depot = v.depot;
+        return o;
+    }
+    if (const Order* o = v.currentOrder()) return *o;
+    return std::nullopt;
+}
 
 // In-tile path lengths (units) for road vehicles driving on the right.
 inline constexpr i32 kPathStraight = 256;
@@ -219,6 +258,10 @@ void yearly(World& w);
 void dropPassengers(World& w, VehicleId id);
 // Marks every vehicle's path as stale (after the road network changed).
 void invalidatePaths(World& w);
+// A vehicle has just entered a depot: service it, then stop it there (after "send to depot"),
+// let it carry on with its orders (after a service visit) or move on to the next order.
+void arriveInDepot(World& w, VehicleId id);
+i32 ageDays(const World& w, const Vehicle& v);
 
 } // namespace vehicles
 

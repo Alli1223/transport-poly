@@ -19,17 +19,6 @@ constexpr i32 kDecel = 3;
 constexpr i64 kBaseDwellTicks = 5 * kTicksPerMinute;
 constexpr i32 kRetryTicks = 64; // after failing to find a route
 
-std::optional<Order> targetOrder(const Vehicle& v) {
-    if (v.sendToDepot) {
-        Order o;
-        o.kind = OrderKind::Depot;
-        o.depot = v.depot;
-        return o;
-    }
-    if (const Order* o = v.currentOrder()) return *o;
-    return std::nullopt;
-}
-
 std::vector<TilePos> goalsFor(const World& w, const Order& o) {
     std::vector<TilePos> goals;
     if (o.kind == OrderKind::Station) {
@@ -64,12 +53,7 @@ void enterDepot(World& w, VehicleId id, DepotId did) {
         v.entry = d->facing;
         v.exit = opposite(d->facing);
     }
-    if (v.sendToDepot) {
-        v.sendToDepot = false;
-        v.stopped = true;
-    } else if (!v.orders.empty()) {
-        v.orderIndex = static_cast<u8>((v.orderIndex + 1) % v.orders.size());
-    }
+    vehicles::arriveInDepot(w, id);
 }
 
 void arriveAtDock(World& w, VehicleId id, StationId sid) {
