@@ -178,3 +178,5 @@ relies on every peer computing exactly the same game state.
 - [x] 13.6 Trains, depots and signals on the free track network
 - [x] 13.7 Automatic bridges, tunnels and level crossings on free track
 - [x] 13.8 Retire the grid rail system (building tools; old saves keep their grid railways)
+- [x] 13.9 Road-connected station entrances and protected approach paths; citizens follow connected pavements and building doors for work, home and shopping, with saved paths and deterministic journey times
+- [x] 13.10 Upgrade placed stations: add parallel or custom platforms and connecting lines, extend open ends or convert adjoining straight level track, preserve station orders and passengers, and link platforms with a raised walkway

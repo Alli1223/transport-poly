@@ -34,6 +34,13 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveTrack& x, bool e
 
 CommandResult handle(World& w, const Command& c, const CmdBuildTrackStation& x, bool exec) {
     if (!w.companies.contains(c.company)) return CommandResult::failure("Only companies can build stations");
+    if (x.join.valid()) {
+        const auto* station = w.stations.tryGet(x.join);
+        if (!station || station->owner != c.company) return CommandResult::failure("Not your station");
+        bool nearby = false;
+        for (const auto tile : station->tiles) if (distance(tileCentre(tile),x.from.pos) <= 8*kTrackUnits) nearby = true;
+        if (!nearby) return CommandResult::failure("New platforms must be near the station");
+    }
     const TrackPlan plan = track::planPlatform(w, c.company, x.from, x.to);
     if (!plan.ok) return CommandResult::failure(plan.error);
     for (const TilePos t : plan.tiles)
@@ -41,7 +48,7 @@ CommandResult handle(World& w, const Command& c, const CmdBuildTrackStation& x, 
             return CommandResult::failure(why);
     CommandResult r = CommandResult::success(plan.cost, Expense::Construction);
     if (exec) {
-        const StationId sid = track::buildPlatform(w, c.company, plan);
+        const StationId sid = track::buildPlatform(w, c.company, plan, x.join);
         if (sid.valid()) r.createdId = sid.value;
     }
     return r;

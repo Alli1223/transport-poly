@@ -1,4 +1,5 @@
 #include "client/app.hpp"
+#include "client/demo_station.hpp"
 #include "render/person_pose.hpp"
 #include "client/ui/widgets.hpp"
 
@@ -493,6 +494,8 @@ bool App::parseArgs(int argc, char** argv) {
             demoRail_ = true;
         } else if (arg == "--demo-track") {
             demoTrack_ = true;
+        } else if (arg == "--demo-station") {
+            demoStation_ = true;
         } else if (arg == "--preview-consist" || arg == "--preview-consist-popup") {
             previewConsist_ = true;
             previewConsistPopup_ = arg == "--preview-consist-popup";
@@ -626,6 +629,11 @@ void App::newGame(u64 seed) {
     settings.aiCompetitors = preferences_.aiCompetitors;
     settings.seed = seed;
     startSession(std::make_unique<LocalSession>(settings));
+    if (demoStation_) {
+        selStation_ = buildDemoStation(world(),session_->localCompany());
+        if (!startCamera_) startCamera_=glm::dvec4(25,24,26,25);
+        renderer_.invalidateAll();
+    }
 }
 
 void App::shutdown() {
@@ -1344,7 +1352,7 @@ int App::run(int argc, char** argv) {
                 addTileOverlay(overlays, hover_.tile, gfx::rgba(255, 255, 255, 70), 0.04);
             // Catchment area of the station whose window is open.
             if (const Station* st = world().stations.tryGet(selStation_))
-                addCatchmentOverlay(overlays, st->tiles, st->catchment, gfx::rgba(90, 170, 255, 55));
+                addCatchmentOverlay(overlays, st->catchmentTiles(), st->catchment, gfx::rgba(90, 170, 255, 55));
             handleTools(overlays);
             handleHotkeys();
             drawTownLabels();

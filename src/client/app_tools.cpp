@@ -122,6 +122,7 @@ void App::handleClick() {
                     selStation_ = w.trackEdges[e].station;
         break;
     case TileType::Depot: selDepot_ = DepotId(t->index); break;
+    case TileType::Footpath:
     case TileType::Station: selStation_ = StationId(t->index); break;
     case TileType::Building:
         if (const Building* b = w.buildings.tryGet(BuildingId(t->index))) selTown_ = b->town;
@@ -135,7 +136,7 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
     const bool esc = ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !ImGui::GetIO().WantTextInput;
     const bool rightClick = !mouseOverUi_ && ImGui::IsMouseClicked(ImGuiMouseButton_Right);
     if (tool_ != Tool::RailTrack) trackStart_.reset();
-    if (tool_ != Tool::RailStation) stationStart_.reset();
+    if (tool_ != Tool::RailStation) { stationStart_.reset(); stationEditTarget_ = {}; }
     if ((trackStart_ || stationStart_) && (esc || rightClick)) {
         // First stop laying the current track or platform, then leave the tool.
         trackStart_.reset();
@@ -315,6 +316,9 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
             cmd = CmdBuildShipDepot{hover_.tile, facing};
         break;
     }
+    case Tool::StationEntrance:
+        cmd = CmdStationEntrance{selStation_,hover_.tile};
+        break;
     case Tool::PickOrder: {
         const Tile* t = w.map.tile(hover_.tile);
         Vehicle* v = w.vehicles.tryGet(selVehicle_);

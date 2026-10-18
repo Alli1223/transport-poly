@@ -35,6 +35,9 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveRail& x, bool ex
 CommandResult handle(World& w, const Command& c, const CmdCycleSignal& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdBuildRailStation& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdBuildRailDepot& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdStationEntrance& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdAddPlatform& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdExtendPlatform& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdReorderConsist& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdAddCarriage& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdRemoveCarriage& x, bool exec);

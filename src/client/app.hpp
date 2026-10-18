@@ -51,6 +51,7 @@ enum class Tool {
     RoadBridge,
     RoadTunnel,
     RemoveSpan,
+    StationEntrance,
     PickOrder, // click a station to append it to the selected vehicle's orders
 };
 
@@ -170,6 +171,8 @@ private:
     float dockHeight_ = 0.0f;  // height of the bottom dock, for placing things above it
     Tool tool_ = Tool::None;
     ToolGroup toolGroup_ = ToolGroup::None;
+    StationId stationEditTarget_;
+    i32 stationPlatformLength_ = 6;
     i32 brushRadius_ = 3;      // terraform brush size, tiles
     double lastBrush_ = 0.0;   // when the brush last applied (held mouse repeats)
     u16 levelTarget_ = 0;      // fine height the Level brush flattens to
@@ -249,6 +252,7 @@ private:
     bool demoRail_ = false;         // automation: build a demo railway next to the biggest town
     bool demoShips_ = false;        // automation: build a demo ferry line on the nearest coast
     bool demoTrack_ = false;        // automation: lay curved free-form track near the camera
+    bool demoStation_ = false;      // automation: road entrances, walking and station upgrades
     bool previewStation_ = false;   // automation: show the station tool placing a platform
     bool previewConsist_ = false;
     bool previewConsistPopup_ = false;

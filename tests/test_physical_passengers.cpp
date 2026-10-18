@@ -1,6 +1,7 @@
 #include "test.hpp"
 #include "core/serialize.hpp"
 #include "sim/world.hpp"
+#include "sim/road.hpp"
 #ifdef TP_TEST_RENDERING
 #include "render/person_pose.hpp"
 #endif
@@ -8,10 +9,13 @@ using namespace tp;
 
 TEST_CASE("passengers: all 75 real people alight, walk and reach their destination") {
     World w;
-    w.activateChunk({0, 0});
+    w.map.activate({0, 0});
+    for(i32 y=1;y<32;++y)for(i32 x=1;x<32;++x) { w.map.setCornerHeight(x,y,4); *w.map.tile({x,y})=Tile{}; }
+    for(i32 x=5;x<26;++x) connectRoad(w.map,{x,17},Dir::E,kOwnerTown,false);
     const BuildingId home = w.buildings.create(), work = w.buildings.create();
     w.buildings[home].serial = 1; w.buildings[home].pos = {8, 8};
-    w.buildings[work].serial = 2; w.buildings[work].pos = {20, 16};
+    w.buildings[work].serial = 2; w.buildings[work].pos = {24, 16};
+    w.map.tile({24,16})->type=TileType::Building; w.map.tile({24,16})->index=work.value;
     const StationId a = w.stations.create(), b = w.stations.create();
     w.stations[a].sign = {5, 16}; w.stations[b].sign = {16, 16};
     Vehicle v; v.model = 7; v.cars = {7, 11, 11, 11}; v.state = VehicleState::Loading;

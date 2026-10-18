@@ -27,18 +27,6 @@ namespace {
 constexpr i64 kMaxWaitTicks = 3 * kTicksPerHour;
 constexpr i64 kDwellEstimate = 4 * kTicksPerMinute;
 
-i64 tilesBetween2(TilePos a2, TilePos b2) {
-    const i64 dx = a2.x - b2.x, dy = a2.y - b2.y;
-    return (static_cast<i64>(isqrt(static_cast<u64>(dx * dx + dy * dy))) + 1) / 2;
-}
-
-// Walking distance (tiles) from a half-tile position to the nearest tile of a station.
-i64 walkTiles(const Station& s, TilePos p2) {
-    i64 best = std::numeric_limits<i64>::max();
-    for (const TilePos t : s.tiles) best = std::min(best, tilesBetween2(p2, {t.x * 2 + 1, t.y * 2 + 1}));
-    return best;
-}
-
 std::vector<StationId> stationOrders(const World& w, const Vehicle& v) {
     std::vector<StationId> list;
     for (const Order& o : v.orders) {
@@ -157,6 +145,7 @@ void alight(World& w, PersonId pid, StationId at, Vehicle& v, usize seat, i32 se
     v.profitThisYear += pay;
     ++v.passengersThisYear;
     p.vehicle = VehicleId{};
+    p.walkPath.clear(); p.walkEnd = 0;
     p.station = at;
     p.transitMotion = 2;
     p.transitFrom2 = doorPosition2(w, v, seat);
@@ -170,8 +159,13 @@ void alight(World& w, PersonId pid, StationId at, Vehicle& v, usize seat, i32 se
 
     if (at == p.finalStation || !w.stations.contains(p.finalStation)) {
         p.state = PersonState::FromStop;
-        const i64 walk = tilesBetween2(p.transitTo2, p.tripTo2);
-        people::schedule(w, pid, p.transitEnd + std::max<i64>(1, walk) * kWalkTicksPerTile);
+        auto walk = walking::fromStation(w,at,walking::endpoint(w,p.tripTo2));
+        if (walk) {
+            auto internal = walking::withinStation(w,at,{p.transitTo2.x*kTrackUnits/2,p.transitTo2.y*kTrackUnits/2},walk->front().p);
+            internal.insert(internal.end(),walk->begin(),walk->end());
+            walking::begin(w,pid,std::move(internal),p.transitEnd);
+            people::schedule(w,pid,p.walkEnd);
+        } else people::travelAbstract(w,pid,p.transitTo2,p.tripTo2,false);
         return;
     }
     const RouteEntry* r = w.routing.find(at, p.finalStation);
@@ -179,6 +173,8 @@ void alight(World& w, PersonId pid, StationId at, Vehicle& v, usize seat, i32 se
         people::travelAbstract(w, pid, stationPos2(w, at, p.tripTo2), p.tripTo2, false);
         return;
     }
+    p.walkPath = {{{p.transitTo2.x*kTrackUnits/2,p.transitTo2.y*kTrackUnits/2}}};
+    p.walkBegin = p.walkEnd = p.transitEnd;
     waitAt(w, pid, at, r->nextHop);
 }
 
@@ -272,13 +268,16 @@ bool planTrip(const World& w, TilePos from2, TilePos to2, TransitPlan& out) {
     if (dests.empty()) return false;
     bool found = false;
     for (const StationId o : origins) {
-        const Station& so = w.stations[o];
-        const i64 walkO = walkTiles(so, from2) * kWalkTicksPerTile;
+        const auto originWalk = walking::toStation(w,walking::endpoint(w,from2),o);
+        if (!originWalk) continue;
+        const i64 walkO = walking::length(*originWalk)*kWalkTicksPerTile/kTrackUnits;
         for (const StationId d : dests) {
             if (o == d) continue;
             const RouteEntry* r = w.routing.find(o, d);
             if (!r) continue;
-            const i64 walkD = walkTiles(w.stations[d], to2) * kWalkTicksPerTile;
+            const auto destinationWalk = walking::fromStation(w,d,walking::endpoint(w,to2));
+            if (!destinationWalk) continue;
+            const i64 walkD = walking::length(*destinationWalk)*kWalkTicksPerTile/kTrackUnits;
             const i64 total = walkO + r->cost + walkD;
             if (!found || total < out.total) {
                 found = true;
@@ -340,7 +339,7 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
     usize taken = 0;
     while (taken < queue.size() && v.passengers.size() < capacity) {
         if (const Person* nextPerson = w.people.tryGet(queue[taken]); nextPerson && nextPerson->transitMotion == 2 &&
-            nextPerson->transitEnd > w.clock.tick) break; // finish walking off the previous vehicle first
+            std::max(nextPerson->transitEnd,nextPerson->walkEnd) > w.clock.tick) break; // finish walking off the previous vehicle first
         const PersonId pid = queue[taken++];
         Person* p = w.people.tryGet(pid);
         if (!p || p->state != PersonState::Waiting || p->station != sid) continue;
@@ -349,10 +348,15 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
         p->boardTick = w.clock.tick;
         p->nextEvent = -1;
         p->transitMotion = 1;
-        p->transitFrom2 = {station->sign.x * 2 + 1, station->sign.y * 2 + 1};
+        const TPoint waiting = p->walkPath.empty() ? TPoint{station->sign.x*kTrackUnits+40,station->sign.y*kTrackUnits+40} : p->walkPath.back().p;
+        p->transitFrom2 = {waiting.x*2/kTrackUnits,waiting.z*2/kTrackUnits};
         p->transitTo2 = doorPosition2(w, v, v.passengers.size());
         p->transitBegin = w.clock.tick + moved * 2;
-        p->transitEnd = p->transitBegin + 8;
+        auto boarding = walking::withinStation(w,sid,waiting,{p->transitTo2.x*kTrackUnits/2,p->transitTo2.y*kTrackUnits/2});
+        walking::begin(w,pid,std::move(boarding),p->transitBegin);
+        p->transitEnd = std::max(p->transitBegin+8,p->walkEnd);
+        p->walkEnd = p->transitEnd;
+        v.loadingUntil = std::max(v.loadingUntil,p->transitEnd);
         v.passengers.push_back(pid);
         ++station->boardedThisMonth;
         ++moved;

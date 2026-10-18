@@ -8,6 +8,20 @@
 namespace tp::gfx {
 std::optional<PersonPose> personPose(const World& w, const Person& p, double fraction) {
     const double now = static_cast<double>(w.clock.tick) + fraction;
+    const bool onFoot = p.state == PersonState::Walking || p.state == PersonState::ToStop ||
+        p.state == PersonState::FromStop || p.state == PersonState::Waiting ||
+        (p.state == PersonState::Riding && p.transitMotion == 1 && now < p.transitEnd);
+    if (onFoot && !p.walkPath.empty() && !(p.transitMotion == 2 && now < p.transitEnd)) {
+        const auto a = walking::position(p,w.clock.tick), b = walking::position(p,w.clock.tick+1);
+        const glm::dvec2 pos = glm::mix(glm::dvec2(a.p.x,a.p.z),glm::dvec2(b.p.x,b.p.z),fraction)/double(kTrackUnits);
+        const auto tile = tileAt(a.p);
+        const double height = a.height >= 0 && b.height >= 0 ?
+            glm::mix(double(a.height),double(b.height),fraction)/kSubLevels*0.5 :
+            roadSurfaceY(w,tile,static_cast<float>(pos.x-tile.x),static_cast<float>(pos.y-tile.y));
+        const float yaw = static_cast<float>(std::atan2(-double(b.p.z-a.p.z),double(b.p.x-a.p.x)));
+        const double lane = (static_cast<int>(p.serial%5)-2)*0.008;
+        return PersonPose{{pos.x+lane,height+0.055,pos.y+lane},yaw,true};
+    }
     if (p.transitEnd > now && p.transitBegin >= 0 &&
         (p.state == PersonState::Riding || p.state == PersonState::Waiting || p.state == PersonState::FromStop)) {
         const glm::dvec2 from(p.transitFrom2.x * 0.5, p.transitFrom2.y * 0.5);

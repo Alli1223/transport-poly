@@ -967,6 +967,8 @@ void App::drawStationWindow() {
     spec.pos = viewportPoint(1.0f, 0.0f, -450.0f, 70.0f);
     spec.pivot = ImVec2(1.0f, 0.0f);
     spec.width = 380.0f;
+    if (st->facilities & kFacilityRail)
+        spec.height = std::max(300.0f, std::min(680.0f, ImGui::GetIO().DisplaySize.y / s - 170.0f));
     spec.accent = owner;
     spec.subtitle = c ? c->name.c_str() : nullptr;
     if (ui::beginPanel("###stationPanel", st->name.c_str(), ui::Icon::Station, &open, spec)) {
@@ -1004,6 +1006,51 @@ void App::drawStationWindow() {
         ui::statRow("Catchment radius", std::format("{} tiles", st->catchment).c_str());
         ui::statRow("Stop tiles", std::format("{}", st->tiles.size()).c_str());
         ui::statRow("Waiting capacity", std::format("{} / {}", st->waitingCount(), st->waitingCapacity()).c_str());
+        const auto platforms = track::platformsOf(w,selStation_);
+        if (!platforms.empty()) {
+            ui::sectionHeader("Station layout and road access");
+            const bool mine = st->owner == session_->localCompany();
+            ui::statRow("Road entrances",std::format("{}",st->entrances.size()).c_str());
+            if (st->entrances.empty()) ImGui::TextWrapped("Connect this station to a road so passengers can walk here.");
+            ImGui::BeginDisabled(!mine);
+            if (ImGui::Button("Add road entrance")) tool_ = Tool::StationEntrance;
+            ui::itemTooltip({"Road entrance","Click a nearby surface road. A station building and paved approach will connect it to a platform."});
+            if (!st->entrances.empty()) {
+                ImGui::SameLine();
+                if (ImGui::Button("Remove entrances")) session_->submit(CmdStationEntrance{selStation_,{},true});
+            }
+            ImGui::SetNextItemWidth(170.0f*s);
+            ImGui::SliderInt("New / extra length",&stationPlatformLength_,2,16,"%d tiles");
+            const auto action = [&](const char* label,CommandPayload payload) {
+                if (ImGui::Button(label)) session_->submit(payload);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    Command c; c.company = session_->localCompany(); c.payload = payload;
+                    const auto result = testCommand(w,c);
+                    ImGui::SetTooltip("%s",result.ok ? std::format("Cost {}",formatMoney(result.cost)).c_str() : result.error.c_str());
+                }
+            };
+            for (usize k=0;k<platforms.size();++k) {
+                ImGui::PushID(static_cast<int>(k));
+                i32 length=0;for(auto e:platforms[k])length+=w.trackEdges[e].length;
+                ui::mutedText(std::format("Platform {}: {:.1f} tiles",k+1,length/double(kTrackUnits)).c_str());
+                action("Add parallel left",CmdAddPlatform{selStation_,platforms[k].front(),-1,stationPlatformLength_});
+                ImGui::SameLine();
+                action("Add parallel right",CmdAddPlatform{selStation_,platforms[k].front(),1,stationPlatformLength_});
+                const auto ends=track::platformEnds(w,platforms[k].front());
+                for(usize end=0;end<ends.size();++end) {
+                    if(end)ImGui::SameLine();
+                    const auto direction=ends[end].outward;
+                    const char* heading=std::abs(direction.x)>std::abs(direction.z) ? (direction.x>0?"east":"west") : (direction.z>0?"south":"north");
+                    action(std::format("Extend {} end",heading).c_str(),CmdExtendPlatform{selStation_,ends[end].node,stationPlatformLength_});
+                }
+                ImGui::PopID();
+            }
+            ImGui::TextWrapped("Open ends grow by the chosen length. Connected ends convert the next straight, level track section into platform. Trains must clear it first.");
+            if(ImGui::Button("Draw custom platform")) { stationEditTarget_=selStation_;stationStart_.reset();tool_=Tool::RailStation;toolGroup_=ToolGroup::Rail; }
+            ImGui::SameLine();
+            if(ImGui::Button("Lay connecting track")) { trackStart_.reset();tool_=Tool::RailTrack;toolGroup_=ToolGroup::Rail; }
+            ImGui::EndDisabled();
+        }
         ui::sectionHeader("Freight waiting");
         for (usize cargoIndex = 0; cargoIndex < kCargoTypes; ++cargoIndex) {
             const auto type = static_cast<CargoType>(cargoIndex);

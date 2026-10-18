@@ -228,7 +228,9 @@ i32 halfWidthOf(TrackKind kind);
 // A straight, level station platform from `from` towards `to` (snapped onto the start's line).
 TrackPlan planPlatform(const World& w, CompanyId company, const TrackAnchor& from, TPoint to);
 // Builds a planned platform and adds it to a nearby station of the company (or a new one).
-StationId buildPlatform(World& w, CompanyId company, const TrackPlan& plan);
+StationId buildPlatform(World& w, CompanyId company, const TrackPlan& plan, StationId join = {});
+struct PlatformEnd { TrackNodeId node; TDir outward; TrackEdgeId edge; };
+std::vector<PlatformEnd> platformEnds(const World& w, TrackEdgeId platform);
 // A depot at the open end (side) of a node.
 TrackPlan planDepot(const World& w, CompanyId company, TrackNodeId node);
 // Where a depot's building stands and which way its doors face, for a planned stub.

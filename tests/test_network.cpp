@@ -50,7 +50,8 @@ TEST_CASE("network: two clients stay in sync with the server") {
         server.update(dt);
         a.update(dt);
         b.update(dt);
-        std::this_thread::yield();
+        if (i%16==0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        else std::this_thread::yield();
     }
     REQUIRE(a.phase() == NetClientSession::Phase::Playing);
     REQUIRE(b.phase() == NetClientSession::Phase::Playing);
@@ -111,7 +112,8 @@ TEST_CASE("network: two clients stay in sync with the server") {
         spectator.update(dt);
         a.update(dt);
         b.update(dt);
-        std::this_thread::yield();
+        if(i%16==0)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        else std::this_thread::yield();
     }
     REQUIRE(spectator.ready());
     CHECK_EQ(spectator.speed(), 0);

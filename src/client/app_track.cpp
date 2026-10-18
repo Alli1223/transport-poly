@@ -338,7 +338,7 @@ void App::handleStationTool(std::vector<gfx::OverlayQuad>& overlays) {
     }
     ImGui::PopStyleVar();
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && plan.ok) {
-        session_->submit(CmdBuildTrackStation{*stationStart_, cursor});
+        session_->submit(CmdBuildTrackStation{*stationStart_, cursor, stationEditTarget_});
         stationStart_.reset();
     }
 }

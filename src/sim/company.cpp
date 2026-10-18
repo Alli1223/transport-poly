@@ -89,7 +89,7 @@ void liquidateCompany(World& w, CompanyId company) {
     }
     std::vector<StationId> stops;
     for (const auto [id, s] : w.stations) if (s.owner == company) stops.push_back(id);
-    for (const StationId id : stops) w.stations.destroy(id);
+    for (const StationId id : stops) { stations::removeEntrances(w,id); w.stations.destroy(id); }
     std::vector<DepotId> depots;
     for (const auto [id, d] : w.depots) if (d.owner == company) depots.push_back(id);
     for (const DepotId id : depots) w.depots.destroy(id);

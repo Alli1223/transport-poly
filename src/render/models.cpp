@@ -72,7 +72,9 @@ void ModelLibrary::build() {
     }
     for (const ModelId id : {models::kBusStop, models::kRoadDepot, models::kTramDepot, models::kPerson,
                              models::kRailDepot, models::kSignal, models::kPlatformCanopy, models::kDock,
-                             models::kShipDepot, models::kSmoke, models::kStreetLamp}) {
+                             models::kShipDepot, models::kSmoke, models::kStreetLamp, models::kCrate,
+                             models::kGrain, models::kFoodLogo, models::kGoodsLogo, models::kStationEntrance,
+                             models::kFootbridge}) {
         MeshBuilder mb;
         buildTransportModels(mb, id);
         add(id, mb);

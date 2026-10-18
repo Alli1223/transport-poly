@@ -112,6 +112,22 @@ again for one-way (either direction) and once more to remove them. Trains reserv
 their route from signal to signal, slow for curves and climbs, and reverse at
 terminus platforms.
 
+Click a placed rail station to open **Station layout and road access**. Use
+**Add road entrance**, then click a surface road within 16 tiles. A station gate
+and a protected paved approach connect the road to a platform; leave clear land
+between them. Rail passengers need a connected entrance. Catchment coverage is
+measured from the entrance roads. You can add up to eight entrances, and remove
+them from the station window or with the demolition tool.
+
+The same window adds parallel platforms on either side or lets you draw a custom
+platform into the existing station. Use **Lay connecting track** to connect new
+platform tracks to your railway. The length slider sets new platforms and open-end
+extensions to 2–16 tiles. Extending a connected end converts the next complete
+straight, level track section into platform; curved sections and junctions must be
+rebuilt first. Clear trains from a platform before extending it. Station identity,
+waiting passengers and train orders are preserved. A raised walkway links platforms
+for passengers changing sides.
+
 To give a train its orders, press **Add stop or depot** in its window and click
 a platform, a depot, or (with **Via waypoint** ticked) any track to pass over.
 Clicking a platform sends the train to that platform; the platform list on each
@@ -207,6 +223,10 @@ coach, regional EMU and heavy freight diesel, subject to introduction dates.
 Every nearby walking, waiting, boarding, riding and alighting citizen is drawn
 individually. Occupied passenger vehicles use a nearby cutaway view to expose
 seated passengers. All 75 people on a train can leave as 75 separate pedestrians.
+Walkers follow connected road pavements, cross at junctions, bends and road ends,
+and use building doors and the station's entrance path. Trip timing follows the
+actual path length. Disconnected destinations use the existing car / lift fallback.
+Walking paths and progress survive saves and replan when construction breaks them.
 Provider and station inventories and vehicle loads are drawn from simulation
 quantities, with grain loads, coloured crates and food / goods markings on closed
 vehicles. Station windows also show the freight queue by commodity.
@@ -238,5 +258,9 @@ swap / VSync wait and is not a GPU timing measurement.
 
 The CI workflow builds, tests and packages Windows and Ubuntu clients, and also
 builds a headless Ubuntu server with warnings as errors. It can be started manually
-after pushing the branch. Save format 17 retains compatibility with versions 1-16;
-protocol 21 requires matching client and server builds.
+after pushing the branch. Save format 18 retains compatibility with versions 1-17;
+protocol 22 requires matching client and server builds.
+
+`transport-poly --demo-station --time 12 --no-debug --screenshot station.png --frames 600`
+renders a repeatable station scene with road entrances, two platforms, a walkway,
+commuters and the station upgrade panel.

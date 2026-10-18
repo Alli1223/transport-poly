@@ -14,7 +14,7 @@ void App::drawWorldOverlays(std::vector<gfx::OverlayQuad>& overlays) {
         for (const auto [id, s] : w.stations) {
             const glm::dvec2 at(s.sign.x, s.sign.y);
             if (glm::length(at - camera) > 150.0) continue;
-            addCatchmentOverlay(overlays, s.tiles, s.catchment, gfx::rgba(90, 170, 255, 55));
+            addCatchmentOverlay(overlays, s.catchmentTiles(), s.catchment, gfx::rgba(90, 170, 255, 55));
             if (overlays.size() >= 8192) { overlays.resize(8192); break; }
         }
     } else if (overlayMode_ == 3) {

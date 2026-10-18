@@ -7,6 +7,7 @@
 #include "sim/buildings.hpp"
 #include "sim/coords.hpp"
 #include "sim/ids.hpp"
+#include "sim/walking.hpp"
 
 #include <compare>
 
@@ -58,6 +59,9 @@ struct Person {
     i64 transitBegin = -1, transitEnd = -1;
     u8 transitMotion = 0; // 0 none, 1 boarding, 2 alighting
 
+    std::vector<WalkPoint> walkPath;
+    i64 walkBegin = 0, walkEnd = 0;
+
     bool employed() const { return work.valid(); }
 
     template <class Ar>
@@ -65,6 +69,7 @@ struct Person {
         ar(serial, home, work, shop, town, state, purpose, carOwner, departMinute, workMinutes, arriveMinute,
            commuteMinutes, nextEvent, tripStart,
            tripFrom2, tripTo2, station, targetStation, finalStation, vehicle, boardTick, nameSeed);
+        if (ar.version == 0 || ar.version >= 18) ar(walkPath,walkBegin,walkEnd);
         if (ar.version == 0 || ar.version >= 11) ar(transitFrom2, transitTo2, transitBegin, transitEnd, transitMotion);
     }
 };

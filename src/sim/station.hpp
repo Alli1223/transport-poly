@@ -35,7 +35,16 @@ constexpr i32 catchmentRadius(StopKind k) {
     return 3;
 }
 
+struct StationEntrance {
+    TilePos road;
+    std::vector<TilePos> tiles; // reserved approach path, the first tile holds the entrance building
+    std::vector<TPoint> path; // road pavement to platform
+    TrackEdgeId platform;
+    template<class Ar> void serialize(Ar& ar) { ar(road,tiles,path,platform); }
+};
+
 struct Station {
+    std::vector<StationEntrance> entrances;
     std::string name;
     CompanyId owner;
     TownId town;
@@ -52,6 +61,12 @@ struct Station {
     i32 boardedLastMonth = 0;
     i32 rating = 175;       // 0-255, OpenTTD style service rating
 
+    std::vector<TilePos> catchmentTiles() const {
+        if ((facilities & kFacilityRail) && !entrances.empty()) {
+            std::vector<TilePos> out; for (const auto& entry : entrances) out.push_back(entry.road); return out;
+        }
+        return tiles;
+    }
     usize waitingCount() const {
         usize n = 0;
         for (const auto& [to, list] : waiting) n += list.size();
@@ -68,6 +83,7 @@ struct Station {
         ar(name, owner, town, sign, tiles, facilities, catchment, builtTick, waiting, lastVisitTick, boardedThisMonth,
            boardedLastMonth, rating);
         if (ar.version == 0 || ar.version >= 17) ar(cargoWaiting);
+        if (ar.version == 0 || ar.version >= 18) ar(entrances);
     }
 };
 
@@ -104,6 +120,7 @@ void stationsCovering(const World& w, TilePos tile, std::vector<StationId>& out)
 // Rebuilds the derived catchment index (after loading or station changes).
 void rebuildIndex(World& w);
 void monthly(World& w);
+void removeEntrances(World& w, StationId station);
 // A vehicle stopped at the station: records the visit (with a news item for the very first one).
 void recordVisit(World& w, StationId id, VehicleId vehicle);
 

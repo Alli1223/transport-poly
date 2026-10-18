@@ -13,7 +13,8 @@ enum class TileType : u8 {
     Building, // town building (house, office, shop, ...)
     Station,  // stop / platform / dock tile belonging to a station
     Depot,    // vehicle depot
-    Track,    // under free-form track (extra: number of track edges crossing the tile)
+    Track = 7,    // under free-form track (extra: number of track edges crossing the tile)
+    Footpath = 8, // station entrance and approach pavement (index = station)
 };
 
 enum class Ground : u8 { Grass, Rough, Rock, Sand, Snow, Water };

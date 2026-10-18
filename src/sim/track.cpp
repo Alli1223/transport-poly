@@ -966,12 +966,21 @@ void remove(World& w, TrackEdgeId id) {
     edgeTiles(*e, &ground, &tiles);
     if (e->kind == TrackKind::Platform && w.stations.contains(e->station)) {
         const StationId sid = e->station;
-        for (const TilePos t : tiles)
+        for (const TilePos t : tiles) {
+            bool shared = false;
+            const auto it = w.trackTiles.find(tileKey(t));
+            if (it != w.trackTiles.end()) for (auto other : it->second) {
+                const auto* edge = w.trackEdges.tryGet(other);
+                if (other != id && edge && edge->kind == TrackKind::Platform && edge->station == sid) shared = true;
+            }
+            if (shared) continue;
             if (std::ranges::find(w.stations[sid].tiles, t) != w.stations[sid].tiles.end()) {
                 stations::removeTile(w, sid, t);
                 if (!w.stations.contains(sid)) break;
             }
+        }
     }
+    const StationId station = e->station;
     for (const TilePos t : tiles) {
         auto it = w.trackTiles.find(tileKey(t));
         if (it != w.trackTiles.end()) {
@@ -1001,6 +1010,8 @@ void remove(World& w, TrackEdgeId id) {
             if (!n->edges[s * 2u].valid()) std::swap(n->edges[s * 2u], n->edges[s * 2u + 1]);
     }
     w.trackEdges.destroy(id);
+    if (auto* s = w.stations.tryGet(station)) for (auto& entry : s->entrances)
+        if (entry.platform == id && !entry.path.empty()) entry.platform = platformNear(w,station,entry.path.back(),2*kTrackUnits);
     for (const TrackNodeId nid : nodes)
         if (const TrackNode* n = w.trackNodes.tryGet(nid); n && n->empty()) w.trackNodes.destroy(nid);
     ++w.trackRevision;
@@ -1203,7 +1214,7 @@ TrackPlan planPlatform(const World& w, CompanyId company, const TrackAnchor& fro
     return p;
 }
 
-StationId buildPlatform(World& w, CompanyId company, const TrackPlan& pl) {
+StationId buildPlatform(World& w, CompanyId company, const TrackPlan& pl, StationId join) {
     const std::vector<TrackEdgeId> edges = build(w, company, pl);
     if (edges.empty()) return {};
     // Join a station of the company with a platform close by, or found a new one.
@@ -1212,8 +1223,9 @@ StationId buildPlatform(World& w, CompanyId company, const TrackPlan& pl) {
         for (const TilePos t : bedTiles(w.trackEdges[e].samples, kPlatformHalfWidth)) tiles.push_back(t);
     std::ranges::sort(tiles);
     tiles.erase(std::unique(tiles.begin(), tiles.end()), tiles.end());
-    StationId sid;
+    StationId sid = join;
     for (const auto [id, st] : w.stations) {
+        if (sid.valid()) break;
         if (st.owner != company) continue;
         for (const TilePos a : st.tiles) {
             for (const TilePos b : tiles)

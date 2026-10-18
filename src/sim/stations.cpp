@@ -37,7 +37,9 @@ std::string uniqueStationName(const World& w, TownId town, StationId self) {
 void indexStation(World& w, StationId id) {
     const Station& s = w.stations[id];
     std::vector<u64> keys;
-    for (const TilePos t : s.tiles) {
+    std::vector<TilePos> indexed = s.tiles;
+    for (const auto& entry : s.entrances) indexed.push_back(entry.road);
+    for (const TilePos t : indexed) {
         const ChunkPos a = chunkOf({t.x - s.catchment, t.y - s.catchment});
         const ChunkPos b = chunkOf({t.x + s.catchment, t.y + s.catchment});
         for (i32 y = a.y; y <= b.y; ++y)
@@ -90,7 +92,7 @@ StationId create(World& w, CompanyId owner, TilePos tile, StopKind kind) {
 
 void addTile(World& w, StationId id, TilePos tile, StopKind kind) {
     Station& s = w.stations[id];
-    s.tiles.push_back(tile);
+    if (std::ranges::find(s.tiles,tile)==s.tiles.end()) s.tiles.push_back(tile);
     s.facilities |= facilityBit(kind);
     s.catchment = std::max(s.catchment, catchmentRadius(kind));
     rebuildIndex(w);
@@ -101,6 +103,7 @@ void removeTile(World& w, StationId id, TilePos tile) {
     std::erase(s.tiles, tile);
     if (s.tiles.empty()) {
         // Waiting passengers are sent home by the people simulation when they notice.
+        removeEntrances(w,id);
         w.stations.destroy(id);
     } else if (s.sign == tile) {
         s.sign = s.tiles.front();
@@ -129,13 +132,28 @@ void stationsCovering(const World& w, TilePos tile, std::vector<StationId>& out)
     for (const StationId id : it->second) {
         const Station* s = w.stations.tryGet(id);
         if (!s) continue;
-        for (const TilePos t : s->tiles) {
+        std::vector<TilePos> access;
+        if ((s->facilities & kFacilityRail) && !s->entrances.empty()) {
+            for (const auto& entry : s->entrances) access.push_back(entry.road);
+        } else access = s->tiles;
+        for (const TilePos t : access) {
             if (chebyshev(t.x - tile.x, t.y - tile.y) <= s->catchment) {
                 out.push_back(id);
                 break;
             }
         }
     }
+}
+
+void removeEntrances(World& w, StationId id) {
+    auto* station = w.stations.tryGet(id); if (!station) return;
+    for (const auto& entry : station->entrances) for (const auto p : entry.tiles) {
+        auto* t = w.map.tile(p);
+        if (t && t->type == TileType::Footpath && t->index == id.value) {
+            *t = Tile{}; w.map.touch(p);
+        }
+    }
+    station->entrances.clear(); rebuildIndex(w); passengers::markDirty(w);
 }
 
 void rebuildIndex(World& w) {

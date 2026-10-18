@@ -45,6 +45,7 @@ CommandResult executeCommand(World& world, const Command& cmd) {
                 co->earn(result.category, -result.cost);
         }
     }
+    if (result.ok && result.cost > 0 && result.category == Expense::Construction) walking::invalidate(world);
     return result;
 }
 
@@ -77,6 +78,9 @@ std::string_view commandName(const CommandPayload& payload) {
                           [](const CmdCycleSignal&) { return std::string_view("Signal"); },
                           [](const CmdBuildRailStation&) { return std::string_view("Build railway station"); },
                           [](const CmdBuildRailDepot&) { return std::string_view("Build train depot"); },
+                          [](const CmdStationEntrance&) { return std::string_view("Station entrance"); },
+                          [](const CmdAddPlatform&) { return std::string_view("Add platform"); },
+                          [](const CmdExtendPlatform&) { return std::string_view("Extend platform"); },
                           [](const CmdReorderConsist&) { return std::string_view("Reorder train"); },
                           [](const CmdAddCarriage&) { return std::string_view("Add carriage"); },
                           [](const CmdRemoveCarriage&) { return std::string_view("Remove carriage"); },

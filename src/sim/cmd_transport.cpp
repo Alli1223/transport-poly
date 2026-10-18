@@ -55,6 +55,10 @@ CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, co
     if (!tile) return CommandResult::failure("Area not explored");
     if (tile->span) return CommandResult::failure("Use the remove bridge / tunnel tool");
     switch (tile->type) {
+    case TileType::Footpath:
+        if (tile->owner != company.value) return CommandResult::failure("Owned by another company");
+        if (exec) stations::removeEntrances(w,StationId(tile->index));
+        return CommandResult::success(500);
     case TileType::Clear: {
         Money cost = static_cast<Money>(tile->trees) * prices::kRemoveTree;
         if (tile->ground == Ground::Rough) cost += prices::kClearRough;

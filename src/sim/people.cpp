@@ -94,8 +94,11 @@ void startTrip(World& w, PersonId id, TilePos from2, TilePos to2) {
                 p.targetStation = plan.nextHop;
                 p.finalStation = plan.destination;
                 if (town) ++town->thisMonth.transit;
-                schedule(w, id, w.clock.tick + std::max<i64>(1, plan.walkToStop));
-                return;
+                auto walk = walking::toStation(w,walking::endpoint(w,from2),p.station);
+                if (walk && walking::begin(w,id,std::move(*walk),w.clock.tick)) {
+                    schedule(w,id,p.walkEnd);
+                    return;
+                }
             }
         }
     }
@@ -145,10 +148,13 @@ void travelAbstract(World& w, PersonId id, TilePos from2, TilePos to2, bool newT
     }
     p.tripFrom2 = from2;
     p.tripTo2 = to2;
+    p.walkPath.clear();
+    auto walk = dist <= kMaxWalkTiles ? walking::route(w,walking::endpoint(w,from2),walking::endpoint(w,to2)) : std::nullopt;
     i64 duration;
-    if (dist <= kMaxWalkTiles) {
+    if (walk && walking::length(*walk) <= kMaxWalkTiles*kTrackUnits) {
         p.state = PersonState::Walking;
-        duration = std::max<i64>(1, dist) * kWalkTicksPerTile;
+        walking::begin(w,id,std::move(*walk),w.clock.tick);
+        duration = p.walkEnd-w.clock.tick;
         if (town) ++town->thisMonth.walked;
     } else if (p.carOwner) {
         p.state = PersonState::Driving;

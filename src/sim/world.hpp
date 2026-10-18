@@ -28,7 +28,7 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 17;
+inline constexpr u32 kSaveVersion = 18;
 inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
@@ -149,6 +149,7 @@ public:
             routing = RoutingTable{};
             rebuildSignalIndex();
             track::rebuildDerived(*this);
+            if (ar.version != 0 && ar.version < 18) walking::migrateLegacy(*this);
         }
     }
 

@@ -354,6 +354,20 @@ void person(MeshBuilder& mb) {
 
 void buildTransportModels(MeshBuilder& out, ModelId id) {
     switch (id) {
+    case models::kStationEntrance:
+        out.box({-0.32f,0,-0.20f},{-0.12f,0.48f,0.20f},rgba(180,165,143));
+        out.box({0.12f,0,-0.20f},{0.32f,0.48f,0.20f},rgba(180,165,143));
+        out.box({-0.36f,0.48f,-0.24f},{0.36f,0.55f,0.24f},tintable(1.0f));
+        out.box({-0.22f,0.36f,0.205f},{0.22f,0.45f,0.215f},rgba(50,95,160));
+        out.box({-0.03f,0.37f,0.215f},{0.03f,0.44f,0.22f},rgba(240,240,235));
+        break;
+    case models::kFootbridge:
+        out.box({-0.5f,-0.045f,-0.15f},{0.5f,0,0.15f},rgba(155,157,160));
+        for(float z:{-0.15f,0.15f}) {
+            out.box({-0.5f,0.15f,z-0.015f},{0.5f,0.18f,z+0.015f},rgba(68,78,88));
+            for(float x:{-0.48f,0.0f,0.48f})out.box({x-0.015f,0,z-0.015f},{x+0.015f,0.18f,z+0.015f},rgba(68,78,88));
+        }
+        break;
     case models::kCrate:
         out.box({-0.035f, 0, -0.035f}, {0.035f, 0.07f, 0.035f}, tintable(1.0f));
         out.box({-0.037f, 0.025f, -0.037f}, {0.037f, 0.035f, 0.037f}, rgba(90, 65, 42));

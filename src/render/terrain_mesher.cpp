@@ -319,6 +319,8 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
             if (tile.type == TileType::Water) {
                 const float depth = std::min((nw.y + ne.y + se.y + sw.y) * 0.25f, 0.0f);
                 base = shade(base, std::max(0.45f, 1.0f + depth * 0.18f));
+            } else if (tile.type == TileType::Footpath) {
+                base = kPavement;
             } else if (tile.type == TileType::Building) {
                 base = lod == 0 ? (residential ? (residential(tile.index) ? kGarden : kPlaza) : buildingGround(tile, world)) : kUrbanBuilding;
             } else if ((tile.type == TileType::Road || tile.type == TileType::Station) && lod > 0) {

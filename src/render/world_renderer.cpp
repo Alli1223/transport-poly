@@ -414,6 +414,39 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
         std::array<u32, kCargoTypes> stock{};
         for (usize c = 0; c < kCargoTypes; ++c) stock[c] = cargo::quantity(station.cargoWaiting, static_cast<CargoType>(c));
         addStock(station.sign, stock);
+        if (station.entrances.empty()) continue;
+        const auto& main = station.entrances.front();
+        const double ex = main.road.x-focus.x, ez=main.road.y-focus.z;
+        if (ex*ex+ez*ez > radius*radius) continue;
+        for (const auto& entry : station.entrances) if (!entry.tiles.empty()) {
+            const auto at = entry.tiles.front();
+            const float y = static_cast<float>(terrainHeightAt(world.map,at.x+0.5,at.y+0.5));
+            const float yaw = static_cast<float>(std::atan2(double(entry.road.x-at.x),double(entry.road.y-at.y)));
+            dynamic_.add(models::kStationEntrance,makeInstance(glm::vec3(glm::dvec3(at.x+0.5,y,at.y+0.5)-origin),yaw,1,companyTint(world,station.owner)));
+        }
+        for (const auto& platform : track::platformsOf(world,sid)) {
+            const auto& edge = world.trackEdges[platform.front()];
+            const auto mid = track::pointOn(edge,true,edge.length/2);
+            const auto tangent=normalised(i64(world.trackNodes[edge.b].pos.x)-world.trackNodes[edge.a].pos.x,
+                                           i64(world.trackNodes[edge.b].pos.z)-world.trackNodes[edge.a].pos.z);
+            const auto target=offset(mid.p,{-tangent.z,tangent.x},200);
+            if (track::platformNumber(world,sid,main.path.back()) == track::platformNumber(world,sid,target)) continue;
+            const auto path=walking::withinStation(world,sid,main.path.back(),target);
+            i32 bridgeHeight=-1;for(const auto& p:path)bridgeHeight=std::max(bridgeHeight,p.height);
+            for(usize n=1;n<path.size();++n) {
+                const auto a=path[n-1],b=path[n];
+                if(a.height<0 || b.height<0 || (a.height<bridgeHeight && b.height<bridgeHeight))continue;
+                const glm::dvec3 start(a.p.x/double(kTrackUnits),a.height/double(kSubLevels)*0.5,a.p.z/double(kTrackUnits));
+                const glm::dvec3 finish(b.p.x/double(kTrackUnits),b.height/double(kSubLevels)*0.5,b.p.z/double(kTrackUnits));
+                const auto delta=finish-start;const double length=glm::length(delta);
+                if(length<0.01)continue;
+                glm::mat4 bridge=glm::translate(glm::mat4(1),glm::vec3((start+finish)*0.5-origin));
+                bridge=glm::rotate(bridge,static_cast<float>(std::atan2(-delta.z,delta.x)),glm::vec3(0,1,0));
+                bridge=glm::rotate(bridge,static_cast<float>(std::atan2(delta.y,std::sqrt(delta.x*delta.x+delta.z*delta.z))),glm::vec3(0,0,1));
+                bridge=glm::scale(bridge,glm::vec3(static_cast<float>(length),1,1));
+                dynamic_.add(models::kFootbridge,makeInstance(bridge));
+            }
+        }
     }
     std::vector<CarPose> cars;
     for (const auto [id, v] : world.vehicles) {

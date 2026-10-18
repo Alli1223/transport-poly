@@ -86,9 +86,10 @@ struct CmdBuildTrack {
 struct CmdBuildTrackStation {
     TrackAnchor from;
     TPoint to;
+    StationId join;
     template <class Ar>
     void serialize(Ar& ar) {
-        ar(from, to);
+        ar(from, to, join);
     }
 };
 
@@ -369,6 +370,19 @@ struct CmdReorderConsist {
     template <class Ar> void serialize(Ar& ar) { ar(vehicle, order); }
 };
 
+struct CmdStationEntrance {
+    StationId station; TilePos road; bool remove = false;
+    template<class Ar> void serialize(Ar& ar) { ar(station,road,remove); }
+};
+struct CmdAddPlatform {
+    StationId station; TrackEdgeId platform; i32 side = 1; i32 length = 6;
+    template<class Ar> void serialize(Ar& ar) { ar(station,platform,side,length); }
+};
+struct CmdExtendPlatform {
+    StationId station; TrackNodeId end; i32 length = 4;
+    template<class Ar> void serialize(Ar& ar) { ar(station,end,length); }
+};
+
 using CommandPayload =
     std::variant<CmdActivateChunks, CmdCreateCompany, CmdSetLoan, CmdTerraform, CmdClearArea, CmdPlantTrees, CmdBuildRoad,
                  CmdRemoveRoad, CmdBuildRoadStop, CmdBuildRoadDepot, CmdBuyVehicle, CmdSellVehicle, CmdStartStopVehicle,
@@ -376,7 +390,7 @@ using CommandPayload =
                  CmdBuildRailStation, CmdBuildRailDepot, CmdAddCarriage, CmdRemoveCarriage, CmdBuildDock,
                  CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater, CmdBuildSpan, CmdRemoveSpan,
                  CmdUpdateCompany, CmdTerraformBrush, CmdBuildTrack, CmdRemoveTrack, CmdBuildTrackStation,
-                 CmdBuildTrackDepot, CmdTrackSignal, CmdReorderConsist>;
+                 CmdBuildTrackDepot, CmdTrackSignal, CmdReorderConsist, CmdStationEntrance, CmdAddPlatform, CmdExtendPlatform>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)
