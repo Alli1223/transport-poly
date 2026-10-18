@@ -7,6 +7,7 @@
 #include "core/serialize.hpp"
 #include "sim/prices.hpp"
 #include "sim/ai.hpp"
+#include "sim/industries.hpp"
 
 namespace tp {
 
@@ -49,6 +50,7 @@ void World::onNewMonth() {
     }
     economy::monthly(*this);
     towns::monthly(*this);
+    cargo::monthly(*this);
     towns::spawnNewTowns(*this);
     stations::monthly(*this);
     people::jobMarket(*this);
@@ -114,6 +116,7 @@ void World::onNewYear() {
 bool World::activateChunk(ChunkPos pos) {
     if (!map.activate(pos)) return false;
     towns::onChunkActivated(*this, pos);
+    industries::onChunkActivated(*this, pos);
     return true;
 }
 

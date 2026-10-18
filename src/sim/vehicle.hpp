@@ -144,7 +144,7 @@ struct Vehicle {
     std::vector<CargoBatch> cargo;
     i64 cargoExchangeTick = -1;
     u32 cargoExchangeUnits = 0;
-    std::array<u32, kCargoTypes> cargoLoaded{}, cargoUnloaded{};
+    CargoCounts cargoLoaded, cargoUnloaded;
     i64 loadingUntil = 0;
     i64 loadingStartTick = 0;
 
@@ -188,26 +188,32 @@ struct Vehicle {
         for (const u16 m : cars) c += vehicleModel(m).capacity;
         return c;
     }
+    // Space for a cargo: every car of the cargo's class (hopper, refrigerated, box, flatbed)
+    // counts, and everything of that class aboard shares it.
     u32 cargoCapacity(CargoType type) const {
-        if (cars.empty()) return info().cargoType == type ? info().cargoCapacity : 0;
+        const CargoClass k = cargoClass(type);
+        const auto fits = [&](const VehicleModel& m) { return k != CargoClass::None && m.cargoType != CargoType::None && cargoClass(m.cargoType) == k; };
+        if (cars.empty()) return fits(info()) ? info().cargoCapacity : 0;
         u32 n = 0;
-        for (const auto m : cars) if (vehicleModel(m).cargoType == type) n += vehicleModel(m).cargoCapacity;
+        for (const auto m : cars) if (fits(vehicleModel(m))) n += vehicleModel(m).cargoCapacity;
         return n;
     }
     u32 carLoad(usize index) const {
         const auto& m = vehicleModel(cars.empty() ? model : cars[index]);
+        const bool seats = m.cargoType == CargoType::None;
+        const CargoClass k = seats ? CargoClass::None : cargoClass(m.cargoType);
         u32 before = 0;
-        for (usize k = 0; k < index && k < cars.size(); ++k) {
-            const auto& prev = vehicleModel(cars[k]);
-            before += m.cargoType == CargoType::None ? prev.capacity : prev.cargoType == m.cargoType ? prev.cargoCapacity : 0;
+        for (usize k2 = 0; k2 < index && k2 < cars.size(); ++k2) {
+            const auto& prev = vehicleModel(cars[k2]);
+            before += seats ? prev.capacity : prev.cargoType != CargoType::None && cargoClass(prev.cargoType) == k ? prev.cargoCapacity : 0;
         }
-        const u32 total = m.cargoType == CargoType::None ? static_cast<u32>(passengers.size()) : cargo::quantity(cargo, m.cargoType);
-        return std::min<u32>(total > before ? total - before : 0, m.cargoType == CargoType::None ? m.capacity : m.cargoCapacity);
+        const u32 total = seats ? static_cast<u32>(passengers.size()) : cargo::classQuantity(cargo, k);
+        return std::min<u32>(total > before ? total - before : 0, seats ? m.capacity : m.cargoCapacity);
     }
     bool full() const {
         if (passengers.size() < capacity()) return false;
-        for (usize c = 0; c < kCargoTypes; ++c)
-            if (cargo::quantity(cargo, static_cast<CargoType>(c)) < cargoCapacity(static_cast<CargoType>(c))) return false;
+        for (const CargoType c : {CargoType::Grain, CargoType::Food, CargoType::Goods, CargoType::Logs})
+            if (cargo::classQuantity(cargo, cargoClass(c)) < cargoCapacity(c)) return false;
         return true;
     }
     Money runningCost() const {

@@ -241,6 +241,7 @@ void App::drawWindows() {
     drawVehicleWindow();
     drawStationWindow();
     drawTownWindow();
+    drawIndustryWindow();
     drawFinanceWindow();
     drawVehicleList();
     drawNewsWindow();
@@ -739,10 +740,13 @@ void App::drawVehicleWindow() {
         const float cw = ui::columnWidth(3);
         const std::string speed = std::format("{} km/h", displayKmh(v->speed));
         const std::string load = std::format("{} / {}", v->passengers.size(), v->capacity());
+        // Freight space by class (each class's cargo shares it), then what is aboard.
+        for (const CargoType c : {CargoType::Grain, CargoType::Food, CargoType::Goods, CargoType::Logs})
+            if (v->cargoCapacity(c)) ui::statRow(cargoClassName(cargoClass(c)).data(),
+                std::format("{} / {} units", cargo::classQuantity(v->cargo, cargoClass(c)), v->cargoCapacity(c)).c_str());
         for (usize c = 0; c < kCargoTypes; ++c) {
             const auto type = static_cast<CargoType>(c);
-            if (v->cargoCapacity(type)) ui::statRow(cargoName(type).data(),
-                std::format("{} / {} units", cargo::quantity(v->cargo, type), v->cargoCapacity(type)).c_str());
+            if (const u32 n = cargo::quantity(v->cargo, type)) ui::statRow(cargoName(type).data(), std::format("{} aboard", n).c_str());
         }
         if (v->info().type == VehicleType::Rail) {
             for (usize k = 0; k < v->cars.size(); ++k) {
@@ -1052,10 +1056,15 @@ void App::drawStationWindow() {
             ImGui::EndDisabled();
         }
         ui::sectionHeader("Freight waiting");
+        bool freight = false;
         for (usize cargoIndex = 0; cargoIndex < kCargoTypes; ++cargoIndex) {
             const auto type = static_cast<CargoType>(cargoIndex);
-            ui::statRow(cargoName(type).data(), std::format("{} units", cargo::quantity(st->cargoWaiting, type)).c_str());
+            if (const u32 n = cargo::quantity(st->cargoWaiting, type)) {
+                ui::statRow(cargoName(type).data(), std::format("{} units", n).c_str());
+                freight = true;
+            }
         }
+        if (!freight) ui::mutedText("None");
         ui::sectionHeader("Waiting for");
         if (st->waiting.empty()) ui::emptyState(ui::Icon::People, "Nobody is waiting");
         usize most = 1;
@@ -1138,6 +1147,8 @@ void App::drawTownWindow() {
         } else {
             ui::emptyState(ui::Icon::Walk, "No journeys recorded yet");
         }
+
+        drawTownNeeds(*t);
 
         ui::sectionHeader("Local authority");
         bool any = false;

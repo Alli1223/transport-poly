@@ -1,5 +1,7 @@
 #include "sim/cargo.hpp"
+#include "sim/town.hpp"
 #include "sim/world.hpp"
+#include "core/hash.hpp"
 #include "core/math.hpp"
 #include <algorithm>
 #include <map>
@@ -7,28 +9,106 @@
 #include <set>
 
 namespace tp {
+namespace {
+using C = CargoType;
+constexpr C kNone = C::None;
+
+// building, inputs, output, units a day
+constexpr IndustryRecipe kRecipes[] = {
+    {10, {C::Food, kNone}, C::Goods, 32},        // workshop (town)
+    {11, {C::Grain, kNone}, C::Food, 32},        // factory (town)
+    {12, {kNone, kNone}, C::Grain, 32},          // farm (town)
+    {15, {kNone, kNone}, C::Grain, 48},          // grain farm
+    {16, {kNone, kNone}, C::Wool, 32},           // sheep farm
+    {17, {kNone, kNone}, C::Milk, 40},           // dairy farm
+    {18, {kNone, kNone}, C::Logs, 48},           // logging camp
+    {19, {kNone, kNone}, C::Stone, 56},          // quarry
+    {20, {kNone, kNone}, C::IronOre, 48},        // iron mine
+    {21, {kNone, kNone}, C::Coal, 56},           // coal mine
+    {22, {C::Milk, kNone}, C::Cheese, 48},       // cheese dairy
+    {23, {C::Wool, kNone}, C::Cloth, 40},        // textile mill
+    {24, {C::Logs, kNone}, C::Planks, 56},       // sawmill
+    {25, {C::Stone, kNone}, C::Bricks, 56},      // brickworks
+    {26, {C::IronOre, C::Coal}, C::Steel, 48},   // steel mill
+    {27, {C::Steel, C::Planks}, C::Goods, 40},   // goods factory
+    {28, {C::Planks, C::Cloth}, C::Furniture, 36}, // furniture factory
+};
+} // namespace
+
+std::span<const IndustryRecipe> industryRecipes() { return kRecipes; }
+
+const IndustryRecipe* recipeFor(u16 buildingType) {
+    for (const IndustryRecipe& r : kRecipes)
+        if (r.building == buildingType) return &r;
+    return nullptr;
+}
+
 std::string_view cargoName(CargoType type) {
     switch(type) {
     case CargoType::Grain: return "Grain";
     case CargoType::Food: return "Food";
     case CargoType::Goods: return "Goods";
+    case CargoType::Wool: return "Wool";
+    case CargoType::Milk: return "Milk";
+    case CargoType::Logs: return "Logs";
+    case CargoType::Stone: return "Stone";
+    case CargoType::IronOre: return "Iron ore";
+    case CargoType::Coal: return "Coal";
+    case CargoType::Planks: return "Planks";
+    case CargoType::Cheese: return "Cheese";
+    case CargoType::Cloth: return "Cloth";
+    case CargoType::Bricks: return "Bricks";
+    case CargoType::Steel: return "Steel";
+    case CargoType::Furniture: return "Furniture";
     default: return "Passengers";
     }
 }
+
+CargoClass cargoClass(CargoType type) {
+    switch (type) {
+    case CargoType::Grain: case CargoType::Stone: case CargoType::IronOre: case CargoType::Coal: return CargoClass::Bulk;
+    case CargoType::Food: case CargoType::Milk: case CargoType::Cheese: return CargoClass::Refrigerated;
+    case CargoType::Goods: case CargoType::Wool: case CargoType::Cloth: case CargoType::Furniture: return CargoClass::Piece;
+    case CargoType::Logs: case CargoType::Planks: case CargoType::Bricks: case CargoType::Steel: return CargoClass::Flatbed;
+    default: return CargoClass::None;
+    }
+}
+
+std::string_view cargoClassName(CargoClass c) {
+    switch (c) {
+    case CargoClass::Bulk: return "Bulk";
+    case CargoClass::Refrigerated: return "Refrigerated";
+    case CargoClass::Piece: return "Piece goods";
+    case CargoClass::Flatbed: return "Timber, bricks and steel";
+    default: return "Passengers";
+    }
+}
+
 namespace cargo {
 u32 quantity(const std::vector<CargoBatch>& batches, CargoType type) {
     u32 n = 0;
     for (const auto& b : batches) if (b.type == type) n += b.quantity;
     return n;
 }
-bool accepts(const Building& b, CargoType type) {
-    return (b.type == 11 && type == CargoType::Grain) ||
-           (b.type == 10 && type == CargoType::Food) ||
-           (b.info().category == BuildingCategory::Retail && (type == CargoType::Food || type == CargoType::Goods));
+u32 classQuantity(const std::vector<CargoBatch>& batches, CargoClass c) {
+    u32 n = 0;
+    for (const auto& b : batches) if (cargoClass(b.type) == c) n += b.quantity;
+    return n;
 }
-StationId nextHop(const World& w, StationId from, StationId to, CargoType type) {
-    if (from == to) return to;
-    std::map<StationId, std::vector<StationId>> graph;
+bool accepts(const World& w, const Building& b, CargoType type) {
+    if (const IndustryRecipe* r = recipeFor(b.type)) return type != CargoType::None && (r->inputs[0] == type || r->inputs[1] == type);
+    const BuildingCategory cat = b.info().category;
+    if (cat == BuildingCategory::Retail && (type == CargoType::Food || type == CargoType::Goods)) return true;
+    // Towns take what they need at their shops, offices and civic buildings.
+    if (cat == BuildingCategory::Retail || cat == BuildingCategory::Office || cat == BuildingCategory::Civic)
+        if (const Town* t = w.towns.tryGet(b.town)) return towns::needs(*t, type);
+    return false;
+}
+namespace {
+using Graph = std::map<StationId, std::vector<StationId>>;
+// Stations linked by vehicles that can carry a cargo, from each loading stop to the next stop.
+Graph freightGraph(const World& w, CargoType type) {
+    Graph graph;
     for (const auto [id, v] : w.vehicles) {
         if (v.stopped || v.cargoCapacity(type) == 0) continue;
         std::vector<Order> stops;
@@ -38,21 +118,32 @@ StationId nextHop(const World& w, StationId from, StationId to, CargoType type) 
             if (!(stops[i].flags & (kOrderNoLoading | kOrderUnloadOnly)))
                 graph[stops[i].station].push_back(stops[(i + 1) % stops.size()].station);
     }
+    for (auto& [at, edges] : graph) std::sort(edges.begin(), edges.end());
+    return graph;
+}
+// Breadth first from `from`: each reachable station mapped to the first hop towards it.
+std::map<StationId, StationId> firstHops(const Graph& graph, StationId from) {
     std::queue<StationId> queue;
     std::map<StationId, StationId> first;
     first[from] = from; queue.push(from);
     while (!queue.empty()) {
         const auto at = queue.front(); queue.pop();
-        auto& edges = graph[at];
-        std::sort(edges.begin(), edges.end());
-        for (const auto next : edges) {
+        const auto it = graph.find(at);
+        if (it == graph.end()) continue;
+        for (const auto next : it->second) {
             if (first.contains(next)) continue;
             first[next] = at == from ? next : first[at];
-            if (next == to) return first[next];
             queue.push(next);
         }
     }
-    return {};
+    return first;
+}
+}
+StationId nextHop(const World& w, StationId from, StationId to, CargoType type) {
+    if (from == to) return to;
+    const auto first = firstHops(freightGraph(w, type), from);
+    const auto it = first.find(to);
+    return it == first.end() || to == from ? StationId{} : it->second;
 }
 namespace {
 constexpr u32 kStockLimit = 4096;
@@ -61,30 +152,54 @@ const Building* building(const World& w, BuildingRef ref) {
     return b && b->serial == ref.serial ? b : nullptr;
 }
 bool covered(const Station& s, const Building& b) {
-    for (const auto tile : s.tiles)
-        if (std::max(std::abs(tile.x - b.pos.x), std::abs(tile.y - b.pos.y)) <= s.catchment) return true;
+    const i32 size = b.info().size;
+    for (const auto tile : s.tiles) {
+        const i32 dx = std::max({0, b.pos.x - tile.x, tile.x - (b.pos.x + size - 1)});
+        const i32 dy = std::max({0, b.pos.y - tile.y, tile.y - (b.pos.y + size - 1)});
+        if (std::max(dx, dy) <= s.catchment) return true;
+    }
     return false;
 }
+bool registers(const World& w, const Building& b) {
+    const BuildingCategory cat = b.info().category;
+    if (cat == BuildingCategory::Industrial || cat == BuildingCategory::Retail) return true;
+    return w.settings.industries && (cat == BuildingCategory::Office || cat == BuildingCategory::Civic);
+}
+}
+bool covers(const World& w, StationId station, const Building& b) {
+    const Station* s = w.stations.tryGet(station);
+    return s && covered(*s, b);
 }
 void daily(World& w) {
     std::erase_if(w.industries, [&](const Industry& i) { return !building(w, i.building); });
     std::set<std::pair<u32, u32>> registered;
     for (const auto& i : w.industries) registered.emplace(i.building.id.value, i.building.serial);
     for (const auto [id, b] : w.buildings) {
-        if (b.info().category != BuildingCategory::Industrial && b.info().category != BuildingCategory::Retail) continue;
-        if (!registered.contains({id.value, b.serial}))
-            w.industries.push_back(Industry{b.ref(id)});
+        if (!registers(w, b) || registered.contains({id.value, b.serial})) continue;
+        Industry entry{b.ref(id)};
+        // Countryside producers start at a production level of their own.
+        if (b.type > 14) entry.level = static_cast<u8>(1 + hashCoords(w.settings.seed, b.pos.x, b.pos.y, 0x1D57) % 4);
+        w.industries.push_back(entry);
     }
     for (auto& i : w.industries) {
         const auto& b = *building(w, i.building);
-        if (b.type == 12) i.stock[0] = std::min(kStockLimit, i.stock[0] + 32);
-        if (b.type == 11 || b.type == 10) {
-            const usize in = b.type == 11 ? 0 : 1, out = in + 1;
-            const u32 n = std::min({i.stock[in], 32u, kStockLimit - i.stock[out]});
-            i.stock[in] -= n; i.stock[out] += n;
+        if (const IndustryRecipe* r = recipeFor(b.type)) {
+            const usize out = static_cast<usize>(r->output);
+            u32 n = kStockLimit - std::min(kStockLimit, i.stock[out]);
+            if (r->inputs[0] == CargoType::None) {
+                n = std::min<u32>(n, r->rate * i.level / 2);
+            } else {
+                n = std::min<u32>(n, r->rate);
+                for (const CargoType in : r->inputs)
+                    if (in != CargoType::None) n = std::min(n, i.stock[static_cast<usize>(in)]);
+                for (const CargoType in : r->inputs)
+                    if (in != CargoType::None) i.stock[static_cast<usize>(in)] -= n;
+            }
+            i.stock[out] += n;
+            i.producedThisMonth += n;
         }
         if (b.info().category == BuildingCategory::Retail)
-            for (usize c = 1; c < kCargoTypes; ++c) i.stock[c] -= std::min(i.stock[c], 16u);
+            for (const CargoType c : {CargoType::Food, CargoType::Goods}) i.stock[static_cast<usize>(c)] -= std::min(i.stock[static_cast<usize>(c)], 16u);
     }
     for (auto [sid, station] : w.stations) {
         std::erase_if(station.cargoWaiting, [&](const CargoBatch& batch) {
@@ -92,11 +207,15 @@ void daily(World& w) {
                    w.clock.tick - batch.producedTick > 30 * kTicksPerDay;
         });
     }
-    // Dispatch only when a complete freight service exists. Inventories stay at the provider otherwise.
+    // Dispatch only when a complete freight service exists. Inventories stay at the provider
+    // otherwise. Route graphs are built once per cargo and reachability once per station.
+    std::map<CargoType, Graph> graphs;
+    std::map<std::pair<CargoType, StationId>, std::map<StationId, StationId>> reach;
     for (auto& source : w.industries) {
         const auto& b = *building(w, source.building);
-        const CargoType type = b.type == 12 ? CargoType::Grain : b.type == 11 ? CargoType::Food : b.type == 10 ? CargoType::Goods : CargoType::None;
-        if (type == CargoType::None) continue;
+        const IndustryRecipe* recipe = recipeFor(b.type);
+        if (!recipe) continue;
+        const CargoType type = recipe->output;
         auto& stock = source.stock[static_cast<usize>(type)];
         if (!stock) continue;
         bool sent = false;
@@ -104,19 +223,32 @@ void daily(World& w) {
             u32 waiting = 0;
             for (const auto& batch : s.cargoWaiting) waiting += batch.quantity;
             if (!covered(s, b) || s.cargoWaiting.size() >= 256 || waiting >= s.waitingCapacity()) continue;
+            if (!graphs.contains(type)) graphs.emplace(type, freightGraph(w, type));
+            const auto key = std::pair{type, sid};
+            if (!reach.contains(key)) reach.emplace(key, firstHops(graphs[type], sid));
+            const auto& reachable = reach[key];
+            if (reachable.size() <= 1) continue;
             for (const auto& dest : w.industries) {
+                if (dest.building == source.building) continue;
                 const auto& target = *building(w, dest.building);
-                if (dest.building == source.building || !accepts(target, type)) continue;
+                if (!accepts(w, target, type)) continue;
                 for (const auto [tid, t] : w.stations) {
-                    if (tid == sid || !covered(t, target) || !nextHop(w, sid, tid, type).valid()) continue;
+                    if (tid == sid || !reachable.contains(tid) || !covered(t, target)) continue;
                     const u32 n = std::min({stock, 128u, static_cast<u32>(s.waitingCapacity()) - waiting});
                     w.stations[sid].cargoWaiting.push_back({type, n, sid, tid, dest.building, w.clock.tick});
-                    stock -= n; sent = true; break;
+                    stock -= n; source.shippedThisMonth += n; sent = true; break;
                 }
                 if (sent) break;
             }
             if (sent) break;
         }
+    }
+}
+void monthly(World& w) {
+    for (auto& i : w.industries) {
+        i.producedLastMonth = i.producedThisMonth;
+        i.shippedLastMonth = i.shippedThisMonth;
+        i.producedThisMonth = i.shippedThisMonth = 0;
     }
 }
 i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
@@ -131,7 +263,7 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
         if (o.kind == OrderKind::Station && !o.passThrough()) { next = o.station; break; }
     }
     i32 moved = 0;
-    std::array<u32, kCargoTypes> loaded{}, unloaded{};
+    CargoCounts loaded, unloaded;
     const auto finish = [&]() {
         if (moved) {
             v.cargoExchangeTick = w.clock.tick; v.cargoExchangeUnits = static_cast<u32>(moved);
@@ -146,10 +278,21 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
         if (batch.destination == sid) {
             auto it = std::ranges::find_if(w.industries, [&](const Industry& i) { return i.building == batch.receiver; });
             const auto* target = building(w, batch.receiver);
-            if (it != w.industries.end() && target && accepts(*target, batch.type) && covered(*s, *target)) {
-                auto& stock = it->stock[static_cast<usize>(batch.type)];
-                const u32 delivered = std::min(batch.quantity, kStockLimit - stock);
-                stock += delivered; it->delivered += delivered;
+            if (it != w.industries.end() && target && accepts(w, *target, batch.type) && covered(*s, *target)) {
+                const IndustryRecipe* r = recipeFor(target->type);
+                const bool input = r && (r->inputs[0] == batch.type || r->inputs[1] == batch.type);
+                const bool shop = target->info().category == BuildingCategory::Retail &&
+                                  (batch.type == CargoType::Food || batch.type == CargoType::Goods);
+                u32 delivered = batch.quantity;
+                if (input || shop) {
+                    auto& stock = it->stock[static_cast<usize>(batch.type)];
+                    delivered = std::min(batch.quantity, kStockLimit - std::min(kStockLimit, stock));
+                    stock += delivered;
+                }
+                it->delivered += delivered;
+                // A town counts the deliveries it needs towards its growth.
+                if (Town* town = w.towns.tryGet(target->town); town && towns::needs(*town, batch.type))
+                    town->supplied[static_cast<usize>(batch.type)] += delivered;
                 const auto* origin = w.stations.tryGet(batch.origin);
                 const i64 distance = origin ? manhattan(s->sign.x - origin->sign.x, s->sign.y - origin->sign.y) : 0;
                 const Money pay = w.fareIncome(delivered * (distance + 10) / 4);
@@ -178,7 +321,8 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
     if (!next.valid()) return finish();
     for (auto& batch : s->cargoWaiting) {
         if (!batch.quantity || nextHop(w, sid, batch.destination, batch.type) != next) continue;
-        const u32 cap = v.cargoCapacity(batch.type), load = quantity(v.cargo, batch.type);
+        // The vehicle's space for this class of cargo is shared by everything of the class.
+        const u32 cap = v.cargoCapacity(batch.type), load = classQuantity(v.cargo, cargoClass(batch.type));
         const u32 n = std::min(batch.quantity, cap > load ? cap - load : 0);
         if (!n) continue;
         auto part = batch; part.quantity = n;

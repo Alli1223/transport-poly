@@ -122,6 +122,8 @@ private:
     void drawVehicleWindow();
     void drawStationWindow();
     void drawTownWindow();
+    void drawIndustryWindow();
+    void drawTownNeeds(const Town& t);
     void drawFinanceWindow();
     void drawVehicleList();
     void drawNews(double now);
@@ -186,6 +188,7 @@ private:
     VehicleId selVehicle_;
     StationId selStation_;
     TownId selTown_;
+    BuildingId selIndustry_;
     VehicleId followVehicle_;
     bool showFinances_ = false;
     bool showVehicleList_ = false;
@@ -249,6 +252,8 @@ private:
     bool pendingScreenshot_ = false;
     bool gotoWater_ = false;
     bool gotoMountain_ = false; // automation: start near high ground
+    std::optional<std::string> gotoIndustry_; // automation: look at the nearest industry (whose name contains this)
+    bool demoIndustries_ = false;            // automation: found one of every industry near the camera
     double gotoTownDistance_ = 0.0; // > 0: jump to the biggest town at this zoom (automation)
     bool demoNetwork_ = false;      // automation: build a demo bus line in the biggest town
     bool demoRail_ = false;         // automation: build a demo railway next to the biggest town

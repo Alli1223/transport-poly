@@ -4,6 +4,7 @@
 #include "core/rng.hpp"
 #include "core/types.hpp"
 #include "sim/buildings.hpp"
+#include "sim/cargo.hpp"
 #include "sim/coords.hpp"
 #include "sim/ids.hpp"
 
@@ -88,12 +89,19 @@ struct Town {
     std::map<u8, i16> ratings; // by company id; companies without an entry are rated kRatingInitial
     i32 servedStations = 0;    // stations in town visited last month (drives growth)
 
+    // What the town needs delivered to keep growing: one thing as a village, more (and more
+    // elaborate) as it grows. Deliveries count at its shops, offices and civic buildings.
+    std::vector<CargoType> needs;
+    CargoCounts supplied;          // this month
+    CargoCounts suppliedLastMonth;
+
     template <class Ar>
     void serialize(Ar& ar) {
         ar(name, centre, cellKey, cls, grid, gridSpacing, rng, foundedTick, population, jobs, workers,
            retailCapacity, radius, growthPoints, buildings, jobSites, retail, roads, unemployed, shopTown, jobCursor,
            thisMonth, lastMonth);
         if (ar.version == 0 || ar.version >= 3) ar(ratings, servedStations);
+        if (ar.version == 0 || ar.version >= 21) ar(needs, supplied, suppliedLastMonth);
     }
 };
 
@@ -116,6 +124,15 @@ void removeBuilding(World& w, BuildingId id);
 
 // True if a building of the given size could be placed with its NW corner at `pos`.
 bool canPlaceBuilding(const World& w, TilePos pos, u8 size);
+
+// Town needs: whether a town asks for a cargo, how much a month satisfies one need, whether a
+// need was met last month, and the population at which the next need appears.
+bool needs(const Town& t, CargoType type);
+u32 needDemand(const Town& t);
+bool needMet(const Town& t, CargoType type);
+i32 nextNeedPopulation(const Town& t);
+// Adds the needs a town's population calls for (monthly).
+void updateNeeds(World& w, Town& t);
 
 // The town whose built-up area (plus a margin) contains the tile, if any.
 TownId townAt(const World& w, TilePos t);

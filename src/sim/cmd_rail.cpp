@@ -314,7 +314,7 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveCarriage& x, boo
     if (vehicleModel(v->cars[x.index]).powered && std::ranges::count_if(v->cars, [](u16 m) { return vehicleModel(m).powered; }) <= 1)
         return CommandResult::failure("The train must keep at least one engine");
     const auto& removed = vehicleModel(v->cars[x.index]);
-    if (removed.cargoCapacity && cargo::quantity(v->cargo, removed.cargoType) >
+    if (removed.cargoCapacity && cargo::classQuantity(v->cargo, cargoClass(removed.cargoType)) >
         v->cargoCapacity(removed.cargoType) - removed.cargoCapacity)
         return CommandResult::failure("Unload the freight before removing this wagon");
     Money baseValue = 0;

@@ -240,6 +240,40 @@ void makeCentre(World& w, TownId id) {
 // Growth points per day (100 points = one growth step). Good public transport makes towns grow
 // faster: up to three times the base rate when everyone travels by transit, plus a bonus for
 // each regularly served station.
+
+// Population at which a town asks for its n-th need, and what each tier may ask for.
+constexpr i32 kNeedPopulation[] = {0, 350, 1000, 2500, 5000};
+constexpr std::array<CargoType, 3> kNeedTier1 = {CargoType::Food, CargoType::Planks, CargoType::Cheese};
+constexpr std::array<CargoType, 5> kNeedTier2 = {CargoType::Bricks, CargoType::Cloth, CargoType::Food, CargoType::Cheese,
+                                                 CargoType::Planks};
+constexpr std::array<CargoType, 4> kNeedTier3 = {CargoType::Goods, CargoType::Furniture, CargoType::Bricks, CargoType::Cloth};
+constexpr std::array<CargoType, 3> kNeedTier4 = {CargoType::Goods, CargoType::Furniture, CargoType::Steel};
+constexpr std::array<CargoType, 4> kNeedTier5 = {CargoType::Furniture, CargoType::Goods, CargoType::Steel, CargoType::Cloth};
+
+std::span<const CargoType> needPool(usize tier) {
+    switch (tier) {
+    case 0: return kNeedTier1;
+    case 1: return kNeedTier2;
+    case 2: return kNeedTier3;
+    case 3: return kNeedTier4;
+    default: return kNeedTier5;
+    }
+}
+
+// Adds the needs a town's population calls for, picked at random from each tier's choices.
+void addNeeds(World& w, Town& t) {
+    while (t.needs.size() < std::size(kNeedPopulation) && t.population >= kNeedPopulation[t.needs.size()]) {
+        std::vector<CargoType> choices;
+        for (const CargoType c : needPool(t.needs.size()))
+            if (std::ranges::find(t.needs, c) == t.needs.end()) choices.push_back(c);
+        if (choices.empty()) break;
+        const CargoType pick = choices[t.rng.below(static_cast<u32>(choices.size()))];
+        t.needs.push_back(pick);
+        if (t.needs.size() > 1)
+            w.addNews(NewsKind::Town, std::format("{} now needs {} to keep growing", t.name, cargoName(pick)), t.centre);
+    }
+}
+
 i32 growthRate(const Town& t) {
     i32 base = 8;
     switch (t.cls) {
@@ -250,6 +284,8 @@ i32 growthRate(const Town& t) {
     i32 rate = base;
     if (t.lastMonth.trips > 0) rate += base * 2 * t.lastMonth.transit / t.lastMonth.trips;
     rate += std::min(t.servedStations, 6) * 2;
+    // Every need met speeds growth up.
+    for (const CargoType c : t.needs) rate += needMet(t, c) ? base : 0;
     return rate;
 }
 
@@ -302,6 +338,20 @@ TownId findShopTown(const World& w, TownId self) {
 } // namespace
 
 u8 zoneAt(const Town& town, TilePos tile) { return zoneOf(town, tile); }
+
+bool needs(const Town& t, CargoType type) { return std::ranges::find(t.needs, type) != t.needs.end(); }
+
+u32 needDemand(const Town& t) { return static_cast<u32>(std::max(12, t.population / 12)); }
+
+bool needMet(const Town& t, CargoType type) {
+    return needs(t, type) && t.suppliedLastMonth[static_cast<usize>(type)] >= needDemand(t);
+}
+
+void updateNeeds(World& w, Town& t) { addNeeds(w, t); }
+
+i32 nextNeedPopulation(const Town& t) {
+    return t.needs.size() < std::size(kNeedPopulation) ? kNeedPopulation[t.needs.size()] : 0;
+}
 
 bool canPlaceBuilding(const World& w, TilePos pos, u8 size) {
     int level = -1;
@@ -555,6 +605,12 @@ void spawnNewTowns(World& w) {
 
 void growAll(World& w) {
     for (auto [id, t] : w.towns) {
+        // A town with needs that are not all met stops growing when it reaches the size at which
+        // it would ask for the next one.
+        if (w.settings.industries && !t.needs.empty() && !std::ranges::all_of(t.needs, [&](CargoType c) { return needMet(t, c); })) {
+            const i32 cap = t.needs.size() < std::size(kNeedPopulation) ? kNeedPopulation[t.needs.size()] : 8000;
+            if (t.population >= cap) continue;
+        }
         t.growthPoints += w.economy.recessionMonths > 0 ? std::max(1, growthRate(t) / 2) : growthRate(t);
         while (t.growthPoints >= 100) {
             t.growthPoints -= 100;
@@ -572,6 +628,9 @@ void monthly(World& w) {
         t.lastMonth = t.thisMonth;
         t.thisMonth = {};
         recompute(w, id);
+        t.suppliedLastMonth = t.supplied;
+        t.supplied = {};
+        if (w.settings.industries) addNeeds(w, t);
         // Local authority: companies serving their stations here gain standing, neglected
         // stations cost it; without any presence ratings drift back towards neutral.
         std::map<u8, std::pair<i32, i32>> presence; // company -> (stations, served)

@@ -406,18 +406,53 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
         dynamic_.add(models::kSmoke, makeInstance(p, static_cast<float>(ticksLeft) * 0.05f, s));
     };
     const auto cargoTint = [](CargoType type) {
-        return type == CargoType::Grain ? rgba(220,183,87) : type == CargoType::Food ? rgba(75,170,98) : rgba(70,120,210);
+        switch (type) {
+        case CargoType::Grain: return rgba(220, 183, 87);
+        case CargoType::Food: return rgba(75, 170, 98);
+        case CargoType::Goods: return rgba(70, 120, 210);
+        case CargoType::Wool: return rgba(238, 234, 222);
+        case CargoType::Milk: return rgba(236, 240, 246);
+        case CargoType::Logs: return rgba(122, 86, 56);
+        case CargoType::Stone: return rgba(160, 158, 150);
+        case CargoType::IronOre: return rgba(146, 84, 62);
+        case CargoType::Coal: return rgba(44, 44, 48);
+        case CargoType::Planks: return rgba(214, 178, 122);
+        case CargoType::Cheese: return rgba(242, 196, 72);
+        case CargoType::Cloth: return rgba(186, 92, 150);
+        case CargoType::Bricks: return rgba(178, 76, 58);
+        case CargoType::Steel: return rgba(120, 132, 148);
+        case CargoType::Furniture: return rgba(150, 104, 70);
+        default: return rgba(200, 200, 200);
+        }
+    };
+    // Loose cargo shows as heaps, everything else as crates and bundles.
+    const auto cargoModel = [](CargoType type) { return cargoClass(type) == CargoClass::Bulk ? models::kGrain : models::kCrate; };
+    // The cargo a car of a class is mostly carrying, for its colour.
+    const auto mainCargo = [](const Vehicle& v, CargoType fallback) {
+        CargoType best = fallback;
+        u32 most = 0;
+        for (usize c = 0; c < kCargoTypes; ++c) {
+            const auto type = static_cast<CargoType>(c);
+            if (cargoClass(type) != cargoClass(fallback)) continue;
+            if (const u32 n = cargo::quantity(v.cargo, type); n > most) {
+                most = n;
+                best = type;
+            }
+        }
+        return best;
     };
     const auto addLoad = [&](const Vehicle& v, usize index, const VehiclePose& pose, u16 model) {
         const auto& m = vehicleModel(model);
         if (!m.cargoCapacity) return;
         const auto matrix = poseMatrix(pose);
+        const CargoClass k = cargoClass(m.cargoType);
         if (!m.openCargo) {
             for (const float side : {-1.0f, 1.0f}) {
                 auto logo = glm::translate(matrix, glm::vec3(0, 0.17f, side * (m.type == VehicleType::Ship ? 0.235f : 0.115f)));
-                dynamic_.add(m.cargoType == CargoType::Food ? models::kFoodLogo : models::kGoodsLogo, makeInstance(logo));
+                dynamic_.add(k == CargoClass::Refrigerated ? models::kFoodLogo : models::kGoodsLogo, makeInstance(logo));
             }
         }
+        const CargoType shown = mainCargo(v, m.cargoType);
         const u32 count = v.carLoad(index);
         const int columns = m.type == VehicleType::Ship ? 6 : 2;
         const int rows = m.type == VehicleType::Ship ? 12 : 6;
@@ -426,20 +461,20 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
             const float z = (static_cast<int>(n % columns) - (columns - 1)*0.5f)*0.07f;
             float y = (m.openCargo ? 0.12f : 0.33f) + (n / (columns*rows))*0.055f;
             auto load = glm::translate(matrix, glm::vec3(x, y, z));
-            dynamic_.add(m.cargoType == CargoType::Grain ? models::kGrain : models::kCrate,
-                         makeInstance(load, cargoTint(m.cargoType)));
+            dynamic_.add(cargoModel(shown), makeInstance(load, cargoTint(shown)));
         }
         if (v.state == VehicleState::Loading && v.cargoExchangeTick >= 0) {
             const double elapsed = world.clock.tick + tickFraction - v.cargoExchangeTick;
             if (elapsed >= 0 && elapsed < v.cargoExchangeUnits * 2 + 8) {
                 u32 before = 0;
-                for (usize k = 0; k < index && k < v.cars.size(); ++k) {
-                    const auto& car = vehicleModel(v.cars[k]);
-                    if (car.cargoType == m.cargoType) before += car.cargoCapacity;
+                for (usize i = 0; i < index && i < v.cars.size(); ++i) {
+                    const auto& car = vehicleModel(v.cars[i]);
+                    if (car.cargoType != CargoType::None && cargoClass(car.cargoType) == k) before += car.cargoCapacity;
                 }
-                const usize commodity = static_cast<usize>(m.cargoType);
                 for (const bool boarding : {false, true}) {
-                    const u32 total = boarding ? v.cargoLoaded[commodity] : v.cargoUnloaded[commodity];
+                    u32 total = 0;
+                    for (usize c = 0; c < kCargoTypes; ++c)
+                        if (cargoClass(static_cast<CargoType>(c)) == k) total += boarding ? v.cargoLoaded[c] : v.cargoUnloaded[c];
                     const u32 units = std::min<u32>(m.cargoCapacity, total > before ? total - before : 0);
                     const i32 first = std::max(0, static_cast<i32>((elapsed-8)/2));
                     for (u32 n = static_cast<u32>(first); n < units && n*2 <= elapsed; ++n) {
@@ -447,32 +482,63 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
                         if (phase > 1) continue;
                         const float side = boarding ? 1.0f-phase : phase;
                         auto motion = glm::translate(matrix, glm::vec3(0, 0.15f, 0.1f + side * 0.5f));
-                        dynamic_.add(m.cargoType == CargoType::Grain ? models::kGrain : models::kCrate,
-                                     makeInstance(motion, cargoTint(m.cargoType)));
+                        dynamic_.add(cargoModel(shown), makeInstance(motion, cargoTint(shown)));
                     }
                 }
             }
         }
     };
-    const auto addStock = [&](TilePos at, const std::array<u32, kCargoTypes>& stock) {
+    // Stockpiles beside industries and at stations: a crate or heap per four units, at most
+    // forty of each cargo.
+    const auto addStock = [&](TilePos at, const CargoCounts& stock) {
         const double dx = at.x - focus.x, dz = at.y - focus.z;
         if (dx*dx + dz*dz > std::min(radius*radius, 10000.0)) return;
         const float ground = static_cast<float>(terrainHeightAt(world.map, at.x + 0.5, at.y + 0.5));
         u32 offset = 0;
         for (usize c = 0; c < kCargoTypes; ++c) {
-            for (u32 n = 0; n < stock[c]; ++n) {
+            const u32 piles = std::min<u32>((stock[c] + 3) / 4, 40);
+            for (u32 n = 0; n < piles; ++n) {
                 const u32 slot = offset++;
                 const glm::vec3 p = glm::vec3(glm::dvec3(at.x+0.1, ground, at.y+0.1) - origin) +
                     glm::vec3((slot%10)*0.075f, (slot/100)*0.07f, ((slot/10)%10)*0.075f);
-                dynamic_.add(c == 0 ? models::kGrain : models::kCrate, makeInstance(p, 0, 1, cargoTint(static_cast<CargoType>(c))));
+                const auto type = static_cast<CargoType>(c);
+                dynamic_.add(cargoModel(type), makeInstance(p, 0, 1, cargoTint(type)));
             }
         }
     };
     for (const auto& industry : world.industries)
         if (const auto* b = world.buildings.tryGet(industry.building.id); b && b->serial == industry.building.serial)
             addStock({b->pos.x, b->pos.y + b->info().size}, industry.stock);
+    // Smoke rising from industry chimneys: puffs that drift up, grow and fade.
+    {
+        struct Stack {
+            u16 type;
+            float x, z, top;
+        };
+        static constexpr Stack kStacks[] = {{11, 0.72f, -0.45f, 1.7f}, {20, 0.65f, -0.65f, 0.9f}, {23, 0.78f, -0.6f, 1.4f},
+                                            {25, 0.65f, -0.45f, 1.5f}, {26, 0.6f, -0.9f, 1.8f},   {26, 1.0f, -0.9f, 1.8f},
+                                            {27, 1.15f, -0.8f, 1.7f}};
+        const float now = static_cast<float>(std::max(0.0, lastSeconds_));
+        for (const auto& industry : world.industries) {
+            const Building* b = world.buildings.tryGet(industry.building.id);
+            if (!b || b->serial != industry.building.serial) continue;
+            const double dx = b->pos.x - focus.x, dz = b->pos.y - focus.z;
+            if (dx * dx + dz * dz > std::min(radius * radius, 40000.0)) continue;
+            for (const Stack& st : kStacks) {
+                if (st.type != b->type) continue;
+                const float size = b->info().size;
+                const glm::dvec3 base(b->pos.x + size * 0.5 + st.x, terrainHeightAt(world.map, b->pos.x + size * 0.5, b->pos.y + size * 0.5),
+                                      b->pos.y + size * 0.5 + st.z);
+                for (int k = 0; k < 4; ++k) {
+                    const float phase = std::fmod(now * 0.35f + k * 0.25f + static_cast<float>(b->pos.x % 7) * 0.13f, 1.0f);
+                    const glm::vec3 p = glm::vec3(base - origin) + glm::vec3(phase * 0.25f, st.top + phase * 0.9f, phase * 0.12f);
+                    dynamic_.add(models::kSmoke, makeInstance(p, phase * 3.0f, 0.5f + phase * 1.1f));
+                }
+            }
+        }
+    }
     for (const auto [sid, station] : world.stations) {
-        std::array<u32, kCargoTypes> stock{};
+        CargoCounts stock;
         for (usize c = 0; c < kCargoTypes; ++c) stock[c] = cargo::quantity(station.cargoWaiting, static_cast<CargoType>(c));
         addStock(station.sign, stock);
         if (station.entrances.empty()) continue;

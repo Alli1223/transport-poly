@@ -9,7 +9,7 @@ namespace {
 using V = VehicleType;
 
 // name                  type     cap  km/h len  price    running intro life visual powered
-constexpr std::array<VehicleModel, 29> kModels = {{
+constexpr std::array<VehicleModel, 32> kModels = {{
     {"Albatross Bus",     V::Road, 31,  56,  10, 95'000,  28'000, 1930, 15,  0},
     {"Comet Bus",         V::Road, 35,  72,  10, 110'000, 30'000, 1962, 15,  1},
     {"Leopard Bus",       V::Road, 37,  90,  11, 135'000, 34'000, 1978, 15,  2},
@@ -39,6 +39,10 @@ constexpr std::array<VehicleModel, 29> kModels = {{
     {"Intercity Coach", V::Rail, 64, 200, 13, 110'000, 10'000, 1985, 35, 9},
     {"Regional EMU", V::Rail, 100, 160, 13, 380'000, 48'000, 1990, 30, 3, true},
     {"Heavy Freight Diesel", V::Rail, 0, 120, 14, 420'000, 62'000, 1960, 35, 1, true},
+    // Flatbeds for logs, planks, bricks and steel.
+    {"Timber Lorry", V::Road, 0, 64, 12, 95'000, 22'000, 1930, 15, 7, false, CargoType::Logs, 28, true},
+    {"Flat Wagon", V::Rail, 0, 110, 11, 55'000, 6'500, 1925, 30, 13, false, CargoType::Logs, 48, true},
+    {"Deck Cargo Coaster", V::Ship, 0, 32, 23, 320'000, 34'000, 1925, 30, 6, false, CargoType::Logs, 220, true},
 }};
 
 } // namespace

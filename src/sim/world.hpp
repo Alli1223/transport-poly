@@ -28,7 +28,7 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 20;
+inline constexpr u32 kSaveVersion = 21;
 inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
@@ -45,6 +45,7 @@ struct WorldSettings {
     bool recessions = true;
     bool smoothTerrain = true; // smooth hills with varied inclines (worlds before save version 12: stepped)
     TerrainSettings terrain;   // land, mountains, lakes and rivers (worlds before save version 19: the original)
+    bool industries = true;    // countryside industries and town needs (worlds before save version 21: off)
 
     template <class Ar>
     void serialize(Ar& ar) {
@@ -60,6 +61,8 @@ struct WorldSettings {
         else if constexpr (Ar::kReading) smoothTerrain = false;
         if (ar.version == 0 || ar.version >= 19) ar(terrain);
         else if constexpr (Ar::kReading) terrain = TerrainSettings::original();
+        if (ar.version == 0 || ar.version >= 21) ar(industries);
+        else if constexpr (Ar::kReading) industries = false;
     }
 };
 
@@ -95,6 +98,7 @@ public:
     Pool<TrackNode, TrackNodeId> trackNodes;
     Pool<TrackEdge, TrackEdgeId> trackEdges;
     std::set<u64> processedTownCells; // town cells already founded or known to be empty
+    std::set<u64> processedIndustrySites; // industry sites already founded or known to be empty
     u32 nextSerial = 0;               // serial numbers for buildings / people
     std::deque<NewsItem> news;
     Economy economy;
@@ -139,6 +143,7 @@ public:
         if (ar.version == 0 || ar.version >= 10) ar(economy);
         if (ar.version == 0 || ar.version >= 13) ar(trackNodes, trackEdges);
         if (ar.version == 0 || ar.version >= 17) ar(industries);
+        if (ar.version == 0 || ar.version >= 21) ar(processedIndustrySites);
         if constexpr (Ar::kReading) {
             for (auto [id, c] : companies)
                 if (!c.thisMonth.month) {

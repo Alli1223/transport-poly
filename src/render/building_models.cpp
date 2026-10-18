@@ -5,7 +5,9 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace tp::gfx {
 
@@ -318,6 +320,294 @@ void school(MeshBuilder& mb, u8) {
                   kAwnings[2], {0, 0, -1});
 }
 
+// --- Countryside industries ---------------------------------------------------------------
+
+constexpr u32 kBarnRed = rgba(168, 54, 44);
+constexpr u32 kTimber = rgba(150, 108, 70);
+constexpr u32 kLog = rgba(118, 84, 54);
+constexpr u32 kLogEnd = rgba(196, 160, 112);
+constexpr u32 kPlank = rgba(214, 180, 126);
+constexpr u32 kRockGrey = rgba(150, 146, 138);
+constexpr u32 kRockDark = rgba(116, 112, 106);
+constexpr u32 kSteelGrey = rgba(96, 104, 114);
+constexpr u32 kBrick = rgba(166, 74, 56);
+constexpr u32 kFence = rgba(176, 150, 112);
+constexpr u32 kPasture = rgba(112, 172, 80);
+
+// A field of crop rows (along X) laid on the ground.
+void field(MeshBuilder& mb, float x0, float z0, float x1, float z1, u32 a, u32 b, int rows) {
+    for (int i = 0; i < rows; ++i) {
+        const float za = z0 + (z1 - z0) * static_cast<float>(i) / rows, zb = z0 + (z1 - z0) * static_cast<float>(i + 1) / rows;
+        mb.quadFacing({x0, 0.012f, za}, {x1, 0.012f, za}, {x1, 0.012f, zb}, {x0, 0.012f, zb}, i % 2 ? a : b, {0, 1, 0});
+        if (i % 2 == 0) mb.box({x0 + 0.02f, 0.012f, za + 0.01f}, {x1 - 0.02f, 0.05f, zb - 0.01f}, shade(a, 1.05f), 0x3F & ~0x08);
+    }
+}
+
+// A post and rail fence around a rectangle.
+void fence(MeshBuilder& mb, float x0, float z0, float x1, float z1) {
+    const float h = 0.09f;
+    for (const auto& [a, b] : {std::pair{glm::vec2(x0, z0), glm::vec2(x1, z0)}, std::pair{glm::vec2(x1, z0), glm::vec2(x1, z1)},
+                               std::pair{glm::vec2(x1, z1), glm::vec2(x0, z1)}, std::pair{glm::vec2(x0, z1), glm::vec2(x0, z0)}}) {
+        const float len = glm::length(b - a);
+        const int posts = std::max(2, static_cast<int>(len / 0.25f) + 1);
+        for (int i = 0; i < posts; ++i) {
+            const glm::vec2 p = glm::mix(a, b, static_cast<float>(i) / (posts - 1));
+            mb.box({p.x - 0.01f, 0, p.y - 0.01f}, {p.x + 0.01f, h, p.y + 0.01f}, kFence);
+        }
+        const glm::vec2 lo = glm::min(a, b), hi = glm::max(a, b);
+        mb.box({lo.x - 0.005f, h * 0.65f, lo.y - 0.005f}, {hi.x + 0.005f, h * 0.65f + 0.012f, hi.y + 0.005f}, kFence);
+    }
+}
+
+void sheep(MeshBuilder& mb, float x, float z, float yaw) {
+    const glm::vec2 d(std::cos(yaw), std::sin(yaw));
+    mb.icosphere({x, 0.06f, z}, 0.055f, rgba(240, 238, 230), 0, 0.75f);
+    mb.box({x + d.x * 0.05f - 0.018f, 0.05f, z + d.y * 0.05f - 0.018f}, {x + d.x * 0.05f + 0.018f, 0.09f, z + d.y * 0.05f + 0.018f},
+           rgba(48, 44, 42));
+}
+
+void cow(MeshBuilder& mb, float x, float z, bool alongX) {
+    const glm::vec3 half = alongX ? glm::vec3(0.07f, 0, 0.035f) : glm::vec3(0.035f, 0, 0.07f);
+    mb.box({x - half.x, 0.04f, z - half.z}, {x + half.x, 0.1f, z + half.z}, rgba(238, 236, 230));
+    mb.box({x - half.x * 0.4f, 0.1f, z - half.z * 0.6f}, {x + half.x * 0.3f, 0.102f, z + half.z * 0.2f}, rgba(40, 38, 38));
+    const glm::vec3 head = alongX ? glm::vec3(x + half.x + 0.02f, 0.09f, z) : glm::vec3(x, 0.09f, z + half.z + 0.02f);
+    mb.box(head - glm::vec3(0.022f, 0.025f, 0.022f), head + glm::vec3(0.022f, 0.02f, 0.022f), rgba(52, 46, 44));
+    for (const float s : {-1.0f, 1.0f})
+        mb.box({x + (alongX ? s * half.x * 0.7f : -0.02f) - 0.01f, 0, z + (alongX ? -0.02f : s * half.z * 0.7f) - 0.01f},
+               {x + (alongX ? s * half.x * 0.7f : 0.02f) + 0.01f, 0.04f, z + (alongX ? 0.02f : s * half.z * 0.7f) + 0.01f},
+               rgba(60, 56, 52));
+}
+
+// A pile of logs lying along X.
+void logPile(MeshBuilder& mb, float x, float z, float len, int layers) {
+    for (int layer = 0; layer < layers; ++layer)
+        for (int i = 0; i < layers - layer + 1; ++i) {
+            const float zc = z + (static_cast<float>(i) - (layers - layer) * 0.5f) * 0.07f;
+            const float y = layer * 0.06f;
+            const u32 face[6] = {kLogEnd, kLogEnd, kLog, kLog, kLog, kLog};
+            mb.box6({x - len * 0.5f, y, zc - 0.03f}, {x + len * 0.5f, y + 0.06f, zc + 0.03f}, face);
+        }
+}
+
+void plankStack(MeshBuilder& mb, float x, float z) {
+    for (int i = 0; i < 4; ++i) {
+        mb.box({x - 0.16f, i * 0.035f, z - 0.08f}, {x + 0.16f, i * 0.035f + 0.03f, z + 0.08f}, i % 2 ? kPlank : shade(kPlank, 0.92f));
+        mb.box({x - 0.14f, i * 0.035f + 0.03f, z - 0.075f}, {x - 0.12f, i * 0.035f + 0.035f, z + 0.075f}, kTimber);
+    }
+}
+
+void heap(MeshBuilder& mb, float x, float z, float r, float h, u32 c) { mb.cone({x, 0, z}, r, h, 6, c, 0.3f); }
+
+void silo(MeshBuilder& mb, float x, float z, float r, float h) {
+    mb.prism({x, 0, z}, r, h, 10, kConcrete, false);
+    mb.cone({x, h, z}, r * 1.05f, r * 0.9f, 10, kRoofSlate);
+}
+
+void tank(MeshBuilder& mb, float x, float z, float r, float h, u32 c) {
+    mb.prism({x, 0, z}, r, h, 12, c, true);
+    mb.prism({x, h, z}, r * 1.02f, 0.02f, 12, shade(c, 0.85f), true);
+}
+
+// A pithead: two legs leaning towards the winding wheel at the top.
+void headframe(MeshBuilder& mb, float x, float z, float h) {
+    for (const float s : {-1.0f, 1.0f}) {
+        mb.box({x - 0.02f + s * 0.12f, 0, z - 0.1f}, {x + 0.02f + s * 0.12f, h, z - 0.06f}, kSteelGrey);
+        mb.box({x - 0.02f + s * 0.12f, 0, z + 0.06f}, {x + 0.02f + s * 0.12f, h, z + 0.1f}, kSteelGrey);
+    }
+    for (float y = 0.25f; y < h; y += 0.25f) mb.box({x - 0.14f, y, z - 0.1f}, {x + 0.14f, y + 0.02f, z + 0.1f}, kSteelGrey);
+    mb.box({x - 0.16f, h, z - 0.12f}, {x + 0.16f, h + 0.04f, z + 0.12f}, shade(kSteelGrey, 0.8f));
+    mb.prism({x, h + 0.04f, z}, 0.1f, 0.03f, 10, rgba(70, 74, 80), true);
+}
+
+void tallChimney(MeshBuilder& mb, float x, float z, float h, u32 c) {
+    mb.frustum({x, 0, z}, 0.08f, 0.055f, h, 8, c);
+    mb.prism({x, h - 0.12f, z}, 0.06f, 0.06f, 8, rgba(232, 230, 222), false);
+}
+
+void grainFarm(MeshBuilder& mb, u8) {
+    field(mb, -1.45f, -1.45f, 0.2f, 1.45f, rgba(214, 186, 92), rgba(190, 160, 76), 12);
+    field(mb, 0.25f, -1.45f, 1.45f, -0.05f, rgba(126, 168, 72), rgba(108, 150, 64), 8);
+    const glm::vec3 mn(0.45f, 0, 0.25f), mx(1.15f, 0.36f, 0.85f);
+    walls(mb, mn, mx, kBarnRed);
+    mb.gableRoofX(mn, mx, 0.36f, 0.22f, kRoofDark, kBarnRed, 0.03f);
+    mb.quadFacing({0.7f, 0, mx.z + kInset}, {0.9f, 0, mx.z + kInset}, {0.9f, 0.26f, mx.z + kInset}, {0.7f, 0.26f, mx.z + kInset},
+                  rgba(236, 232, 220), {0, 0, 1});
+    silo(mb, 1.3f, 0.35f, 0.12f, 0.8f);
+    silo(mb, 1.3f, 0.75f, 0.12f, 0.7f);
+    const glm::vec3 hmn(0.4f, 0, 1.0f), hmx(0.8f, 0.3f, 1.35f);
+    walls(mb, hmn, hmx, kWall);
+    mb.gableRoofX(hmn, hmx, 0.3f, 0.16f, kRoofTile, kWall, 0.03f);
+    windowRow(mb, {hmn.x, 0, hmx.z}, {hmx.x, 0, hmx.z}, 0.12f, 0.22f, 2, {0, 0, 1});
+}
+
+void sheepFarm(MeshBuilder& mb, u8) {
+    mb.quadFacing({-1.45f, 0.01f, -1.45f}, {1.45f, 0.01f, -1.45f}, {1.45f, 0.01f, 1.45f}, {-1.45f, 0.01f, 1.45f}, kPasture, {0, 1, 0});
+    fence(mb, -1.4f, -1.4f, 0.6f, 1.4f);
+    static constexpr float kSheep[][3] = {{-1.1f, -1.0f, 0.4f}, {-0.7f, -0.6f, 2.1f}, {-0.3f, -1.1f, 1.0f}, {-1.0f, 0.1f, 3.0f},
+                                          {-0.5f, 0.4f, 0.2f},  {0.1f, -0.3f, 4.0f},  {-0.9f, 0.9f, 5.1f}, {0.2f, 0.8f, 1.7f},
+                                          {-0.2f, 1.1f, 2.8f},  {0.3f, -1.0f, 3.6f}};
+    for (const auto& s : kSheep) sheep(mb, s[0], s[1], s[2]);
+    const glm::vec3 mn(0.8f, 0, -0.9f), mx(1.35f, 0.3f, 0.1f);
+    walls(mb, mn, mx, kTimber);
+    gableRoofZ(mb, mn, mx, 0.3f, 0.18f, kRoofSlate, kTimber);
+    const glm::vec3 hmn(0.75f, 0, 0.5f), hmx(1.3f, 0.3f, 1.25f);
+    walls(mb, hmn, hmx, kWall);
+    mb.gableRoofX(hmn, hmx, 0.3f, 0.17f, kRoofThatch, kWall, 0.03f);
+    windowRow(mb, {hmn.x, 0, hmx.z}, {hmx.x, 0, hmx.z}, 0.12f, 0.22f, 2, {0, 0, 1});
+}
+
+void dairyFarm(MeshBuilder& mb, u8) {
+    mb.quadFacing({-1.45f, 0.01f, -1.45f}, {1.45f, 0.01f, -1.45f}, {1.45f, 0.01f, 1.45f}, {-1.45f, 0.01f, 1.45f}, kPasture, {0, 1, 0});
+    fence(mb, -1.4f, -1.4f, 0.2f, 1.4f);
+    static constexpr float kCows[][3] = {{-1.0f, -1.0f, 1}, {-0.5f, -0.7f, 0}, {-0.1f, -1.1f, 1}, {-1.1f, 0.0f, 0},
+                                         {-0.6f, 0.3f, 1},  {-0.2f, 0.9f, 0},  {-0.9f, 1.0f, 1}};
+    for (const auto& c : kCows) cow(mb, c[0], c[1], c[2] > 0.5f);
+    const glm::vec3 mn(0.4f, 0, -1.2f), mx(1.35f, 0.42f, -0.2f);
+    walls(mb, mn, mx, kBarnRed);
+    gableRoofZ(mb, mn, mx, 0.42f, 0.26f, kRoofDark, kBarnRed);
+    silo(mb, 1.25f, 0.1f, 0.13f, 0.85f);
+    const glm::vec3 smn(0.4f, 0, 0.4f), smx(1.0f, 0.26f, 1.2f);
+    walls(mb, smn, smx, rgba(232, 232, 228));
+    flatRoof(mb, smn, smx, 0.26f, kConcreteDark);
+    tank(mb, 1.2f, 0.8f, 0.1f, 0.3f, rgba(206, 210, 214));
+}
+
+void loggingCamp(MeshBuilder& mb, u8) {
+    mb.quadFacing({-0.95f, 0.008f, -0.95f}, {0.95f, 0.008f, -0.95f}, {0.95f, 0.008f, 0.95f}, {-0.95f, 0.008f, 0.95f},
+                  rgba(132, 112, 84), {0, 1, 0});
+    logPile(mb, -0.45f, -0.5f, 0.7f, 3);
+    logPile(mb, -0.45f, 0.15f, 0.7f, 2);
+    logPile(mb, 0.4f, -0.55f, 0.55f, 2);
+    const glm::vec3 mn(0.1f, 0, 0.3f), mx(0.8f, 0.3f, 0.85f);
+    walls(mb, mn, mx, kTimber);
+    mb.gableRoofX(mn, mx, 0.3f, 0.18f, kRoofDark, kTimber, 0.04f);
+    door(mb, 0.3f, mx.z, 0.1f, 0.18f);
+    // A loading crane.
+    mb.box({0.75f, 0, -0.1f}, {0.8f, 0.6f, -0.05f}, kSteelGrey);
+    mb.box({0.2f, 0.55f, -0.1f}, {0.8f, 0.6f, -0.05f}, kSteelGrey);
+}
+
+void quarry(MeshBuilder& mb, u8) {
+    // Stepped benches of cut rock rising on the north side.
+    for (int i = 0; i < 4; ++i) {
+        const float z0 = -1.45f, z1 = -0.25f - i * 0.28f;
+        mb.box({-1.45f + i * 0.12f, 0, z0}, {0.5f - i * 0.12f, 0.12f + i * 0.14f, z1}, i % 2 ? kRockGrey : kRockDark);
+    }
+    heap(mb, -0.9f, 0.6f, 0.32f, 0.3f, kRockGrey);
+    heap(mb, -0.35f, 0.9f, 0.26f, 0.24f, shade(kRockGrey, 1.08f));
+    const glm::vec3 mn(0.6f, 0, -0.5f), mx(1.35f, 0.5f, 0.2f);
+    walls(mb, mn, mx, kConcrete);
+    flatRoof(mb, mn, mx, 0.5f, kConcreteDark);
+    // Conveyor from the crusher to the stockpile.
+    mb.box({0.2f, 0.38f, 0.35f}, {0.95f, 0.42f, 0.45f}, kSteelGrey);
+    for (const float x : {0.3f, 0.6f, 0.9f}) mb.box({x - 0.015f, 0, 0.38f}, {x + 0.015f, 0.38f, 0.42f}, kSteelGrey);
+    heap(mb, 0.15f, 0.4f, 0.2f, 0.32f, rgba(180, 176, 166));
+}
+
+void ironMine(MeshBuilder& mb, u8) {
+    headframe(mb, -0.45f, -0.4f, 0.95f);
+    const glm::vec3 mn(-0.1f, 0, -0.85f), mx(0.8f, 0.36f, -0.15f);
+    walls(mb, mn, mx, kBrick);
+    mb.gableRoofX(mn, mx, 0.36f, 0.16f, kRoofSlate, kBrick, 0.03f);
+    windowRow(mb, {mn.x, 0, mx.z}, {mx.x, 0, mx.z}, 0.14f, 0.26f, 3, {0, 0, 1});
+    heap(mb, -0.4f, 0.5f, 0.32f, 0.3f, rgba(146, 84, 62));
+    heap(mb, 0.35f, 0.55f, 0.26f, 0.22f, rgba(128, 72, 56));
+    tallChimney(mb, 0.65f, -0.65f, 0.9f, kBrick);
+}
+
+void coalMine(MeshBuilder& mb, u8) {
+    headframe(mb, 0.45f, -0.4f, 1.05f);
+    const glm::vec3 mn(-0.85f, 0, -0.85f), mx(0.1f, 0.38f, -0.15f);
+    walls(mb, mn, mx, kBrick);
+    mb.gableRoofX(mn, mx, 0.38f, 0.18f, kRoofDark, kBrick, 0.03f);
+    windowRow(mb, {mn.x, 0, mx.z}, {mx.x, 0, mx.z}, 0.14f, 0.28f, 3, {0, 0, 1});
+    heap(mb, -0.35f, 0.5f, 0.34f, 0.3f, rgba(44, 44, 48));
+    heap(mb, 0.4f, 0.55f, 0.28f, 0.24f, rgba(56, 56, 60));
+    mb.box({-0.15f, 0.3f, 0.1f}, {0.4f, 0.34f, 0.2f}, kSteelGrey);
+}
+
+void cheeseDairy(MeshBuilder& mb, u8) {
+    const glm::vec3 mn(-0.85f, 0, -0.7f), mx(0.35f, 0.4f, 0.6f);
+    walls(mb, mn, mx, rgba(240, 238, 230));
+    mb.gableRoofX(mn, mx, 0.4f, 0.2f, rgba(70, 110, 170), rgba(240, 238, 230), 0.03f);
+    windowRow(mb, {mn.x, 0, mx.z}, {mx.x, 0, mx.z}, 0.16f, 0.3f, 4, {0, 0, 1});
+    door(mb, 0.15f, mx.z, 0.12f, 0.22f);
+    for (int i = 0; i < 3; ++i) tank(mb, 0.65f, -0.55f + i * 0.4f, 0.14f, 0.5f, rgba(212, 216, 222));
+}
+
+void textileMill(MeshBuilder& mb, u8) {
+    const glm::vec3 mn(-0.85f, 0, -0.6f), mx(0.6f, 0.6f, 0.5f);
+    walls(mb, mn, mx, kBrick);
+    flatRoof(mb, mn, mx, 0.6f, kRoofDark);
+    boxWindows(mb, mn, mx, 3, 0.18f, 0.04f, 7, 5, kWindow, 0.6f, 0.55f);
+    tallChimney(mb, 0.78f, -0.6f, 1.4f, kBrick);
+    door(mb, -0.2f, mx.z, 0.14f, 0.18f);
+}
+
+void sawmill(MeshBuilder& mb, u8) {
+    // An open-sided shed over the saw line, logs in and planks out.
+    const glm::vec3 mn(-0.75f, 0, -0.35f), mx(0.75f, 0.36f, 0.25f);
+    for (const float x : {mn.x, -0.25f, 0.25f, mx.x - 0.04f})
+        for (const float z : {mn.z, mx.z - 0.04f}) mb.box({x, 0, z}, {x + 0.04f, mx.y, z + 0.04f}, kTimber);
+    mb.gableRoofX(mn, mx, 0.36f, 0.18f, rgba(120, 120, 124), kTimber, 0.06f);
+    mb.box({-0.7f, 0, -0.08f}, {0.7f, 0.1f, 0.02f}, kSteelGrey);
+    logPile(mb, -0.45f, -0.75f, 0.7f, 2);
+    plankStack(mb, -0.4f, 0.65f);
+    plankStack(mb, 0.1f, 0.65f);
+    plankStack(mb, 0.55f, 0.6f);
+}
+
+void brickworks(MeshBuilder& mb, u8) {
+    // A long kiln with a tall chimney, and stacks of bricks.
+    const glm::vec3 mn(-0.85f, 0, -0.7f), mx(0.4f, 0.32f, -0.05f);
+    walls(mb, mn, mx, kBrick);
+    mb.gableRoofX(mn, mx, 0.32f, 0.12f, kRoofDark, kBrick, 0.02f);
+    tallChimney(mb, 0.65f, -0.45f, 1.5f, kBrick);
+    for (int i = 0; i < 4; ++i) {
+        const float x = -0.7f + i * 0.38f;
+        mb.box({x, 0, 0.25f}, {x + 0.26f, 0.18f, 0.6f}, i % 2 ? kBrick : shade(kBrick, 0.88f));
+    }
+}
+
+void steelMill(MeshBuilder& mb, u8) {
+    // Blast furnace towers, a rolling mill hall and chimneys.
+    const glm::vec3 mn(-1.4f, 0, 0.1f), mx(1.4f, 0.55f, 1.35f);
+    walls(mb, mn, mx, rgba(120, 124, 132));
+    sawtoothRoof(mb, mn, mx, 0.55f, 7, 0.2f, kRoofDark, kGlassDark);
+    for (const float x : {-0.9f, -0.2f}) {
+        mb.frustum({x, 0, -0.7f}, 0.28f, 0.2f, 1.1f, 10, rgba(86, 90, 98));
+        mb.prism({x, 1.1f, -0.7f}, 0.12f, 0.35f, 8, rgba(70, 74, 80), true);
+        mb.box({x - 0.04f, 0.6f, -0.45f}, {x + 0.04f, 0.66f, 0.1f}, kSteelGrey);
+    }
+    for (const float x : {0.6f, 1.0f}) tallChimney(mb, x, -0.9f, 1.8f, rgba(150, 70, 56));
+    tank(mb, 0.8f, -0.25f, 0.2f, 0.45f, kSteelGrey);
+}
+
+void goodsFactory(MeshBuilder& mb, u8) {
+    const glm::vec3 mn(-1.4f, 0, -1.2f), mx(0.9f, 0.6f, 0.9f);
+    walls(mb, mn, mx, kWall);
+    sawtoothRoof(mb, mn, mx, 0.6f, 6, 0.24f, kRoofSlate, kGlassDark);
+    const glm::vec3 omn(0.9f, 0, 0.1f), omx(1.4f, 0.7f, 0.9f);
+    walls(mb, omn, omx, kConcrete);
+    flatRoof(mb, omn, omx, 0.7f, kConcreteDark);
+    boxWindows(mb, omn, omx, 2, 0.3f, 0.05f, 2, 3);
+    tallChimney(mb, 1.15f, -0.8f, 1.7f, kRed);
+    for (const float x : {-1.0f, -0.5f, 0.0f})
+        mb.quadFacing({x, 0, mx.z + kInset}, {x + 0.35f, 0, mx.z + kInset}, {x + 0.35f, 0.36f, mx.z + kInset}, {x, 0.36f, mx.z + kInset},
+                      kConcreteDark, {0, 0, 1});
+}
+
+void furnitureFactory(MeshBuilder& mb, u8) {
+    const glm::vec3 mn(-0.85f, 0, -0.75f), mx(0.45f, 0.45f, 0.45f);
+    walls(mb, mn, mx, kTimber);
+    sawtoothRoof(mb, mn, mx, 0.45f, 4, 0.18f, kRoofDark, kGlassDark);
+    windowRow(mb, {mn.x, 0, mx.z}, {mx.x, 0, mx.z}, 0.16f, 0.32f, 4, {0, 0, 1});
+    plankStack(mb, 0.68f, -0.5f);
+    plankStack(mb, 0.68f, 0.0f);
+    door(mb, -0.3f, mx.z, 0.16f, 0.26f);
+    chimney(mb, -0.6f, -0.5f, 0.6f, 0.25f);
+}
+
 } // namespace
 
 void buildBuildingModel(MeshBuilder& mb, u16 type, u8 variant) {
@@ -337,6 +627,20 @@ void buildBuildingModel(MeshBuilder& mb, u16 type, u8 variant) {
     case 12: farm(mb, variant); break;
     case 13: church(mb, variant); break;
     case 14: school(mb, variant); break;
+    case 15: grainFarm(mb, variant); break;
+    case 16: sheepFarm(mb, variant); break;
+    case 17: dairyFarm(mb, variant); break;
+    case 18: loggingCamp(mb, variant); break;
+    case 19: quarry(mb, variant); break;
+    case 20: ironMine(mb, variant); break;
+    case 21: coalMine(mb, variant); break;
+    case 22: cheeseDairy(mb, variant); break;
+    case 23: textileMill(mb, variant); break;
+    case 24: sawmill(mb, variant); break;
+    case 25: brickworks(mb, variant); break;
+    case 26: steelMill(mb, variant); break;
+    case 27: goodsFactory(mb, variant); break;
+    case 28: furnitureFactory(mb, variant); break;
     default: house(mb, 0); break;
     }
 }

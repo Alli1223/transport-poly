@@ -1,5 +1,6 @@
 #include "client/app.hpp"
 #include "client/terrain_options.hpp"
+#include "sim/industries.hpp"
 #include "client/demo_station.hpp"
 #include "render/person_pose.hpp"
 #include "client/ui/widgets.hpp"
@@ -498,6 +499,12 @@ bool App::parseArgs(int argc, char** argv) {
                 amount = std::atoi(v);
                 preferences_.clamp();
             }
+        } else if (arg == "--demo-industries") {
+            demoIndustries_ = true;
+        } else if (arg == "--goto-industry") {
+            // Automation: look at the nearest countryside industry, optionally one whose name contains the next argument.
+            gotoIndustry_ = std::string();
+            if (i + 1 < argc && argv[i + 1][0] != '-') gotoIndustry_ = std::string(next());
         } else if (arg == "--goto-water") {
             gotoWater_ = true;
         } else if (arg == "--goto-mountain") {
@@ -909,9 +916,16 @@ void App::drawTownLabels() {
         const double y = gfx::terrainHeightAt(w.map, b->pos.x+0.5, b->pos.y+0.5)+1.5;
         const auto sp = worldToScreen({b->pos.x+0.5, y, b->pos.y+0.5});
         if (!sp) continue;
-        const char* chain = b->type == 12 ? "Produces grain" : b->type == 11 ? "Grain -> food" :
-                            b->type == 10 ? "Food -> goods" : "Accepts food / goods";
-        const auto detail = std::format("{} | G:{} F:{} C:{}", chain, industry.stock[0], industry.stock[1], industry.stock[2]);
+        std::string detail;
+        if (const IndustryRecipe* r = recipeFor(b->type)) {
+            if (r->inputs[0] == CargoType::None) detail = std::format("Makes {} | {} in stock", cargoName(r->output), industry.stock[static_cast<usize>(r->output)]);
+            else if (r->inputs[1] == CargoType::None) detail = std::format("{} -> {}", cargoName(r->inputs[0]), cargoName(r->output));
+            else detail = std::format("{} + {} -> {}", cargoName(r->inputs[0]), cargoName(r->inputs[1]), cargoName(r->output));
+        } else if (b->info().category == BuildingCategory::Retail) {
+            detail = "Takes food and goods";
+        } else {
+            continue;
+        }
         ui::worldLabel(dl, {sp->x,sp->y}, b->info().name.data(), detail.c_str(), ui::col::kLeaf, 0.8f);
     }
     const double stationDist = camera_.distance * 2.0 + 40.0;
@@ -1279,6 +1293,47 @@ int App::run(int argc, char** argv) {
                         log::warn("No site found for the demo level crossing");
                     }
                     demoCrossing_ = false;
+                }
+            }
+            if (demoIndustries_ && frameCount >= 200) {
+                // One of every countryside industry around the camera.
+                demoIndustries_ = false;
+                if (auto* local = dynamic_cast<LocalSession*>(session_.get())) {
+                    const TilePos c{static_cast<i32>(camera_.target.x), static_cast<i32>(camera_.target.z)};
+                    int placed = 0;
+                    for (u16 type = industries::kGrainFarm; type <= industries::kFurnitureFactory; ++type) {
+                        const int k = type - industries::kGrainFarm;
+                        const TilePos at{c.x + (k % 5 - 2) * 9, c.y + (k / 5 - 1) * 9};
+                        if (industries::found(local->world(), type, at, 14).valid()) ++placed;
+                    }
+                    log::info("Demo industries: {} of 14 placed", placed);
+                    renderer_.invalidateAll();
+                }
+            }
+            if (gotoIndustry_ && frameCount >= 150 && frameCount % 10 == 0) {
+                const World& w = world();
+                const glm::dvec2 at(camera_.target.x, camera_.target.z);
+                const Building* best = nullptr;
+                double bestD = 1e18;
+                for (const auto [id, b] : w.buildings) {
+                    if (!industries::isCountryside(b.type)) continue;
+                    if (!gotoIndustry_->empty() && b.info().name.find(*gotoIndustry_) == std::string_view::npos) continue;
+                    const double d = glm::length(glm::dvec2(b.pos.x, b.pos.y) - at);
+                    if (d < bestD) {
+                        bestD = d;
+                        best = &b;
+                    }
+                }
+                if (best) {
+                    const double size = best->info().size;
+                    camera_.targetGoal = glm::dvec3(best->pos.x + size * 0.5, 0.0, best->pos.y + size * 0.5);
+                    camera_.targetGoal.y = gfx::terrainHeightAt(w.map, camera_.targetGoal.x, camera_.targetGoal.z);
+                    camera_.distanceGoal = 9.0;
+                    camera_.snapToGoals();
+                    gotoIndustry_.reset();
+                } else if (frameCount > 600) {
+                    log::warn("No industry found to look at");
+                    gotoIndustry_.reset();
                 }
             }
             if (demoStructure_ && frameCount >= 200) {

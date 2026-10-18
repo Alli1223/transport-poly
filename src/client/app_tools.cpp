@@ -2,6 +2,7 @@
 
 #include "client/app.hpp"
 #include "client/ui/widgets.hpp"
+#include "sim/industries.hpp"
 
 #include <imgui.h>
 
@@ -125,7 +126,10 @@ void App::handleClick() {
     case TileType::Footpath:
     case TileType::Station: selStation_ = StationId(t->index); break;
     case TileType::Building:
-        if (const Building* b = w.buildings.tryGet(BuildingId(t->index))) selTown_ = b->town;
+        if (const Building* b = w.buildings.tryGet(BuildingId(t->index))) {
+            if (industries::isCountryside(b->type)) selIndustry_ = BuildingId(t->index);
+            else selTown_ = b->town;
+        }
         break;
     default: break;
     }

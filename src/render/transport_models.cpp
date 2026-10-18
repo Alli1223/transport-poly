@@ -410,6 +410,27 @@ void buildTransportModels(MeshBuilder& out, ModelId id) {
         windowBand(out, 0.40f, 0.56f, 0.30f, 0.36f, 0.2f);
         if (id != models::ship(3)) out.box({-0.62f, 0.16f, -0.21f}, {0.30f, 0.32f, 0.21f}, kLivery);
         break;
+    case models::bus(7): // timber lorry: cab and a flatbed with stanchions
+        wheels(out, -0.23f, 0.23f, 0.11f);
+        out.box({-0.34f, 0.06f, -0.11f}, {0.34f, 0.1f, 0.11f}, kLiveryDark);
+        out.box({0.17f, 0.1f, -0.11f}, {0.34f, 0.28f, 0.11f}, kLivery);
+        windowBand(out, 0.19f, 0.30f, 0.19f, 0.25f, 0.11f);
+        for (const float x : {-0.32f, -0.1f, 0.12f})
+            for (const float z : {-0.105f, 0.095f}) out.box({x, 0.1f, z}, {x + 0.015f, 0.22f, z + 0.01f}, kLiveryDark);
+        break;
+    case models::train(13): // flat wagon with stanchions
+        wheels(out, -0.21f, 0.21f, 0.11f);
+        out.box({-0.30f, 0.07f, -0.11f}, {0.30f, 0.12f, 0.11f}, kLiveryDark);
+        for (const float x : {-0.29f, -0.1f, 0.1f, 0.28f})
+            for (const float z : {-0.105f, 0.095f}) out.box({x, 0.12f, z}, {x + 0.015f, 0.24f, z + 0.01f}, kLivery);
+        break;
+    case models::ship(6): // deck cargo coaster: open well deck between bridge and forecastle
+        out.box({-0.67f, 0.02f, -0.23f}, {0.60f, 0.16f, 0.23f}, kLiveryDark);
+        out.box({0.38f, 0.16f, -0.2f}, {0.59f, 0.42f, 0.2f}, kWhite);
+        windowBand(out, 0.40f, 0.56f, 0.30f, 0.36f, 0.2f);
+        out.box({-0.67f, 0.16f, -0.21f}, {-0.55f, 0.26f, 0.21f}, kLivery);
+        for (const float z : {-0.23f, 0.22f}) out.box({-0.55f, 0.16f, z}, {0.38f, 0.21f, z + 0.01f}, kLivery);
+        break;
     case models::kStreetLamp: {
         constexpr u32 metal = rgba(64, 72, 78);
         out.prism({0, 0, 0}, 0.025f, 0.85f, 5, metal);

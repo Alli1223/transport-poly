@@ -231,6 +231,40 @@ complete operating route. Freight can transfer between compatible services; the
 company completing delivery earns distance-based income. No-loading, unload-only,
 pass-through and full-load orders apply to freight too.
 
+### Countryside industries and town needs
+
+New worlds have industries in the countryside, suited to the land they stand on:
+grain, sheep and dairy farms on open lowland, logging camps in the forests, and
+quarries, iron mines and coal mines in the hills and mountains. Their produce goes
+to processing plants:
+
+| Raw material | Plant | Makes |
+| --- | --- | --- |
+| Milk (dairy farm) | Cheese dairy | Cheese |
+| Wool (sheep farm) | Textile mill | Cloth |
+| Logs (logging camp) | Sawmill | Planks |
+| Stone (quarry) | Brickworks | Bricks |
+| Iron ore and coal (mines) | Steel mill | Steel |
+| Steel and planks | Goods factory | Goods |
+| Planks and cloth | Furniture factory | Furniture |
+
+A raw producer has a production level from 1 to 4; a plant with two inputs works
+only while it has both. Each cargo travels in one class of vehicle, and every cargo
+of the class shares its space: hoppers, grain lorries and bulk coasters take grain,
+stone, coal and ore; refrigerated vehicles take food, milk and cheese; box vans take
+goods, wool, cloth and furniture; flat wagons, timber lorries and deck cargo
+coasters take logs, planks, bricks and steel. Click an industry to see what it
+makes, its stock, how much of it was transported last month and which stations
+reach it.
+
+Towns need goods delivered to keep growing: a village asks for one of food, planks
+or cheese, and as it grows it asks for more and more elaborate things (bricks,
+cloth, goods, furniture, steel), chosen at random. Deliveries count at the town's
+shops, offices and civic buildings. Each need met speeds the town's growth, and a
+town whose needs are not all met stops growing when it reaches the size of its next
+need. The town window shows each need and this month's deliveries against it.
+Worlds saved before industries keep growing as they did.
+
 Inside a depot, **Add engine / wagon** offers engines, passenger coaches and
 freight wagons. The 2D diagram runs from front on the left to rear on the right.
 Drag a vehicle onto another position, or click it and use **Move toward front** /
