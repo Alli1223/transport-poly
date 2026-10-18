@@ -124,8 +124,9 @@ relies on every peer computing exactly the same game state.
 - [x] 8.4 Boarding / alighting and transfers; passengers are the actual Person entities
 - [x] 8.5 Fare payment by distance & travel time (per leg, per company)
 - [x] 8.6 Passengers giving up after long waits ⇒ rating penalty
-- [ ] 8.7 Economy events: inflation (optional), recessions
+- [x] 8.7 Optional inflation for construction, vehicles, upkeep and fares; deterministic 6–12 month recessions with reduced fares / town growth, recovery news, saved state and new-world settings
 - [ ] 8.8 Freight milestone: industries, cargo chains, trucks / freight wagons / cargo ships
+- [ ] 8.9 Physical passenger and cargo presentation: show every nearby traveller boarding, riding / alighting and walking to their destination; visible provider and station crates, loading / unloading, and vehicle loads matching their cargo type and quantity (e.g. all 75 passengers leave a train as individual people)
 
 ## M9 — Save / Load
 - [x] 9.1 Full world serialisation (versioned)

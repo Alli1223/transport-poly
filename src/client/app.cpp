@@ -389,6 +389,8 @@ void App::newGame(u64 seed) {
     WorldSettings settings;
     settings.startYear = preferences_.startYear;
     settings.interestPercent = preferences_.interestPercent;
+    settings.inflation = preferences_.inflation;
+    settings.recessions = preferences_.recessions;
     settings.seed = seed;
     startSession(std::make_unique<LocalSession>(settings));
 }

@@ -589,7 +589,7 @@ void App::drawDepotWindow() {
                             const VehicleModel& m = models[i];
                             if (m.type != VehicleType::Rail || m.powered || m.introYear > year) continue;
                             const std::string item = std::format("{}   {} seats  {} km/h  {}", m.name, m.capacity,
-                                                                 m.maxSpeedKmh, formatMoney(m.price));
+                                                                 m.maxSpeedKmh, formatMoney(w.inflated(m.price)));
                             if (ImGui::Selectable(item.c_str())) session_->submit(CmdAddCarriage{id, i});
                         }
                         ImGui::EndPopup();
@@ -622,12 +622,12 @@ void App::drawDepotWindow() {
                 dl->AddText(ImVec2(p.x + 44.0f * s, p.y + 8.0f * s), ui::col::kText, m.name.data());
                 const std::string spec2 = m.capacity > 0
                                               ? std::format("{} seats  -  {} km/h  -  {}/yr", m.capacity, m.maxSpeedKmh,
-                                                            formatMoney(m.runningCost))
-                                              : std::format("{} km/h  -  {}/yr", m.maxSpeedKmh, formatMoney(m.runningCost));
+                                                            formatMoney(w.inflated(m.runningCost)))
+                                              : std::format("{} km/h  -  {}/yr", m.maxSpeedKmh, formatMoney(w.inflated(m.runningCost)));
                 ImFont* sf = ui::fonts().small;
                 dl->AddText(sf, sf->FontSize, ImVec2(p.x + 44.0f * s, p.y + 29.0f * s), ui::col::kTextMuted, spec2.c_str());
                 ImGui::Dummy(ImVec2(avail, h));
-                const std::string price = formatMoney(m.price);
+                const std::string price = formatMoney(w.inflated(m.price));
                 const float bw = 110.0f;
                 ImGui::SetCursorScreenPos(ImVec2(p.x + avail - bw * s - 10.0f * s, p.y + (h - ImGui::GetFrameHeight() - 4.0f * s) * 0.5f));
                 const std::string label = std::format("{}##buy", price);
@@ -1030,6 +1030,9 @@ void App::drawFinanceWindow() {
     spec.accent = ui::col::kGreen;
     spec.subtitle = c->name.c_str();
     if (ui::beginPanel("###financePanel", "Finances", ui::Icon::Coins, &showFinances_, spec)) {
+        if (w.economy.recessionMonths > 0)
+            ImGui::TextWrapped("Recession: %d months remaining. Fares -30%%; town growth halved.", w.economy.recessionMonths);
+        ImGui::TextDisabled("Price index %.1f%%  |  Inflation %s", w.economy.priceIndex / 100.0f, w.settings.inflation ? "on" : "off");
         const float cw = ui::columnWidth(2);
         const std::string balance = formatMoney(c->money);
         const std::string loan = formatMoney(c->loan);

@@ -337,7 +337,7 @@ VehicleId buy(World& w, CompanyId owner, DepotId depotId, u16 model) {
     v.tile = d.tile;
     v.entry = d.facing;
     v.exit = opposite(d.facing);
-    v.value = m.price;
+    v.value = w.inflated(m.price);
     v.builtTick = w.clock.tick;
     v.reliability = maxReliability(m);
     v.lastServiceTick = w.clock.tick;
@@ -429,7 +429,7 @@ void daily(World& w) {
     constexpr i32 kBreakdownTicks = 2 * kTicksPerHour;
     for (auto [id, v] : w.vehicles) {
         if (v.state == VehicleState::InDepot && v.stopped) continue;
-        const Money cost = (v.runningCost() + 182) / 365;
+        const Money cost = (w.inflated(v.runningCost()) + 182) / 365;
         if (Company* c = w.companies.tryGet(v.owner)) c->spend(runningCategory(v.info().type), cost);
         v.profitThisYear -= cost;
         if (v.state == VehicleState::InDepot) continue;

@@ -503,7 +503,7 @@ CommandResult handle(World& w, const Command& c, const CmdCloneVehicle& x, bool 
     const VehicleId id = vehicles::buy(w, c.company, x.depot, model); // may move `src`
     Vehicle& v = w.vehicles[id];
     if (!cars.empty()) v.cars = cars;
-    v.value = cost;
+    v.value = w.inflated(cost);
     v.orders = orders;
     if (x.shareOrders) {
         v.orderGroup = group;

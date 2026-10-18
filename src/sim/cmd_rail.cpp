@@ -276,7 +276,7 @@ CommandResult handle(World& w, const Command& c, const CmdAddCarriage& x, bool e
     if (v->cars.size() >= 12) return CommandResult::failure("Train too long");
     if (exec) {
         v->cars.push_back(x.model);
-        v->value += m.price;
+        v->value += w.inflated(m.price);
         passengers::markDirty(w);
     }
     return CommandResult::success(m.price, Expense::NewVehicles);
@@ -288,7 +288,9 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveCarriage& x, boo
     if (!v) return CommandResult::failure(error);
     if (x.index == 0 || x.index >= v->cars.size())
         return CommandResult::failure("Sell the whole train to remove its engine");
-    const Money refund = vehicleModel(v->cars[x.index]).price * 3 / 4;
+    Money baseValue = 0;
+    for (const u16 car : v->cars) baseValue += vehicleModel(car).price;
+    const Money refund = baseValue > 0 ? v->value * vehicleModel(v->cars[x.index]).price / baseValue * 3 / 4 : 0;
     if (exec) {
         v->value = std::max<Money>(0, v->value - refund);
         v->cars.erase(v->cars.begin() + x.index);

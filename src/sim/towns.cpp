@@ -554,7 +554,7 @@ void spawnNewTowns(World& w) {
 
 void growAll(World& w) {
     for (auto [id, t] : w.towns) {
-        t.growthPoints += growthRate(t);
+        t.growthPoints += w.economy.recessionMonths > 0 ? std::max(1, growthRate(t) / 2) : growthRate(t);
         while (t.growthPoints >= 100) {
             t.growthPoints -= 100;
             const i32 before = static_cast<i32>(t.buildings.size());

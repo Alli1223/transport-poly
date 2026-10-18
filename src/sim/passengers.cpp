@@ -102,7 +102,7 @@ void alight(World& w, PersonId pid, StationId at, Vehicle& v) {
     const Station* from = w.stations.tryGet(p.station);
     const Station* to = w.stations.tryGet(at);
     const i64 tiles = (from && to) ? manhattan(from->sign.x - to->sign.x, from->sign.y - to->sign.y) : 0;
-    const Money pay = fare(tiles, w.clock.tick - p.boardTick);
+    const Money pay = w.fareIncome(fare(tiles, w.clock.tick - p.boardTick));
     if (Company* c = w.companies.tryGet(v.owner)) {
         const Expense cat = v.info().type == VehicleType::Rail   ? Expense::TrainIncome
                             : v.info().type == VehicleType::Ship ? Expense::ShipIncome

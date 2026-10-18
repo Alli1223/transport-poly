@@ -52,9 +52,11 @@ int main(int argc, char** argv) {
         else if (arg == "--load") loadPath = next();
         else if (arg == "--name") options.name = next();
         else if (arg == "--autosave") autosaveMonths = std::atoi(next().c_str());
+        else if (arg == "--inflation") settings.inflation = true;
+        else if (arg == "--no-recessions") settings.recessions = false;
         else {
             std::cerr << "usage: transport-poly-server [--port N] [--seed N] [--load file] [--name text] "
-                         "[--autosave months]\n";
+                         "[--autosave months] [--inflation] [--no-recessions]\n";
             return EXIT_FAILURE;
         }
     }

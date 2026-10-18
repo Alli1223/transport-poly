@@ -6,6 +6,7 @@
 #include "core/rng.hpp"
 #include "sim/buildings.hpp"
 #include "sim/company.hpp"
+#include "sim/economy.hpp"
 #include "sim/ids.hpp"
 #include "sim/map.hpp"
 #include "sim/passengers.hpp"
@@ -26,7 +27,7 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 9;
+inline constexpr u32 kSaveVersion = 10;
 inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
@@ -38,6 +39,8 @@ struct WorldSettings {
     i32 maxActiveChunks = 20'000;
     i32 maxChunksPerCommand = 64;
     bool waterways = true;
+    bool inflation = false;
+    bool recessions = true;
 
     template <class Ar>
     void serialize(Ar& ar) {
@@ -46,6 +49,8 @@ struct WorldSettings {
             ar(waterways);
         else if constexpr (Ar::kReading)
             waterways = false;
+        if (ar.version == 0 || ar.version >= 10) ar(inflation, recessions);
+        else if constexpr (Ar::kReading) { inflation = false; recessions = false; }
     }
 };
 
@@ -81,6 +86,10 @@ public:
     std::set<u64> processedTownCells; // town cells already founded or known to be empty
     u32 nextSerial = 0;               // serial numbers for buildings / people
     std::deque<NewsItem> news;
+    Economy economy;
+
+    Money inflated(Money base) const { return base / 10'000 * economy.priceIndex + (base % 10'000 * economy.priceIndex + 5000) / 10'000; }
+    Money fareIncome(Money base) const { return inflated(base) * (economy.recessionMonths > 0 ? 70 : 100) / 100; }
 
     // --- Derived state (not saved, rebuilt deterministically) ---------------------------
     // Pending person events ordered by (tick, id).
@@ -111,6 +120,7 @@ public:
         if constexpr (Ar::kReading) map = Map(settings.seed, settings.waterways);
         ar(clock, rng, map, companies, towns, buildings, people, stations, depots, vehicles, processedTownCells,
            nextSerial, news);
+        if (ar.version == 0 || ar.version >= 10) ar(economy);
         if constexpr (Ar::kReading) {
             for (auto [id, c] : companies)
                 if (!c.thisMonth.month) {

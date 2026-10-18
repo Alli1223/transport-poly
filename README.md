@@ -126,6 +126,12 @@ camera sensitivity and autosave intervals (0 disables autosaving). Save preferen
 to retain them in `settings.cfg`. Starting year and interest apply to new worlds.
 Clicking the clock also remembers the daylight preference.
 
+Gameplay settings also control inflation and recessions for new worlds. Inflation
+raises construction, vehicle and upkeep prices and fares by about 2% per year.
+Recessions last 6–12 months, reduce fares by 30% and halve town growth. Finance
+details show the price index and recession duration; news announces recovery.
+Dedicated servers accept `--inflation` and `--no-recessions` for new worlds.
+
 Press **C** or open **Citizens** in the dock to inspect residents. Filter by town,
 search by name or ID, and follow a citizen between home, work, shopping and transit.
 The inspector shows upcoming activities and a live activity log. Walking citizens

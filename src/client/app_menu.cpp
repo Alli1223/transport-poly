@@ -314,6 +314,8 @@ void App::drawMainMenu() {
                 ws.seed = std::strtoull(seedBuf_, nullptr, 10);
                 ws.startYear = preferences_.startYear;
                 ws.interestPercent = preferences_.interestPercent;
+                ws.inflation = preferences_.inflation;
+                ws.recessions = preferences_.recessions;
                 startSession(std::make_unique<LocalSession>(ws, companyName_));
             }
             break;
@@ -355,6 +357,8 @@ void App::drawMainMenu() {
                 ws.seed = std::strtoull(seedBuf_, nullptr, 10);
                 ws.startYear = preferences_.startYear;
                 ws.interestPercent = preferences_.interestPercent;
+                ws.inflation = preferences_.inflation;
+                ws.recessions = preferences_.recessions;
                 auto hosted = std::make_unique<World>(ws);
                 Command create;
                 create.client = kLocalClientId;
@@ -611,7 +615,9 @@ void App::drawSettings() {
                 ImGui::TextDisabled("Zero disables autosaves. Multiplayer hosts save for their game.");
                 changed |= ImGui::SliderInt("New game year", &preferences_.startYear, 1900, 2100);
                 changed |= ImGui::SliderInt("New game interest", &preferences_.interestPercent, 0, 20, "%d%%");
-                ImGui::TextWrapped("Year and interest apply when starting a new world.");
+                changed |= ImGui::Checkbox("New game inflation (about 2% per year)", &preferences_.inflation);
+                changed |= ImGui::Checkbox("New game recessions", &preferences_.recessions);
+                ImGui::TextWrapped("Year, interest and economy events apply when starting a new world.");
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();

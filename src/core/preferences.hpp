@@ -15,6 +15,8 @@ struct ClientPreferences {
     int autosaveMonths = 1; // zero disables automatic saves
     int startYear = 1950;
     int interestPercent = 4;
+    bool inflation = false;
+    bool recessions = true;
     void clamp();
     bool load(const std::filesystem::path& path);
     bool save(const std::filesystem::path& path) const;

@@ -19,7 +19,10 @@ CommandResult run(World& world, const Command& cmd, bool exec) {
     if (const Company* co = world.companies.tryGet(cmd.company); co && co->bankrupt &&
         !std::holds_alternative<CmdActivateChunks>(cmd.payload) && !std::holds_alternative<CmdCreateCompany>(cmd.payload))
         return CommandResult::failure("This company is bankrupt");
-    return std::visit([&](const auto& payload) { return cmd::handle(world, cmd, payload, exec); }, cmd.payload);
+    auto result = std::visit([&](const auto& payload) { return cmd::handle(world, cmd, payload, exec); }, cmd.payload);
+    if (result.ok && result.cost > 0 && (result.category == Expense::Construction || result.category == Expense::NewVehicles))
+        result.cost = world.inflated(result.cost);
+    return result;
 }
 
 } // namespace

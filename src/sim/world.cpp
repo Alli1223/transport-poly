@@ -13,6 +13,7 @@ World::World(const WorldSettings& s) : settings(s), rng(s.seed, 0x5EED), map(s.s
     clock.startDay = daysFromCivil(s.startYear, 1, 1);
     // Start on the first Monday of the year so the week structure is easy to follow.
     while (weekdayFromDays(clock.startDay) != Weekday::Monday) ++clock.startDay;
+    economy.nextRecessionMonth = s.startYear * 12 + 36 + static_cast<i32>(mix64(s.seed) % 37);
 }
 
 void World::tick() {
@@ -42,6 +43,7 @@ void World::onNewMonth() {
         c.thisMonth.year = d.year;
         c.thisMonth.month = static_cast<u8>(d.month);
     }
+    economy::monthly(*this);
     towns::monthly(*this);
     towns::spawnNewTowns(*this);
     stations::monthly(*this);
@@ -53,7 +55,7 @@ void World::onNewMonth() {
             const auto charge = [&](u8 owner, Money amount) {
                 if (amount > 0)
                     if (Company* c = companies.tryGet(CompanyId{owner}))
-                        c->spend(Expense::PropertyMaintenance, amount);
+                        c->spend(Expense::PropertyMaintenance, inflated(amount));
             };
             charge(tile.roadOwner, std::popcount(static_cast<unsigned>(tile.road & 0x0F)) * prices::kRoadMaintenance);
             Money track = std::popcount(static_cast<unsigned>(tile.road >> 4)) * prices::kTramMaintenance +
