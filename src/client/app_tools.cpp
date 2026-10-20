@@ -83,33 +83,16 @@ std::optional<CommandPayload> App::dragCommand(TilePos a, TilePos b) const {
     }
 }
 
-VehicleId App::pickVehicle() const {
-    const World& w = session_->world();
-    VehicleId best;
-    double bestT = 1e18;
-    for (const auto [id, v] : w.vehicles) {
-        if (v.state == VehicleState::InDepot) continue;
-        const double dx = v.tile.x - camera_.target.x, dz = v.tile.y - camera_.target.z;
-        if (dx * dx + dz * dz > 250.0 * 250.0) continue;
-        const auto pose = gfx::vehiclePose(w, v, session_->tickFraction());
-        if (!pose) continue;
-        const glm::dvec3 c = pose->pos + glm::dvec3(0, 0.12, 0);
-        const double t = glm::dot(c - mouseRay_.origin, mouseRay_.dir);
-        if (t < 0) continue;
-        const double dist = glm::length(mouseRay_.origin + mouseRay_.dir * t - c);
-        if (dist < 0.35 && t < bestT) {
-            bestT = t;
-            best = id;
-        }
-    }
-    return best;
-}
-
 void App::handleClick() {
+    updateHover();
     if (mouseOverUi_ || !ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
     World& w = world();
-    if (const VehicleId v = pickVehicle(); v.valid()) {
-        selVehicle_ = v;
+    if (hoverPerson_.valid()) {
+        selectPerson(hoverPerson_);
+        return;
+    }
+    if (hoverVehicle_.valid()) {
+        selVehicle_ = hoverVehicle_;
         return;
     }
     if (!hover_.hit) return;

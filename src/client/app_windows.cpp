@@ -177,8 +177,8 @@ void App::drawCitizens() {
             if (shown.size() < 500) shown.push_back(id);
         }
         const auto select = [&](PersonId id) {
-            selPerson_ = id; selPersonSerial_ = w.people[id].serial;
-            citizenDiary_.clear(); followPerson_ = false;
+            selectPerson(id);
+            followPerson_ = false;
         };
         if (const Person* p = w.people.tryGet(selPerson_); !p || p->serial != selPersonSerial_) {
             selPerson_ = {}; followPerson_ = false;
@@ -242,6 +242,8 @@ void App::drawWindows() {
     drawStationWindow();
     drawTownWindow();
     drawIndustryWindow();
+    drawPersonWindow();
+    drawPersonLabels();
     drawFinanceWindow();
     drawVehicleList();
     drawNewsWindow();
@@ -766,6 +768,8 @@ void App::drawVehicleWindow() {
         const std::string relText = std::format("{:.0f}%", rel * 100.0f);
         ImGui::Dummy(ImVec2(0, 2.0f * s));
         ui::meterRow("Reliability", relText.c_str(), rel, qualityColour(std::clamp((rel - 0.3f) / 0.6f, 0.0f, 1.0f)));
+
+        drawVehiclePassengers(*v);
 
         ui::sectionHeader("Details");
         const i32 age = vehicles::ageDays(w, *v);

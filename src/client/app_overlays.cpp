@@ -7,6 +7,7 @@
 
 namespace tp {
 void App::drawWorldOverlays(std::vector<gfx::OverlayQuad>& overlays) {
+    drawInspectOverlays(overlays);
     if (!overlayMode_) return;
     const World& w = world();
     const glm::dvec2 camera(camera_.target.x, camera_.target.z);

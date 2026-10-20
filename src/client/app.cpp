@@ -513,6 +513,8 @@ bool App::parseArgs(int argc, char** argv) {
             if (const char* v = next()) openWindows_ = v;
         } else if (arg == "--follow") {
             followFirst_ = true;
+        } else if (arg == "--inspect-person") {
+            inspectFirst_ = true;
         } else if (arg == "--demo-network") {
             demoNetwork_ = true;
         } else if (arg == "--demo-rail") {
@@ -1409,6 +1411,28 @@ int App::run(int argc, char** argv) {
                 if (wants("catchments")) overlayMode_ = 1;
                 if (wants("gamemenu")) showGameMenu_ = true;
                 openWindows_.clear();
+            }
+            if (inspectFirst_ && frameCount >= (autoScreenshot_ ? std::max(200, autoFrames_ - 300) : 200) && frameCount % 20 == 0) {
+                // Someone riding or waiting, failing that walking, nearest the camera.
+                PersonId best;
+                double bestScore = 1e18;
+                for (const auto [id, p] : world().people) {
+                    const int rank = p.state == PersonState::Riding ? 0 : p.state == PersonState::Waiting ? 1 : p.state == PersonState::ToStop ? 2 :
+                                     p.state == PersonState::Walking || p.state == PersonState::FromStop ? 3 : -1;
+                    if (rank < 0) continue;
+                    const auto pose = gfx::personPose(world(), p, 0.0);
+                    if (!pose) continue;
+                    const double score = rank * 1000.0 + glm::length(glm::dvec2(pose->pos.x - camera_.target.x, pose->pos.z - camera_.target.z));
+                    if (score < bestScore) {
+                        bestScore = score;
+                        best = id;
+                    }
+                }
+                if (best.valid()) {
+                    selectPerson(best);
+                    followPerson_ = true;
+                    inspectFirst_ = false;
+                }
             }
             if (followFirst_ && frameCount >= 160) {
                 // Follow the first vehicle out on the network as soon as there is one.

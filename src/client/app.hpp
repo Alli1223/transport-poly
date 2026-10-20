@@ -92,7 +92,17 @@ private:
     void drawWorldOverlays(std::vector<gfx::OverlayQuad>& overlays);
     std::optional<CommandPayload> dragCommand(TilePos a, TilePos b) const;
     void addTileOverlay(std::vector<gfx::OverlayQuad>& overlays, TilePos t, u32 color, double lift = 0.04) const;
-    VehicleId pickVehicle() const;
+
+    // app_inspect.cpp
+    VehicleId pickVehicle(float* screenDistance = nullptr) const;
+    PersonId pickPerson(float* screenDistance = nullptr) const;
+    void updateHover();
+    void selectPerson(PersonId id);
+    void drawInspectOverlays(std::vector<gfx::OverlayQuad>& overlays);
+    void drawPersonRoute(std::vector<gfx::OverlayQuad>& overlays);
+    void drawPersonLabels();
+    void drawPersonWindow();
+    void drawVehiclePassengers(const Vehicle& v);
 
     // app_track.cpp
     void handleTrackTool(std::vector<gfx::OverlayQuad>& overlays);
@@ -201,6 +211,9 @@ private:
     PersonId selPerson_;
     u32 selPersonSerial_ = 0;
     bool followPerson_ = false;
+    bool showPersonCard_ = false; // the clicked person's card and route
+    VehicleId hoverVehicle_;      // under the cursor
+    PersonId hoverPerson_;
     int fleetCompany_ = -2;
     std::deque<std::pair<i64, std::string>> citizenDiary_;
 
@@ -268,6 +281,7 @@ private:
     bool demoCrossing_ = false;     // automation: build a line across a road
     std::optional<glm::dvec3> previewHover_; // automation: scripted cursor position on the ground
     bool followFirst_ = false;      // automation: follow the first vehicle
+    bool inspectFirst_ = false;     // automation: open the card of someone travelling by public transport
     bool directStart_ = false;      // skip the main menu (command line options given)
     std::string joinAddress_;       // --join host[:port]
     std::string openWindows_;       // automation: --open depot,station,town,finances,vehicles,towns,news
