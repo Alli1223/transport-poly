@@ -24,6 +24,7 @@ void World::tick() {
     if (clock.isNewDay()) onNewDay();
     passengers::updateRouting(*this);
     people::process(*this);
+    passengers::updateWaiting(*this);
     vehicles::tickAll(*this);
 }
 

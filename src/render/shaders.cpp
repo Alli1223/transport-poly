@@ -178,15 +178,13 @@ in vec3 vWorldPos;
 in vec3 vNormal;
 in vec3 vColor;
 flat in float vEmission;
-in float vLocalHeight;
-flat in float vCutaway;
+flat in float vGlass;
 out vec4 fragColor;
 void main() {
-    if (vCutaway > 0.5 && vLocalHeight > 0.12) discard;
     vec3 n = normalize(vNormal);
     // Self-lit windows and lamps bypass sun/shadow lighting, while still receiving distance fog.
     vec3 c = applyEmission(litColor(vColor, n, vWorldPos), vEmission);
-    fragColor = vec4(toSrgb(applyFog(c, vWorldPos)), 1.0);
+    fragColor = vec4(toSrgb(applyFog(c, vWorldPos)), vGlass > 0.5 ? 0.20 : 1.0);
 }
 )"});
 }
@@ -205,8 +203,7 @@ out vec3 vWorldPos;
 out vec3 vNormal;
 out vec3 vColor;
 flat out float vEmission;
-out float vLocalHeight;
-flat out float vCutaway;
+flat out float vGlass;
 void main() {
     vec4 p = vec4(aPos, 1.0);
     vec3 wp = vec3(dot(iRow0, p), dot(iRow1, p), dot(iRow2, p)) + uOffset;
@@ -221,12 +218,11 @@ void main() {
     }
     vec3 n = vec3(dot(iRow0.xyz, aNormal.xyz), dot(iRow1.xyz, aNormal.xyz), dot(iRow2.xyz, aNormal.xyz));
     vNormal = normalize(n);
-    vLocalHeight = aPos.y;
-    vCutaway = abs(iTint.a * 255.0 - 253.0) < 0.25 ? 1.0 : 0.0;
+    vGlass = abs(aColor.a * 255.0 - 253.0) < 0.25 ? 1.0 : 0.0;
     // Vertices with alpha 0 are tintable: they take the instance colour scaled by their red channel.
     vec3 c = aColor.a < 0.5 ? iTint.rgb * (aColor.r * 2.0) : aColor.rgb;
     vColor = toLinear(c);
-    vEmission = emissionKind(aColor.a);
+    vEmission = vGlass > 0.5 ? 1.0 : emissionKind(aColor.a);
     vWorldPos = wp;
     gl_Position = uViewProj * vec4(wp, 1.0);
 }

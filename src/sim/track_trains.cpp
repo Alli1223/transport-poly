@@ -300,6 +300,7 @@ void enterDepot(World& w, VehicleId id, DepotId did) {
     releaseAll(w, id);
     for (const PersonId p : v.passengers) passengers::abandonRide(w, p);
     v.passengers.clear();
+    v.passengerSeats.clear();
     v.state = VehicleState::InDepot;
     v.speed = 0;
     v.progress = 0;
@@ -316,9 +317,9 @@ void arriveAtPlatform(World& w, VehicleId id, StationId sid) {
     Vehicle& v = w.vehicles[id];
     v.state = VehicleState::Loading;
     v.speed = 0;
-    const i32 exchanged = passengers::exchangeAtStop(w, id, sid);
+    passengers::exchangeAtStop(w, id, sid);
     v.loadingStartTick = w.clock.tick;
-    v.loadingUntil = std::max(v.loadingUntil,w.clock.tick + kBaseDwellTicks + exchanged * 2 + 8);
+    v.loadingUntil = std::max(v.loadingUntil,w.clock.tick + kBaseDwellTicks + 8);
     stations::recordVisit(w, sid, id);
 }
 
@@ -366,6 +367,25 @@ i32 speedLimit(const World& w, const Vehicle& v) {
 }
 
 } // namespace
+
+TrackEdgeId passengerPlatform(const World& w, VehicleId id, const Order& order) {
+    const auto& v = w.vehicles[id];
+    const bool current = &order == v.currentOrder();
+    if (current && !v.runs.empty()) {
+        if (isPlatformOf(w,v.runs.front().edge,order.station)) return v.runs.front().edge;
+        for (const auto run : v.runsAhead)
+            if (isPlatformOf(w,run.edge,order.station)) return run.edge;
+    }
+    if (order.flags & kOrderPlatform) return track::platformNear(w,order.station,order.platform);
+    if (current && !v.runs.empty()) {
+        const auto last = v.runsAhead.empty() ? v.runs.front() : v.runsAhead.back();
+        const auto goal = goalFor(w,order);
+        const auto path = findPath(w,last,[&](EdgeRun r){return goal(w,r);},DepotId{},id);
+        if (path) for (const auto run : *path)
+            if (isPlatformOf(w,run.edge,order.station)) return run.edge;
+    }
+    return {};
+}
 
 void releaseAll(World& w, VehicleId id) {
     Vehicle& v = w.vehicles[id];

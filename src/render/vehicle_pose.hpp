@@ -34,4 +34,9 @@ struct CarPose {
 // Poses of every visible car of a train (cars still inside a depot are skipped).
 void trainCarPoses(const World& w, const Vehicle& v, double tickFraction, std::vector<CarPose>& out);
 
+int tramSectionCount(const Vehicle& v);
+float tramSectionLength(const Vehicle& v);
+// Independently oriented bodies, front to rear; their coupling points remain joined.
+void tramSectionPoses(const World& w, const Vehicle& v, double tickFraction, std::vector<VehiclePose>& out);
+
 } // namespace tp::gfx

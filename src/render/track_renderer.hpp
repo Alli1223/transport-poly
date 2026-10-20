@@ -23,6 +23,7 @@ public:
     usize draw(const Shader& shader, const glm::dvec3& origin, const glm::dvec3& focus, double radius, bool shadowPass) const;
     void clear() {
         meshes_.clear();
+        concourses_.clear();
         revision_ = ~0u;
     }
 
@@ -35,11 +36,13 @@ private:
         double extent = 0.0;
     };
     std::unordered_map<u32, EdgeMesh> meshes_;
+    std::unordered_map<u32, EdgeMesh> concourses_;
     u32 revision_ = ~0u;
 };
 
 // Builds the mesh of one edge with vertices relative to tile `anchor` (the world gives the
 // ground under bridges).
 void buildTrackMesh(const World& world, const TrackEdge& edge, TilePos anchor, MeshBuilder& out);
+void buildStationConcourseMesh(const World& world, StationId station, TilePos anchor, MeshBuilder& out);
 
 } // namespace tp::gfx

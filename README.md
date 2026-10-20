@@ -5,7 +5,14 @@ rail and ferry networks across an infinite, procedurally generated world whose
 towns are populated by individually simulated citizens. Every resident has a
 home, a work place and a favourite shop: five days a week they commute to work,
 two days a week they go shopping in the nearest city - and your network is how
-they get there.
+they get there. Every resident with a usable connection plans a daily trip to
+another town: work or business on weekdays, shopping and visits on free days.
+Public transport is their preferred mode, including long journeys and car owners.
+Rail stations serve homes and destinations across the town's connected streets,
+beyond the local stop catchment. Opening a service attracts residents at home that
+same day; closing it refreshes their plans. Stations need connected road entrances.
+Passengers keep waiting until a vehicle with space arrives while their service
+exists. A full train leaves the remaining passengers queued for the next one.
 
 * C++23, OpenGL 3.3 core, Windows and Linux
 * Infinite chunked terrain generated deterministically from a seed
@@ -134,20 +141,51 @@ their route from signal to signal, slow for curves and climbs, and reverse at
 terminus platforms.
 
 Click a placed rail station to open **Station layout and road access**. Use
-**Add road entrance**, then click a surface road within 16 tiles. A station gate
+**Add road entrance**, then click a surface road or a cleared plot beside it within 64 tiles. A station gate
 and a protected paved approach connect the road to a platform; leave clear land
 between them. Rail passengers need a connected entrance. Catchment coverage is
 measured from the entrance roads. You can add up to eight entrances, and remove
 them from the station window or with the demolition tool.
 
+Use **Demolish** in the road or rail tools, **Building** in landscaping, or
+**Clear building for access** in the station window to clear a house or other town
+building. Hover to highlight its whole footprint and see the cost, then click.
+The base cost is $3,000 plus $150 per resident, adjusted by inflation. Demolition
+lowers the town's opinion of your company and may be refused at a poor rating.
+You can then extend a road through the plot or place an entrance on the cleared
+plot directly beside the existing road. Leave a continuous walkable corridor from
+the gate to a platform; any steep ground needs levelling.
+
 The same window adds parallel platforms on either side or lets you draw a custom
 platform into the existing station. Use **Lay connecting track** to connect new
-platform tracks to your railway. The length slider sets new platforms and open-end
+platform tracks to your railway. Hover **Add parallel left/right** or **Extend end**
+to preview the change on the map before clicking: gold marks the existing platform,
+blue shows the proposed addition with a direction arrow, and red marks a blocked
+change. The tooltip shows the compass direction, actual length, cost or obstruction.
+The length slider sets new platforms and open-end
 extensions to 2–16 tiles. Extending a connected end converts the next complete
 straight, level track section into platform; curved sections and junctions must be
 rebuilt first. Clear trains from a platform before extending it. Station identity,
-waiting passengers and train orders are preserved. A raised walkway links platforms
-for passengers changing sides.
+waiting passengers and train orders are preserved. Compact stone-and-steel footbridges
+link both sides of every platform, with visible steps, landings and railings. Their
+layout is shared by pedestrians and rendering, and exists even without a road
+entrance. Platforms have paving joints, tactile edges, benches, bins, lamps, signs
+and partial green canopies. Pedestrian approaches use matching stone paving,
+kerbs, pedestrian stencils and a planted entrance gateway, continuing onto the
+platform.
+Passengers choose stable, scattered waiting spots on both sides of their departure
+platform. Platform-specific orders and the approaching train's reserved route
+determine where they wait. They walk across the concourse after a platform change.
+Boarding and alighting happen together through doors along the carriages, with
+through-passengers keeping their seats. People already on the platform can board
+while others enter the station; approaching pedestrians do not keep extending the
+train's stop.
+
+Bus and tram stops within four tiles of a train station's road entrance can act
+as interchanges when pavements join them. Passengers walk between the stops,
+wait for the feeder service, and ride toward home or work. Trip choices favour
+useful local services over long walks across town. Train arrivals also consider
+newly available feeder services when their saved itinerary ends at the railway.
 
 To give a train its orders, press **Add stop or depot** in its window and click
 a platform, a depot, or (with **Via waypoint** ticked) any track to pass over.
@@ -293,8 +331,13 @@ town whose needs are not all met stops growing when it reaches the size of its n
 need. The town window shows each need and this month's deliveries against it.
 Worlds saved before industries keep growing as they did.
 
-Inside a depot, **Add engine / wagon** offers engines, passenger coaches and
-freight wagons. The 2D diagram runs from front on the left to rear on the right.
+The depot's train builder has separate **Engines**, **Passenger carriages** and
+**Freight wagons** menus. Each lists the available models with a miniature preview
+of the actual vehicle, capacity, speed, purchase price and annual running cost.
+One click buys an engine or adds a carriage to the selected stopped train. Buying
+an engine selects the new train and opens the carriage menu. Select a train's
+consist to change which train receives purchases; **Add engine** adds another
+locomotive to that train. The 2D consist runs from front on the left to rear on the right.
 Drag a vehicle onto another position, or click it and use **Move toward front** /
 **Move toward rear**. Engines may go between wagons or at the rear, and trains
 can have engines at both ends. **Remove selected** can remove any vehicle while
@@ -302,10 +345,15 @@ keeping at least one engine. Stop the train inside its depot before editing. A c
 anywhere in the consist. The vehicle window shows actual loads and capacities per wagon and
 per cargo type. The new catalogue also includes an electric locomotive, intercity
 coach, regional EMU and heavy freight diesel, subject to introduction dates.
+Passenger choices also include suburban, compartment, panorama, dining, sleeper
+and double-deck carriages with distinct bodies, seating capacities and running costs.
 
 Every nearby walking, waiting, boarding, riding and alighting citizen is drawn
-individually. Occupied passenger vehicles use a nearby cutaway view to expose
-seated passengers. All 75 people on a train can leave as 75 separate pedestrians.
+individually. Articulated trams turn their sections independently, following their
+recent route through corners with joined flexible bellows; passengers and picking
+follow the individual sections. Trains and trams retain their full roofs and show seated passengers
+through transparent windows in hollow bodies. Double-deck coaches seat passengers
+on both levels. All 75 people on a train can leave as 75 separate pedestrians.
 Walkers follow connected road pavements, cross at junctions, bends and road ends,
 and use building doors and the station's entrance path. Trip timing follows the
 actual path length. Disconnected destinations use the existing car / lift fallback.
@@ -341,9 +389,17 @@ swap / VSync wait and is not a GPU timing measurement.
 
 The CI workflow builds, tests and packages Windows and Ubuntu clients, and also
 builds a headless Ubuntu server with warnings as errors. It can be started manually
-after pushing the branch. Save format 18 retains compatibility with versions 1-17;
-protocol 22 requires matching client and server builds.
+after pushing the branch. Save format 25 retains compatibility with versions 1-24;
+protocol 33 requires matching client and server builds. Older saves adopt daily
+connected-town demand when loaded; current saves preserve planned departure times.
 
 `transport-poly --demo-station --time 12 --no-debug --screenshot station.png --frames 600`
 renders a repeatable station scene with road entrances, two platforms, a walkway,
 commuters and the station upgrade panel.
+
+`transport-poly --preview-passengers --time 12 --no-debug --screenshot passengers.png --frames 50`
+shows occupied carriages and a tram from outside, including both decks of a coach.
+
+`transport-poly --preview-station-details --time 12 --no-debug --screenshot station-details.png --frames 50`
+shows the platform furniture, compact footbridges and matching pedestrian approach
+without the station panel.

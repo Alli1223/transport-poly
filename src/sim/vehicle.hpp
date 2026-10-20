@@ -142,6 +142,7 @@ struct Vehicle {
     u8 orderIndex = 0;
 
     std::vector<PersonId> passengers;
+    std::vector<u16> passengerSeats; // stable seat numbers parallel to the passenger manifest
     std::vector<CargoBatch> cargo;
     i64 cargoExchangeTick = -1;
     u32 cargoExchangeUnits = 0;
@@ -199,6 +200,9 @@ struct Vehicle {
         for (const auto m : cars) if (fits(vehicleModel(m))) n += vehicleModel(m).cargoCapacity;
         return n;
     }
+    u16 passengerSeat(usize manifestIndex) const {
+        return passengerSeats.size() == passengers.size() ? passengerSeats[manifestIndex] : static_cast<u16>(manifestIndex);
+    }
     u32 carLoad(usize index) const {
         const auto& m = vehicleModel(cars.empty() ? model : cars[index]);
         const bool seats = m.cargoType == CargoType::None;
@@ -207,6 +211,11 @@ struct Vehicle {
         for (usize k2 = 0; k2 < index && k2 < cars.size(); ++k2) {
             const auto& prev = vehicleModel(cars[k2]);
             before += seats ? prev.capacity : prev.cargoType != CargoType::None && cargoClass(prev.cargoType) == k ? prev.cargoCapacity : 0;
+        }
+        if (seats && passengerSeats.size() == passengers.size()) {
+            return static_cast<u32>(std::ranges::count_if(passengerSeats, [&](u16 seat) {
+                return seat >= before && seat < before + m.capacity;
+            }));
         }
         const u32 total = seats ? static_cast<u32>(passengers.size()) : cargo::classQuantity(cargo, k);
         return std::min<u32>(total > before ? total - before : 0, seats ? m.capacity : m.cargoCapacity);
@@ -247,6 +256,7 @@ struct Vehicle {
             ar(reliability, lastServiceTick, breakdownTicks, breakdownsSinceService, goingForService, orderGroup);
         if (ar.version == 0 || ar.version >= 14) ar(freeTrack, runs, runsAhead);
         if (ar.version == 0 || ar.version >= 17) ar(cargo, cargoExchangeTick, cargoExchangeUnits, loadingStartTick, cargoLoaded, cargoUnloaded);
+        if (ar.version == 0 || ar.version >= 24) ar(passengerSeats);
     }
 };
 
@@ -304,6 +314,8 @@ i32 trackSpeedLimit(const Vehicle& v);
 
 namespace tracktrains {
 
+// Reserved arrival platform, or the platform predicted by the same router as the train.
+TrackEdgeId passengerPlatform(const World& w, VehicleId id, const Order& order);
 void tick(World& w, VehicleId id);
 // Tries to leave the depot; returns true once the train is out on the track.
 bool leaveDepot(World& w, VehicleId id);

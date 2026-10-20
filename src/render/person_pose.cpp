@@ -11,7 +11,7 @@ std::optional<PersonPose> personPose(const World& w, const Person& p, double fra
     const bool onFoot = p.state == PersonState::Walking || p.state == PersonState::ToStop ||
         p.state == PersonState::FromStop || p.state == PersonState::Waiting ||
         (p.state == PersonState::Riding && p.transitMotion == 1 && now < p.transitEnd);
-    if (onFoot && !p.walkPath.empty() && !(p.transitMotion == 2 && now < p.transitEnd)) {
+    if (onFoot && !p.walkPath.empty()) {
         const auto a = walking::position(p,w.clock.tick), b = walking::position(p,w.clock.tick+1);
         const glm::dvec2 pos = glm::mix(glm::dvec2(a.p.x,a.p.z),glm::dvec2(b.p.x,b.p.z),fraction)/double(kTrackUnits);
         const auto tile = tileAt(a.p);
@@ -19,7 +19,9 @@ std::optional<PersonPose> personPose(const World& w, const Person& p, double fra
             glm::mix(double(a.height),double(b.height),fraction)/kSubLevels*0.5 :
             roadSurfaceY(w,tile,static_cast<float>(pos.x-tile.x),static_cast<float>(pos.y-tile.y));
         const float yaw = static_cast<float>(std::atan2(-double(b.p.z-a.p.z),double(b.p.x-a.p.x)));
-        const double lane = (static_cast<int>(p.serial%5)-2)*0.008;
+        const double lane = p.state == PersonState::Waiting && now >= p.walkEnd
+                                ? 0.0
+                                : (static_cast<int>(p.serial % 5) - 2) * 0.008;
         return PersonPose{{pos.x+lane,height+0.055,pos.y+lane},yaw,true};
     }
     if (p.transitEnd > now && p.transitBegin >= 0 &&
@@ -53,8 +55,12 @@ std::optional<PersonPose> personPose(const World& w, const Person& p, double fra
                 if (rider && rider->serial == p.serial) break;
                 ++seat;
             }
+            if (seat >= v->passengers.size()) return std::nullopt;
             auto pose = vehiclePose(w, *v, fraction);
+            seat = v->passengerSeat(seat);
+            const VehicleModel* model = &v->info();
             u32 seats = v->info().capacity;
+            double passengerLength = std::max(0.3, model->length / 16.0);
             if (v->info().type == VehicleType::Rail) {
                 std::vector<CarPose> cars;
                 trainCarPoses(w, *v, fraction, cars);
@@ -63,16 +69,48 @@ std::optional<PersonPose> personPose(const World& w, const Person& p, double fra
                     seat -= vehicleModel(v->cars[index]).capacity; ++index;
                 }
                 pose.reset();
-                for (const auto& car : cars) if (car.index == index) { pose = car.pose; seats = vehicleModel(car.model).capacity; break; }
+                for (const auto& car : cars)
+                    if (car.index == index) {
+                        pose = car.pose;
+                        model = &vehicleModel(car.model);
+                        seats = model->capacity;
+                        break;
+                    }
             }
+            if (v->info().type == VehicleType::Tram && tramSectionCount(*v) > 1) {
+                std::vector<VehiclePose> sections;
+                tramSectionPoses(w, *v, fraction, sections);
+                const usize count = tramSectionCount(*v), capacity = v->info().capacity;
+                const usize section = std::min(count - 1, seat * count / std::max<usize>(1, capacity));
+                const usize first = (capacity * section + count - 1) / count;
+                seats = static_cast<u32>((capacity * (section + 1) + count - 1) / count - first);
+                seat -= first;
+                pose =
+                    section < sections.size() ? std::optional<VehiclePose>(sections[section]) : std::nullopt;
+                passengerLength = tramSectionLength(*v);
+            } else
+                passengerLength = std::max(0.3, model->length / 16.0);
             if (pose) {
-                const double length = std::max(0.3, v->info().length / 16.0);
+                const double length = passengerLength;
+                double y = model->type == VehicleType::Rail   ? 0.08
+                           : model->type == VehicleType::Ship ? 0.14
+                                                              : 0.06;
+                if (model->type == VehicleType::Rail && model->visual == 15) {
+                    const usize perDeck = (seats + 1) / 2;
+                    if (seat >= perDeck) {
+                        seat -= perDeck;
+                        y = 0.26;
+                    }
+                    seats = static_cast<u32>(perDeck);
+                }
                 const usize rows = std::max<usize>(1, (seats + 3) / 4);
-                const double x = (static_cast<double>(seat / 4) / rows - 0.45) * length * 0.75;
-                const double z = (static_cast<int>(seat % 4) - 1.5) * 0.035;
+                const double x = ((static_cast<double>(seat / 4) + 0.5) / rows - 0.5) * length * 0.83;
+                const double z = (static_cast<int>(seat % 4) - 1.5) * 0.044;
                 const double cs = std::cos(pose->yaw), sn = std::sin(pose->yaw);
-                // Seated citizens remain visible through the window band and on ship decks.
-                return PersonPose{pose->pos + glm::dvec3(cs*x + sn*z, 0.14, -sn*x + cs*z), pose->yaw, true};
+                const double cp = std::cos(pose->pitch), sp = std::sin(pose->pitch);
+                return PersonPose{pose->pos + glm::dvec3(cs * (cp * x - sp * y) + sn * z, sp * x + cp * y,
+                                                         -sn * (cp * x - sp * y) + cs * z),
+                                  pose->yaw, true};
             }
         }
         return std::nullopt;

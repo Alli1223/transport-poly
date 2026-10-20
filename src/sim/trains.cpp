@@ -248,6 +248,7 @@ void enterDepot(World& w, VehicleId id, DepotId did) {
     releaseAll(w, id);
     for (const PersonId p : v.passengers) passengers::abandonRide(w, p);
     v.passengers.clear();
+    v.passengerSeats.clear();
     v.state = VehicleState::InDepot;
     v.speed = 0;
     v.progress = 0;
@@ -264,9 +265,9 @@ void arriveAtPlatform(World& w, VehicleId id, StationId sid) {
     Vehicle& v = w.vehicles[id];
     v.state = VehicleState::Loading;
     v.speed = 0;
-    const i32 exchanged = passengers::exchangeAtStop(w, id, sid);
+    passengers::exchangeAtStop(w, id, sid);
     v.loadingStartTick = w.clock.tick;
-    v.loadingUntil = std::max(v.loadingUntil,w.clock.tick + kBaseDwellTicks + exchanged * 2 + 8);
+    v.loadingUntil = std::max(v.loadingUntil,w.clock.tick + kBaseDwellTicks + 8);
     stations::recordVisit(w, sid, id);
 }
 

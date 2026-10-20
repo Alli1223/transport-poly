@@ -170,8 +170,8 @@ void monthly(World& w) {
         i64 oldestWait = 0;
         for (const auto& [to, queue] : s.waiting)
             for (const PersonId pid : queue)
-                if (const Person* p = w.people.tryGet(pid); p && p->nextEvent >= 0)
-                    oldestWait = std::max(oldestWait, w.clock.tick - p->nextEvent + 3 * kTicksPerHour);
+                if (const Person* p = w.people.tryGet(pid))
+                    oldestWait = std::max(oldestWait, w.clock.tick - p->boardTick);
         const i32 waitPenalty = static_cast<i32>(std::clamp<i64>(oldestWait * 80 / (3 * kTicksPerHour), 0, 80));
         const i32 target = std::clamp(180 + std::min(s.boardedLastMonth, 150) / 2 -
                                       static_cast<i32>(days) * 5 - crowding - waitPenalty, 0, 255);

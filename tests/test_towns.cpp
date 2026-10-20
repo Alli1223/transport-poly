@@ -175,7 +175,11 @@ TEST_CASE("towns: local authorities refuse companies that demolish too much") {
 }
 
 TEST_CASE("towns: new villages spawn in open explored land") {
-    World w = makeWorld(424242);
+    // Keep this known open-land fixture stable when new-game terrain defaults change.
+    WorldSettings settings;
+    settings.seed = 424242;
+    settings.terrain = TerrainSettings::original();
+    World w(settings);
     explore(w, 6);
     const usize before = w.towns.size();
     for (int month = 0; month < 48; ++month) towns::spawnNewTowns(w);

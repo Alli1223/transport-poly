@@ -29,7 +29,7 @@ constexpr i32 catchmentRadius(StopKind k) {
     switch (k) {
     case StopKind::Bus: return 3;
     case StopKind::Tram: return 3;
-    case StopKind::Rail: return 4;
+    case StopKind::Rail: return 6; // people walk further to catch a train
     case StopKind::Dock: return 4;
     }
     return 3;

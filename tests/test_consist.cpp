@@ -77,3 +77,27 @@ TEST_CASE("consist: removing the front engine retains a powered train and protec
     CHECK_EQ(v.capacity(),36u);
     CHECK_EQ(v.cargoCapacity(CargoType::Grain),50u);
 }
+
+TEST_CASE("consist: six new passenger carriage types buy, add capacity and survive saving") {
+    ConsistWorld f;
+    CHECK_EQ(std::string(vehicleModel(11).name), std::string("Wooden Coach"));
+    CHECK_EQ(std::string(vehicleModel(31).name), std::string("Deck Cargo Coaster"));
+    u32 capacity = f.w.vehicles[f.train].capacity();
+    for (u16 model = 32; model < 38; ++model) {
+        const auto& info = vehicleModel(model);
+        CHECK(info.type == VehicleType::Rail);
+        CHECK(!info.powered); CHECK(info.capacity > 0);
+        const auto cash = f.w.companies[f.owner].money;
+        REQUIRE(executeCommand(f.w, f.command(CmdAddCarriage{f.train, model})).ok);
+        capacity += info.capacity;
+        CHECK_EQ(f.w.vehicles[f.train].capacity(), capacity);
+        CHECK_EQ(f.w.companies[f.owner].money, cash - f.w.inflated(info.price));
+    }
+    World loaded;
+    fromBytes(toBytes(f.w, kSaveVersion), loaded, kSaveVersion);
+    CHECK_EQ(f.w.stateHash(), loaded.stateHash());
+    CHECK_EQ(loaded.vehicles[f.train].capacity(), capacity);
+    f.w.settings.startYear = 1950;
+    f.w.clock.startDay = daysFromCivil(1950, 1, 2);
+    CHECK(!testCommand(f.w, f.command(CmdAddCarriage{f.train, 37})).ok);
+}

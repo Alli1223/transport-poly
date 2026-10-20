@@ -20,6 +20,12 @@ bool begin(World& w, PersonId person, std::vector<WalkPoint> path, i64 start);
 TPoint endpoint(const World& w, TilePos centre2);
 std::optional<std::vector<WalkPoint>> toStation(const World& w, TPoint from, StationId station);
 std::optional<std::vector<WalkPoint>> fromStation(const World& w, StationId station, TPoint to);
+struct PlatformStairs {
+    i32 platform = 0;
+    WalkPoint foot, landing;
+};
+// Shared by pedestrian routing and station geometry, including stations without entrances.
+std::vector<PlatformStairs> stationConcourse(const World& w, StationId station);
 // Station concourse crosses the tracks on an elevated footbridge, with platform stairs.
 std::vector<WalkPoint> withinStation(const World& w, StationId station, TPoint from, TPoint to);
 void invalidate(World& w);

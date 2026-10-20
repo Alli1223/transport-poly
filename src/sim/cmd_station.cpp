@@ -27,6 +27,7 @@ std::vector<PlatformEnd> platformEnds(const World& w, TrackEdgeId platform) {
 } // namespace tp::track
 namespace tp::cmd {
 namespace {
+constexpr i32 kEntranceReach = 64;
 bool ours(const World& w, StationId id, CompanyId co) {
     const auto* s = w.stations.tryGet(id);
     return s && s->owner == co;
@@ -37,8 +38,12 @@ bool clear(const World& w, TilePos p, StationId id, CompanyId co) {
            ((t->type == TileType::Clear && (t->owner == kOwnerNone || t->owner == co.value)) ||
             (t->type == TileType::Footpath && t->index == id.value));
 }
-std::optional<TPoint> platformApproach(const World& w, TilePos from, TrackEdgeId platform,
-                                       CompanyId company) {
+struct Approach {
+    TPoint end;
+    std::vector<TilePos> paving;
+};
+std::optional<Approach> platformApproach(const World& w, TilePos from, TrackEdgeId platform,
+                                         CompanyId company) {
     const auto& edge = w.trackEdges[platform];
     const auto centre = tileCentre(from);
     const TrackSample* sample = &edge.samples.front();
@@ -51,16 +56,24 @@ std::optional<TPoint> platformApproach(const World& w, TilePos from, TrackEdgeId
     if ((i64(centre.x) - sample->p.x) * normal.x + (i64(centre.z) - sample->p.z) * normal.z < 0)
         normal = -normal;
     const auto end = offset(sample->p, normal, 200);
+    Approach approach{end, {}};
+    const auto chain = track::platformChain(w, platform);
     const i64 steps = std::max<i64>(1, distance(centre, end) / 32);
     for (i64 n = 0; n <= steps; ++n) {
         const auto tile = tileAt({static_cast<i32>(centre.x + (i64(end.x) - centre.x) * n / steps),
                                   static_cast<i32>(centre.z + (i64(end.z) - centre.z) * n / steps)});
-        if (tile == from && clear(w, tile, edge.station, company)) continue;
+        if (clear(w, tile, edge.station, company)) {
+            if (std::ranges::find(approach.paving, tile) == approach.paving.end())
+                approach.paving.push_back(tile);
+            continue;
+        }
         const auto found = w.trackTiles.find(ChunkPos{tile.x, tile.y}.key());
-        if (found == w.trackTiles.end() || std::ranges::find(found->second, platform) == found->second.end())
+        if (found == w.trackTiles.end() || std::ranges::none_of(found->second, [&](TrackEdgeId id) {
+                return std::ranges::find(chain, id) != chain.end();
+            }))
             return std::nullopt;
     }
-    return end;
+    return approach;
 }
 } // namespace
 CommandResult handle(World& w, const Command& c, const CmdStationEntrance& x, bool exec) {
@@ -71,27 +84,49 @@ CommandResult handle(World& w, const Command& c, const CmdStationEntrance& x, bo
     }
     auto& station = w.stations[x.station];
     if (!track::hasPlatform(w, x.station)) return CommandResult::failure("A rail platform is required");
-    const auto* road = w.map.tile(x.road);
-    if (!road || (road->type != TileType::Road && road->type != TileType::Station) || !allRoadPieces(*road) ||
-        road->span)
-        return CommandResult::failure("Choose a surface road near the station");
+    const auto surfaceRoad = [&](TilePos p) {
+        const auto* tile = w.map.tile(p);
+        return tile && (tile->type == TileType::Road || tile->type == TileType::Station) &&
+               allRoadPieces(*tile) && !tile->span;
+    };
+    TilePos road = x.road;
+    std::optional<TilePos> plot;
+    if (!surfaceRoad(road)) {
+        if (!clear(w, x.road, x.station, c.company))
+            return CommandResult::failure("Choose a road or a cleared building plot beside a road");
+        bool found = false;
+        for (const auto d : kDirs) {
+            const auto adjacent = neighbour(x.road, d);
+            if (surfaceRoad(adjacent)) {
+                road = adjacent;
+                plot = x.road;
+                found = true;
+                break;
+            }
+        }
+        if (!found) return CommandResult::failure("The entrance plot must be directly beside a surface road");
+    }
     if (station.entrances.size() >= 8) return CommandResult::failure("Station already has eight entrances");
     for (const auto& e : station.entrances)
-        if (e.road == x.road) return CommandResult::failure("An entrance already connects to this road");
+        if (e.road == road) return CommandResult::failure("An entrance already connects to this road tile");
     std::map<TilePos, TilePos> previous;
     std::queue<TilePos> queue;
     for (auto d : kDirs) {
-        const auto p = neighbour(x.road, d);
+        const auto p = neighbour(road, d);
+        if (plot && p != *plot) continue;
         if (clear(w, p, x.station, c.company) &&
-            std::abs(int(w.map.tileBaseHeight(p)) - int(w.map.tileBaseHeight(x.road))) <= 1) {
+            std::abs(int(w.map.tileBaseHeight(p)) - int(w.map.tileBaseHeight(road))) <= 1) {
             previous[p] = p;
             queue.push(p);
         }
     }
     std::optional<TilePos> finish;
     TrackEdgeId platform;
-    std::optional<TPoint> landing;
-    while (!queue.empty() && previous.size() < 2048) {
+    if (queue.empty())
+        return CommandResult::failure("Clear and level a plot beside this road for the entrance");
+    std::optional<Approach> landing;
+    while (!queue.empty() &&
+           previous.size() < static_cast<usize>((2 * kEntranceReach + 1) * (2 * kEntranceReach + 1))) {
         const auto p = queue.front();
         queue.pop();
         platform = track::platformNear(w, x.station, tileCentre(p), 2 * kTrackUnits + 32);
@@ -101,7 +136,7 @@ CommandResult handle(World& w, const Command& c, const CmdStationEntrance& x, bo
         }
         for (auto d : kDirs) {
             const auto next = neighbour(p, d);
-            if (previous.contains(next) || chebyshev(next.x - x.road.x, next.y - x.road.y) > 16 ||
+            if (previous.contains(next) || chebyshev(next.x - road.x, next.y - road.y) > kEntranceReach ||
                 !clear(w, next, x.station, c.company))
                 continue;
             if (std::abs(int(w.map.tileBaseHeight(p)) - int(w.map.tileBaseHeight(next))) > 1) continue;
@@ -109,30 +144,35 @@ CommandResult handle(World& w, const Command& c, const CmdStationEntrance& x, bo
             queue.push(next);
         }
     }
-    if (!finish) return CommandResult::failure("No clear approach to a platform within 16 tiles");
+    if (!finish)
+        return CommandResult::failure("No walkable route to the platform within 64 tiles. Clear a continuous "
+                                      "corridor and level steep ground");
     StationEntrance entry;
-    entry.road = x.road;
+    entry.road = road;
     entry.platform = platform;
     for (auto p = *finish;; p = previous[p]) {
         entry.tiles.push_back(p);
         if (previous[p] == p) break;
     }
     std::reverse(entry.tiles.begin(), entry.tiles.end());
+    const usize approachTiles = entry.tiles.size();
+    for (const auto tile : landing->paving)
+        if (std::ranges::find(entry.tiles, tile) == entry.tiles.end()) entry.tiles.push_back(tile);
     const auto first = tileCentre(entry.tiles.front());
     // Connect to the nearest corner of the road's pavement, rather than its carriageway.
     TPoint curb{};
     i64 best = INT64_MAX;
     for (i32 z : {40, 216})
         for (i32 xx : {40, 216}) {
-            const TPoint p{x.road.x * kTrackUnits + xx, x.road.y * kTrackUnits + z};
+            const TPoint p{road.x * kTrackUnits + xx, road.y * kTrackUnits + z};
             if (distance(p, first) < best) {
                 curb = p;
                 best = distance(p, first);
             }
         }
     entry.path.push_back(curb);
-    for (auto p : entry.tiles) entry.path.push_back(tileCentre(p));
-    entry.path.push_back(*landing);
+    for (usize n = 0; n < approachTiles; ++n) entry.path.push_back(tileCentre(entry.tiles[n]));
+    entry.path.push_back(landing->end);
     Money cost = 5'000;
     for (auto p : entry.tiles) {
         cost += 500 + w.map.tile(p)->trees * prices::kRemoveTree;

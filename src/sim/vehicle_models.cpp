@@ -9,7 +9,7 @@ namespace {
 using V = VehicleType;
 
 // name                  type     cap  km/h len  price    running intro life visual powered
-constexpr std::array<VehicleModel, 32> kModels = {{
+constexpr std::array<VehicleModel, 38> kModels = {{
     {"Albatross Bus",     V::Road, 31,  56,  10, 95'000,  28'000, 1930, 15,  0},
     {"Comet Bus",         V::Road, 35,  72,  10, 110'000, 30'000, 1962, 15,  1},
     {"Leopard Bus",       V::Road, 37,  90,  11, 135'000, 34'000, 1978, 15,  2},
@@ -43,6 +43,13 @@ constexpr std::array<VehicleModel, 32> kModels = {{
     {"Timber Lorry", V::Road, 0, 64, 12, 95'000, 22'000, 1930, 15, 7, false, CargoType::Logs, 28, true},
     {"Flat Wagon", V::Rail, 0, 110, 11, 55'000, 6'500, 1925, 30, 13, false, CargoType::Logs, 48, true},
     {"Deck Cargo Coaster", V::Ship, 0, 32, 23, 320'000, 34'000, 1925, 30, 6, false, CargoType::Logs, 220, true},
+    // Appended so existing saves retain their engine and wagon identities.
+    {"Suburban Coach", V::Rail, 56, 100, 10, 55'000, 7'000, 1930, 30, 4},
+    {"Compartment Coach", V::Rail, 48, 120, 11, 68'000, 8'000, 1940, 35, 5},
+    {"Panorama Coach", V::Rail, 52, 160, 12, 95'000, 10'000, 1955, 35, 6},
+    {"Dining Car", V::Rail, 32, 140, 12, 85'000, 12'000, 1950, 35, 7},
+    {"Sleeper Coach", V::Rail, 36, 160, 13, 105'000, 11'000, 1965, 35, 14},
+    {"Double-deck Coach", V::Rail, 96, 160, 13, 140'000, 14'000, 1980, 35, 15},
 }};
 
 } // namespace

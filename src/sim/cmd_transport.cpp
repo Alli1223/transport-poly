@@ -242,6 +242,14 @@ CommandResult demolishTile(World& w, CompanyId company, TilePos t, bool exec, co
     return demolishImpl(w, company, t, exec, busy);
 }
 
+CommandResult handle(World& w, const Command& c, const CmdDemolishBuilding& x, bool exec) {
+    if (!w.companies.contains(c.company)) return CommandResult::failure("Only companies can demolish buildings");
+    const auto* building = w.buildings.tryGet(x.building.id);
+    if (!building || building->serial != x.building.serial) return CommandResult::failure("This building no longer exists");
+    // Target the building identity, so a queued click cannot remove a replacement road or building.
+    return demolishImpl(w,c.company,building->pos,exec,{});
+}
+
 CommandResult handle(World& w, const Command& c, const CmdBuildRoad& x, bool exec) {
     if (!w.companies.contains(c.company)) return CommandResult::failure("Only companies can build roads");
     std::vector<TilePos> tiles;

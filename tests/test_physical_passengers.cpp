@@ -51,6 +51,7 @@ TEST_CASE("passengers: all 75 real people alight, walk and reach their destinati
         const auto& p = w.people[id];
         walking += p.state == PersonState::FromStop;
         CHECK_EQ(p.transitMotion, 2);
+        CHECK_EQ(p.transitBegin, w.clock.tick);
         CHECK(p.transitEnd < p.nextEvent);
     }
     CHECK_EQ(walking, 75);

@@ -112,6 +112,7 @@ Dir chooseExit(World& w, VehicleId id) {
 void dropAll(World& w, Vehicle& v) {
     for (const PersonId p : v.passengers) passengers::abandonRide(w, p);
     v.passengers.clear();
+    v.passengerSeats.clear();
 }
 
 void enterDepot(World& w, VehicleId id, DepotId did) {
@@ -119,6 +120,7 @@ void enterDepot(World& w, VehicleId id, DepotId did) {
     const Depot& d = w.depots[did];
     dropAll(w, v);
     v.state = VehicleState::InDepot;
+    if (v.info().type == VehicleType::Tram) v.trail.clear();
     v.tile = d.tile;
     v.entry = d.facing;
     v.exit = opposite(d.facing);
@@ -165,9 +167,9 @@ void arriveAtStop(World& w, VehicleId id) {
     v.speed = 0;
     const auto o = targetOrder(v);
     const StationId sid = o ? o->station : StationId{};
-    const i32 exchanged = passengers::exchangeAtStop(w, id, sid);
+    passengers::exchangeAtStop(w, id, sid);
     v.loadingStartTick = w.clock.tick;
-    v.loadingUntil = std::max(v.loadingUntil,w.clock.tick + kBaseDwellTicks + exchanged * 2 + 8);
+    v.loadingUntil = std::max(v.loadingUntil, w.clock.tick + kBaseDwellTicks + 8);
     stations::recordVisit(w, sid, id);
 }
 
@@ -176,10 +178,8 @@ void finishLoading(World& w, VehicleId id) {
     const auto o = targetOrder(v);
     if (o && (o->flags & kOrderFullLoad) && !v.full() &&
         w.clock.tick < v.loadingStartTick + 8 * kTicksPerHour) {
-        // Keep boarding newcomers while waiting for a full load (gives up after eight hours).
-        const i32 n = passengers::exchangeAtStop(w, id, o->station);
-        if (n > 0) v.loadingUntil = std::max(v.loadingUntil,w.clock.tick + n * 2 + 8);
-        if (!v.full() || n > 0) return;
+        // Loading is polled every tick, independently of other people entering the station.
+        return;
     }
     v.state = VehicleState::Driving;
     v.stopAtMiddle = false;
@@ -277,6 +277,10 @@ void drive(World& w, VehicleId id) {
         if (v.exit == v.entry && !roadLinkOpen(w, v.tile, v.exit, type, allow)) {
             v.progress = 0;
             return; // stranded on an isolated tile
+        }
+        if (type == VehicleType::Tram) {
+            v.trail.insert(v.trail.begin(), {v.tile, v.entry, v.exit});
+            if (v.trail.size() > 4) v.trail.resize(4);
         }
         v.tile = neighbour(v.tile, v.exit);
         v.entry = opposite(v.exit);
@@ -389,6 +393,8 @@ void tickAll(World& w) {
             }
             break;
         case VehicleState::Loading:
+            if (const auto stop = targetOrder(v); stop && stop->kind == OrderKind::Station)
+                passengers::exchangeAtStop(w, id, stop->station);
             if (w.clock.tick >= v.loadingUntil) finishLoading(w, id);
             break;
         case VehicleState::Driving:

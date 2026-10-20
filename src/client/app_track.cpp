@@ -169,6 +169,146 @@ void planTooltip(const TrackPlan& p, float scale) {
 
 } // namespace
 
+void App::drawStationUpgradePreview(std::vector<gfx::OverlayQuad>& overlays) {
+    if (!stationUpgradePreview_ || !world().stations.contains(selStation_)) return;
+    World& w = world();
+    const CompanyId company = session_->localCompany();
+    Command command; command.company = company; command.payload = *stationUpgradePreview_;
+    const auto result = testCommand(w, command);
+    TrackPlan plan;
+    std::vector<TrackEdgeId> source;
+    TPoint arrowFrom{}, arrowTo{};
+    bool conversion = false;
+    if (const auto* add = std::get_if<CmdAddPlatform>(&command.payload)) {
+        if (!w.trackEdges.contains(add->platform)) return;
+        source = track::platformChain(w, add->platform);
+        const auto ends = track::platformEnds(w, add->platform);
+        if (ends.size() != 2) return;
+        const auto& node = w.trackNodes[ends.front().node];
+        const auto direction = -ends.front().outward;
+        const TDir normal{-direction.z, direction.x};
+        TrackAnchor from;
+        // Match CmdAddPlatform: left/right are relative to the platform's own orientation.
+        from.pos = offset(node.pos, normal, add->side * 2 * kTrackUnits);
+        const auto to = offset(from.pos, direction, add->length * kTrackUnits);
+        plan = track::planPlatform(w, company, from, to);
+        if (plan.samples.empty()) plan.samples = {{from.pos, node.h, 0}, {to, node.h, add->length * kTrackUnits}};
+        arrowTo = offset(from.pos, direction, add->length * kTrackUnits / 2);
+        arrowFrom = offset(arrowTo, normal, -add->side * 2 * kTrackUnits);
+    } else if (const auto* extend = std::get_if<CmdExtendPlatform>(&command.payload)) {
+        std::optional<track::PlatformEnd> end;
+        for (const auto& platform : track::platformsOf(w, extend->station))
+            for (const auto& candidate : track::platformEnds(w, platform.front()))
+                if (candidate.node == extend->end) end = candidate;
+        if (!end) return;
+        source = track::platformChain(w, end->edge);
+        const auto& node = w.trackNodes[end->node];
+        const auto& base = w.trackEdges[end->edge];
+        const u8 outside = 1 - (base.a == end->node ? base.sideA : base.sideB);
+        arrowFrom = node.pos;
+        arrowTo = offset(node.pos, end->outward, extend->length * kTrackUnits);
+        if (node.count(outside) == 1) {
+            // Connected ends convert the entire next section, regardless of the length slider.
+            const auto& target = w.trackEdges[node.edges[outside * 2]];
+            plan.samples = target.samples;
+            plan.length = target.length;
+            arrowTo = w.trackNodes[target.a == end->node ? target.b : target.a].pos;
+            conversion = true;
+        } else {
+            TrackAnchor from; from.node = end->node; from.pos = node.pos;
+            plan = track::planPlatform(w, company, from, arrowTo);
+        }
+        if (plan.samples.empty()) plan.samples = {{arrowFrom, node.h, 0}, {arrowTo, node.h, extend->length * kTrackUnits}};
+        addRing(overlays, toWorld(node.pos, node.h, 0.24), 0.5, gfx::rgba(255, 210, 70, 240));
+    } else return;
+
+    for (const auto edge : source)
+        addRibbon(overlays, w.trackEdges[edge].samples, 0.95, gfx::rgba(255, 210, 70, 105), 0.18);
+    if (result.ok) addEarthworks(overlays, w.map, plan.terrain);
+    const u32 colour = result.ok ? gfx::rgba(100, 200, 255, 170) : gfx::rgba(250, 90, 80, 170);
+    addRibbon(overlays, plan.samples, 0.95, colour, 0.19);
+    addRibbon(overlays, plan.samples, 0.33, gfx::rgba(55, 75, 95, 180), 0.20);
+    addRibbon(overlays, plan.samples, 0.08, gfx::rgba(255, 255, 255, 230), 0.21);
+
+    // A world-space arrow remains aligned with the change as the camera rotates.
+    const i32 height = plan.samples.front().h;
+    const auto a = toWorld(arrowFrom, height, 0.27), b = toWorld(arrowTo, height, 0.27);
+    glm::dvec3 direction = b - a;
+    const double distance = glm::length(direction);
+    if (distance > 0.01) {
+        direction /= distance;
+        const glm::dvec3 side{-direction.z, 0, direction.x};
+        const auto head = b - direction * std::min(0.65, distance * 0.4);
+        overlays.push_back({{a + side * 0.09, head + side * 0.09, head - side * 0.09, a - side * 0.09}, colour, true});
+        overlays.push_back({{b, head + side * 0.35, head - side * 0.35, b}, colour, true});
+    }
+    const i32 dx = arrowTo.x - arrowFrom.x, dz = arrowTo.z - arrowFrom.z;
+    const bool eastWest = std::abs(dx) * 2 > std::abs(dz);
+    const bool northSouth = std::abs(dz) * 2 > std::abs(dx);
+    std::string heading;
+    if (northSouth) heading = dz > 0 ? "south" : "north";
+    if (eastWest) heading += (heading.empty() ? "" : "-") + std::string(dx > 0 ? "east" : "west");
+    const double length = (plan.length > 0 ? plan.length : plan.samples.back().s) / double(kTrackUnits);
+    const std::string description = conversion ? std::format("Widen the next {:.1f} tiles into platform, towards {}", length, heading)
+        : std::format("{} {:.1f} tiles, towards {}", std::holds_alternative<CmdAddPlatform>(command.payload) ? "New platform:" : "Extend by", length, heading);
+    if (const auto screen = worldToScreen(b + glm::dvec3(0, 0.6, 0))) {
+        auto* draw = ImGui::GetBackgroundDrawList();
+        const std::string label = result.ok ? "Proposed platform" : "Blocked platform";
+        const ImVec2 size = ImGui::CalcTextSize(label.c_str());
+        const ImVec2 pos{screen->x - size.x / 2, screen->y - size.y};
+        draw->AddRectFilled(ImVec2(pos.x - 5, pos.y - 3), ImVec2(pos.x + size.x + 5, pos.y + size.y + 3), IM_COL32(15, 25, 35, 220), 4);
+        draw->AddText(pos, result.ok ? IM_COL32(140, 220, 255, 255) : IM_COL32(255, 130, 110, 255), label.c_str());
+    }
+    if (!ImGui::BeginTooltip()) return;
+    ImGui::TextUnformatted(stationUpgradeLabel_.c_str());
+    ImGui::TextUnformatted(description.c_str());
+    // A north-up plan stays readable even if the station window covers the world preview.
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const ImVec2 size{380.0f * uiScale_, 125.0f * uiScale_};
+    ImGui::Dummy(size);
+    auto* diagram = ImGui::GetWindowDrawList();
+    diagram->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + size.y), IM_COL32(12, 22, 30, 255), 4);
+    TPoint lo = plan.samples.front().p, hi = lo;
+    const auto include = [&](const std::vector<TrackSample>& samples) {
+        for (const auto& sample : samples) {
+            lo.x = std::min(lo.x, sample.p.x); lo.z = std::min(lo.z, sample.p.z);
+            hi.x = std::max(hi.x, sample.p.x); hi.z = std::max(hi.z, sample.p.z);
+        }
+    };
+    include(plan.samples);
+    for (const auto edge : source) include(w.trackEdges[edge].samples);
+    const double scale = std::min((size.x - 36 * uiScale_) / (hi.x - lo.x + 3.0 * kTrackUnits),
+                                  (size.y - 20 * uiScale_) / (hi.z - lo.z + 3.0 * kTrackUnits));
+    const auto project = [&](TPoint p) {
+        return ImVec2(origin.x + size.x / 2 + static_cast<float>((p.x - (lo.x + hi.x) / 2.0) * scale),
+                      origin.y + size.y / 2 + static_cast<float>((p.z - (lo.z + hi.z) / 2.0) * scale));
+    };
+    const auto line = [&](const std::vector<TrackSample>& samples, ImU32 tint) {
+        for (usize i = 1; i < samples.size(); ++i) {
+            const auto p = project(samples[i - 1].p), q = project(samples[i].p);
+            diagram->AddLine(p, q, tint, static_cast<float>(1.9 * kTrackUnits * scale));
+            diagram->AddLine(p, q, IM_COL32(35, 45, 55, 240), std::max(1.0f, static_cast<float>(0.6 * kTrackUnits * scale)));
+        }
+    };
+    for (const auto edge : source) line(w.trackEdges[edge].samples, IM_COL32(255, 210, 70, 190));
+    const ImU32 tint = result.ok ? IM_COL32(100, 200, 255, 255) : IM_COL32(250, 90, 80, 255);
+    line(plan.samples, tint);
+    const auto p = project(arrowFrom), q = project(arrowTo);
+    const float arrowLength = std::hypot(q.x - p.x, q.y - p.y);
+    if (arrowLength > 1.0f) {
+        const float ux = (q.x - p.x) / arrowLength, uy = (q.y - p.y) / arrowLength;
+        const float head = std::min(8.0f * uiScale_, arrowLength * 0.45f);
+        diagram->AddLine(p, q, IM_COL32_WHITE, 2 * uiScale_);
+        diagram->AddTriangleFilled(q, ImVec2(q.x - ux * head - uy * head * 0.5f, q.y - uy * head + ux * head * 0.5f),
+                                      ImVec2(q.x - ux * head + uy * head * 0.5f, q.y - uy * head - ux * head * 0.5f), IM_COL32_WHITE);
+    }
+    diagram->AddText(ImVec2(origin.x + 6 * uiScale_, origin.y + 4 * uiScale_), IM_COL32(200, 210, 220, 255), "N ^");
+    ui::mutedText("Gold: existing platform. Blue: proposed addition. Red: blocked.");
+    if (result.ok) ImGui::Text("Cost %s - click the button to build", formatMoney(result.cost).c_str());
+    else ui::iconText(ui::Icon::Warning, ui::col::kRed, result.error.c_str(), ui::col::kRed);
+    ImGui::EndTooltip();
+}
+
 void App::handleTrackTool(std::vector<gfx::OverlayQuad>& overlays) {
     World& w = world();
     const CompanyId company = session_->localCompany();

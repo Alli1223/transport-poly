@@ -10,6 +10,8 @@
 #include "sim/walking.hpp"
 
 #include <compare>
+#include <unordered_map>
+#include <vector>
 
 namespace tp {
 
@@ -28,13 +30,16 @@ enum class PersonState : u8 {
     FromStop // walking from a station to the destination
 };
 
-enum class TripPurpose : u8 { None, Work, Shop, Home };
+// Visit: a day out to another town the person can reach by public transport, on business or to
+// shop and look around.
+enum class TripPurpose : u8 { None, Work, Shop, Home, Visit };
 
 struct Person {
     u32 serial = 0;
     BuildingRef home;
     BuildingRef work;
     BuildingRef shop;
+    BuildingRef visit; // destination of the planned or current visit to another town
     TownId town;
     PersonState state = PersonState::AtHome;
     TripPurpose purpose = TripPurpose::None;
@@ -51,7 +56,7 @@ struct Person {
     StationId targetStation;   // station to alight at for the current leg
     StationId finalStation;    // station closest to the destination
     VehicleId vehicle;
-    i64 boardTick = 0;         // when the current ride started (fare calculation)
+    i64 boardTick = 0;         // queue arrival while waiting, ride start while aboard
     u32 nameSeed = 0;
     // Physical boarding / alighting, retained after leaving the vehicle so every
     // person walks from their own door instead of appearing at the station sign.
@@ -71,7 +76,22 @@ struct Person {
            tripFrom2, tripTo2, station, targetStation, finalStation, vehicle, boardTick, nameSeed);
         if (ar.version == 0 || ar.version >= 18) ar(walkPath,walkBegin,walkEnd);
         if (ar.version == 0 || ar.version >= 11) ar(transitFrom2, transitTo2, transitBegin, transitEnd, transitMotion);
+        if (ar.version == 0 || ar.version >= 22) ar(visit);
     }
+};
+
+// A town linked to another by public transport: the stations of the first with routes to the
+// second, and the stations of the second they reach.
+struct TownLink {
+    TownId town;
+    std::vector<StationId> origins;
+    std::vector<StationId> destinations;
+};
+
+// Derived (never saved): towns linked by public transport, rebuilt when the routing changes.
+struct TownLinks {
+    i64 routing = -2; // RoutingTable::builtTick these links were made from
+    std::unordered_map<u32, std::vector<TownLink>> byTown;
 };
 
 struct PersonEvent {
@@ -102,8 +122,11 @@ void assignJob(World& w, PersonId id);
 // Re-plans the next departure of a person who is at home (e.g. after finding a job).
 void reschedule(World& w, PersonId id);
 void assignShop(World& w, PersonId id);
-// Matches unemployed people with vacancies in nearby towns.
+// Matches unemployed people with vacancies in nearby towns (towns linked by public transport
+// first, and further away).
 void jobMarket(World& w);
+// The towns a town is linked to by public transport.
+const std::vector<TownLink>& linkedTowns(World& w, TownId town);
 // Rebuilds the event queue from the people pool (after loading a game).
 void rebuildEvents(World& w);
 std::string_view stateName(PersonState s);

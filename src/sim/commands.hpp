@@ -6,6 +6,7 @@
 #include "core/money.hpp"
 #include "core/types.hpp"
 #include "sim/company.hpp"
+#include "sim/buildings.hpp"
 #include "sim/coords.hpp"
 #include "sim/ids.hpp"
 #include "sim/track.hpp"
@@ -395,6 +396,11 @@ struct CmdExtendPlatform {
     template<class Ar> void serialize(Ar& ar) { ar(station,end,length); }
 };
 
+struct CmdDemolishBuilding {
+    BuildingRef building;
+    template<class Ar> void serialize(Ar& ar) { ar(building); }
+};
+
 using CommandPayload =
     std::variant<CmdActivateChunks, CmdCreateCompany, CmdSetLoan, CmdTerraform, CmdClearArea, CmdPlantTrees, CmdBuildRoad,
                  CmdRemoveRoad, CmdBuildRoadStop, CmdBuildRoadDepot, CmdBuyVehicle, CmdSellVehicle, CmdStartStopVehicle,
@@ -403,7 +409,7 @@ using CommandPayload =
                  CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater, CmdBuildSpan, CmdRemoveSpan,
                  CmdUpdateCompany, CmdTerraformBrush, CmdBuildTrack, CmdRemoveTrack, CmdBuildTrackStation,
                  CmdBuildTrackDepot, CmdTrackSignal, CmdReorderConsist, CmdStationEntrance, CmdAddPlatform, CmdExtendPlatform,
-                 CmdElectrifyTrack>;
+                 CmdDemolishBuilding, CmdElectrifyTrack>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

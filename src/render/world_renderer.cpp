@@ -222,28 +222,33 @@ bool WorldRenderer::init() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, kGlowStride, reinterpret_cast<const void*>(0));
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, kGlowStride, reinterpret_cast<const void*>(3 * sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, kGlowStride,
+                          reinterpret_cast<const void*>(3 * sizeof(float)));
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, kGlowStride, reinterpret_cast<const void*>(5 * sizeof(float)));
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, kGlowStride,
+                          reinterpret_cast<const void*>(5 * sizeof(float)));
     glBindVertexArray(0);
     if (!fx_.init()) return false;
     ensureShadowTarget();
     return true;
 }
 
-void WorldRenderer::collectLamps(const World& world, const glm::dvec3& origin, const glm::dvec3& focus, double radius) {
+void WorldRenderer::collectLamps(const World& world, const glm::dvec3& origin, const glm::dvec3& focus,
+                                 double radius) {
     const float night = sky_.night;
     if (night < 0.02f) return;
     const glm::vec3 warm(1.0f, 0.78f, 0.48f), cool(0.92f, 0.95f, 1.0f);
     const auto rel = [&](double x, double y, double z) {
-        return glm::vec3(static_cast<float>(x - origin.x), static_cast<float>(y), static_cast<float>(z - origin.z));
+        return glm::vec3(static_cast<float>(x - origin.x), static_cast<float>(y),
+                         static_cast<float>(z - origin.z));
     };
     // Platform lamps hang under the canopies of free-form stations, at every canopy post.
     const double reach = std::min(radius, 140.0);
     for (const auto [id, e] : world.trackEdges) {
         if (e.kind != TrackKind::Platform || e.samples.size() < 2) continue;
         const TrackSample& mid = e.samples[e.samples.size() / 2];
-        const double mx = mid.p.x / double(kTrackUnits) - focus.x, mz = mid.p.z / double(kTrackUnits) - focus.z;
+        const double mx = mid.p.x / double(kTrackUnits) - focus.x,
+                     mz = mid.p.z / double(kTrackUnits) - focus.z;
         if (mx * mx + mz * mz > reach * reach) continue;
         const float length = static_cast<float>(e.length) / kTrackUnits;
         const int posts = std::max(2, static_cast<int>(length / 1.6f) + 1);
@@ -258,7 +263,8 @@ void WorldRenderer::collectLamps(const World& world, const glm::dvec3& origin, c
             const double cx = c.p.x / double(kTrackUnits), cz = c.p.z / double(kTrackUnits);
             const float y = trackRailY(c.h) + 0.017f + 0.42f;
             for (const float side : {-1.0f, 1.0f})
-                glows_.push_back({rel(cx + left.x * side * 0.65, y, cz + left.y * side * 0.65), cool, 0.32f, night * 0.9f});
+                glows_.push_back({rel(cx + left.x * side * 0.65, y, cz + left.y * side * 0.65), cool, 0.32f,
+                                  night * 0.9f});
             lamps_.push_back({rel(cx, y, cz), 2.6f, cool * 0.9f * night, {0, -1, 0}, -2.0f, 3.0f});
         }
     }
@@ -274,16 +280,26 @@ void WorldRenderer::collectLamps(const World& world, const glm::dvec3& origin, c
                 ((static_cast<u32>(x) + static_cast<u32>(y)) & 3u) == 0) {
                 const float ground = roadSurfaceY(world, tp, 0.08f, 0.08f) + 0.02f;
                 glows_.push_back({rel(x + 0.08, ground + 0.885f, y + 0.08), warm, 0.42f, night});
-                lamps_.push_back({rel(x + 0.08, ground + 0.85f, y + 0.08), 3.2f, warm * 0.85f * night, {0, -1, 0}, -2.0f, 0.0f});
-            } else if (t->type == TileType::Station &&
-                       (static_cast<StopKind>(t->extra) == StopKind::Bus || static_cast<StopKind>(t->extra) == StopKind::Tram)) {
+                lamps_.push_back({rel(x + 0.08, ground + 0.85f, y + 0.08),
+                                  3.2f,
+                                  warm * 0.85f * night,
+                                  {0, -1, 0},
+                                  -2.0f,
+                                  0.0f});
+            } else if (t->type == TileType::Station && (static_cast<StopKind>(t->extra) == StopKind::Bus ||
+                                                        static_cast<StopKind>(t->extra) == StopKind::Tram)) {
                 const float ground = roadSurfaceY(world, tp, 0.5f, 0.5f) + 0.015f;
                 const bool northSouth = allRoadPieces(*t) & dirBit(Dir::N);
                 for (const float side : {0.08f, 0.92f}) {
                     const glm::vec2 at = northSouth ? glm::vec2(side, 0.5f) : glm::vec2(0.5f, side);
                     glows_.push_back({rel(x + at.x, ground + 0.2f, y + at.y), cool, 0.22f, night * 0.8f});
                 }
-                lamps_.push_back({rel(x + 0.5, ground + 0.3f, y + 0.5), 1.8f, cool * 0.6f * night, {0, -1, 0}, -2.0f, 1.0f});
+                lamps_.push_back({rel(x + 0.5, ground + 0.3f, y + 0.5),
+                                  1.8f,
+                                  cool * 0.6f * night,
+                                  {0, -1, 0},
+                                  -2.0f,
+                                  1.0f});
             }
         }
 }
@@ -304,7 +320,8 @@ void WorldRenderer::drawGlows(const glm::mat4& view) {
         }
     }
     glBindBuffer(GL_ARRAY_BUFFER, glowVbo_.get());
-    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(v.size() * sizeof(float)), v.data(), GL_STREAM_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(v.size() * sizeof(float)), v.data(),
+                 GL_STREAM_DRAW);
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE);
     glDepthMask(GL_FALSE);
@@ -646,37 +663,40 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
         for (usize c = 0; c < kCargoTypes; ++c) stock[c] = cargo::quantity(station.cargoWaiting, static_cast<CargoType>(c));
         addStock(station.sign, stock);
         if (station.entrances.empty()) continue;
-        const auto& main = station.entrances.front();
-        const double ex = main.road.x-focus.x, ez=main.road.y-focus.z;
-        if (ex*ex+ez*ez > radius*radius) continue;
         for (const auto& entry : station.entrances) if (!entry.tiles.empty()) {
-            const auto at = entry.tiles.front();
-            const float y = static_cast<float>(terrainHeightAt(world.map,at.x+0.5,at.y+0.5));
-            const float yaw = static_cast<float>(std::atan2(double(entry.road.x-at.x),double(entry.road.y-at.y)));
-            dynamic_.add(models::kStationEntrance,makeInstance(glm::vec3(glm::dvec3(at.x+0.5,y,at.y+0.5)-origin),yaw,1,companyTint(world,station.owner)));
-        }
-        for (const auto& platform : track::platformsOf(world,sid)) {
-            const auto& edge = world.trackEdges[platform.front()];
-            const auto mid = track::pointOn(edge,true,edge.length/2);
-            const auto tangent=normalised(i64(world.trackNodes[edge.b].pos.x)-world.trackNodes[edge.a].pos.x,
-                                           i64(world.trackNodes[edge.b].pos.z)-world.trackNodes[edge.a].pos.z);
-            const auto target=offset(mid.p,{-tangent.z,tangent.x},200);
-            if (track::platformNumber(world,sid,main.path.back()) == track::platformNumber(world,sid,target)) continue;
-            const auto path=walking::withinStation(world,sid,main.path.back(),target);
-            i32 bridgeHeight=-1;for(const auto& p:path)bridgeHeight=std::max(bridgeHeight,p.height);
-            for(usize n=1;n<path.size();++n) {
-                const auto a=path[n-1],b=path[n];
-                if(a.height<0 || b.height<0 || (a.height<bridgeHeight && b.height<bridgeHeight))continue;
-                const glm::dvec3 start(a.p.x/double(kTrackUnits),a.height/double(kSubLevels)*0.5,a.p.z/double(kTrackUnits));
-                const glm::dvec3 finish(b.p.x/double(kTrackUnits),b.height/double(kSubLevels)*0.5,b.p.z/double(kTrackUnits));
-                const auto delta=finish-start;const double length=glm::length(delta);
-                if(length<0.01)continue;
-                glm::mat4 bridge=glm::translate(glm::mat4(1),glm::vec3((start+finish)*0.5-origin));
-                bridge=glm::rotate(bridge,static_cast<float>(std::atan2(-delta.z,delta.x)),glm::vec3(0,1,0));
-                bridge=glm::rotate(bridge,static_cast<float>(std::atan2(delta.y,std::sqrt(delta.x*delta.x+delta.z*delta.z))),glm::vec3(0,0,1));
-                bridge=glm::scale(bridge,glm::vec3(static_cast<float>(length),1,1));
-                dynamic_.add(models::kFootbridge,makeInstance(bridge));
-            }
+                const double ex = entry.road.x - focus.x, ez = entry.road.y - focus.z;
+                if (ex * ex + ez * ez > radius * radius) continue;
+                const auto at = entry.tiles.front();
+                const float y = static_cast<float>(terrainHeightAt(world.map, at.x + 0.5, at.y + 0.5));
+                const float yaw =
+                    static_cast<float>(std::atan2(double(entry.road.x - at.x), double(entry.road.y - at.y)));
+                dynamic_.add(models::kStationEntrance,
+                             makeInstance(glm::vec3(glm::dvec3(at.x + 0.5, y, at.y + 0.5) - origin), yaw, 1,
+                                          companyTint(world, station.owner)));
+                // Continue the paving over the reserved track margin right onto the platform.
+                if (entry.path.size() >= 2 && world.trackEdges.contains(entry.platform)) {
+                    const auto a = entry.path[entry.path.size() - 2], b = entry.path.back();
+                    const double ax = a.x / double(kTrackUnits), az = a.z / double(kTrackUnits);
+                    const double bx = b.x / double(kTrackUnits), bz = b.z / double(kTrackUnits);
+                    const auto& edge = world.trackEdges[entry.platform];
+                    const glm::dvec3 start(ax, terrainHeightAt(world.map, ax, az) + 0.015, az);
+                    const glm::dvec3 finish(bx, world.trackNodes[edge.a].h / double(kSubLevels) * 0.5 + 0.051,
+                                            bz);
+                    const auto delta = finish - start;
+                    const int slabs = std::max(1, static_cast<int>(std::ceil(glm::length(delta) * 2)));
+                    for (int n = 0; n < slabs; ++n) {
+                        const auto p = glm::mix(start, finish, (n + 0.5) / slabs);
+                        auto matrix = glm::translate(glm::mat4(1), glm::vec3(p - origin));
+                        matrix = glm::rotate(matrix, static_cast<float>(std::atan2(-delta.z, delta.x)),
+                                             glm::vec3(0, 1, 0));
+                        matrix = glm::rotate(
+                            matrix, static_cast<float>(std::atan2(delta.y, std::hypot(delta.x, delta.z))),
+                            glm::vec3(0, 0, 1));
+                        matrix = glm::scale(
+                            matrix, glm::vec3(static_cast<float>(glm::length(delta) / slabs) + 0.001f, 1, 1));
+                        dynamic_.add(models::kStationApproach, makeInstance(matrix));
+                    }
+                }
         }
     }
     std::vector<CarPose> cars;
@@ -690,8 +710,9 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
             const u32 tint = companyTint(world, v.owner);
             for (const CarPose& c : cars) {
                 const auto& info = vehicleModel(c.model);
-                const u32 carTint = info.capacity && v.carLoad(c.index) && dx*dx + dz*dz < 10000 ? (tint & 0x00ffffffu) | (253u << 24) : tint;
-                dynamic_.add(vehicleModelId(info), makeInstance(poseMatrix(c.pose), carTint));
+                glm::mat4 body = poseMatrix(c.pose);
+                if (info.capacity) body = glm::scale(body, glm::vec3(info.length / 12.0f, 1, 1));
+                dynamic_.add(vehicleModelId(info), makeInstance(body, tint));
                 addLoad(v, c.index, c.pose, c.model);
             }
             fx_.addTrain(dynamic_, id, cars, origin);
@@ -704,26 +725,71 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
                 // Headlights at the front of the train lighting the line ahead, red lamps at the
                 // back, and light spilling from the carriage windows.
                 const glm::mat4 front = poseMatrix(cars.front().pose), back = poseMatrix(cars.back().pose);
-                const float fl = vehicleModel(cars.front().model).length / 32.0f, bl = vehicleModel(cars.back().model).length / 32.0f;
+                const float fl = vehicleModel(cars.front().model).length / 32.0f,
+                            bl = vehicleModel(cars.back().model).length / 32.0f;
                 const glm::vec3 ahead = glm::normalize(glm::vec3(front * glm::vec4(1, 0, 0, 0)));
                 for (const float side : {-0.065f, 0.065f}) {
                     glows_.push_back({local(front, {fl + 0.015f, 0.085f, side}), headlight, 0.2f, night});
-                    glows_.push_back({local(back, {-bl - 0.015f, 0.085f, side}), tailLamp, 0.12f, night * 0.9f});
+                    glows_.push_back(
+                        {local(back, {-bl - 0.015f, 0.085f, side}), tailLamp, 0.12f, night * 0.9f});
                 }
                 lamps_.push_back({local(front, {fl + 0.06f, 0.2f, 0.0f}), 7.5f, headlight * 1.5f * night,
                                   glm::normalize(ahead + glm::vec3(0.0f, -0.16f, 0.0f)), 0.8f, 12.0f});
                 for (const CarPose& c : cars)
                     if (vehicleModel(c.model).capacity > 0)
-                        lamps_.push_back({local(poseMatrix(c.pose), {0.0f, 0.2f, 0.0f}), 1.4f, interior * 0.45f * night,
-                                          {0, -1, 0}, -2.0f, -2.0f});
+                        lamps_.push_back({local(poseMatrix(c.pose), {0.0f, 0.2f, 0.0f}),
+                                          1.4f,
+                                          interior * 0.45f * night,
+                                          {0, -1, 0},
+                                          -2.0f,
+                                          -2.0f});
             }
             ++stats_.vehiclesDrawn;
             continue;
         }
+        if (v.info().type == VehicleType::Tram && tramSectionCount(v) > 1) {
+            std::vector<VehiclePose> sections;
+            tramSectionPoses(world, v, tickFraction, sections);
+            const auto tint = companyTint(world, v.owner);
+            const double half = tramSectionLength(v) * 0.5;
+            for (usize i = 0; i < sections.size(); ++i) {
+                dynamic_.add(models::tramSection(v.info().visual, static_cast<int>(i)),
+                             makeInstance(poseMatrix(sections[i]), tint));
+                if (i + 1 < sections.size()) {
+                    VehiclePose joint = sections[i];
+                    joint.pos -=
+                        glm::dvec3(std::cos(joint.yaw) * std::cos(joint.pitch), std::sin(joint.pitch),
+                                   -std::sin(joint.yaw) * std::cos(joint.pitch)) *
+                        half;
+                    const auto& next = sections[i + 1];
+                    joint.yaw = static_cast<float>(std::atan2(std::sin(joint.yaw) + std::sin(next.yaw),
+                                                              std::cos(joint.yaw) + std::cos(next.yaw)));
+                    joint.pitch = (joint.pitch + next.pitch) * 0.5f;
+                    dynamic_.add(models::kTramBellows, makeInstance(poseMatrix(joint)));
+                }
+            }
+            if (!sections.empty()) {
+                if (v.breakdownTicks > 0) addSmoke(sections.front(), v.breakdownTicks);
+                if (night > 0.02f) {
+                    const auto front = poseMatrix(sections.front()), rear = poseMatrix(sections.back());
+                    for (float side : {-0.06f, 0.06f}) {
+                        glows_.push_back({local(front, {static_cast<float>(half) + 0.01f, 0.09f, side}),
+                                          headlight, 0.14f, night});
+                        glows_.push_back({local(rear, {-static_cast<float>(half) - 0.01f, 0.09f, side}),
+                                          tailLamp, 0.09f, night});
+                    }
+                    const glm::vec3 ahead = glm::normalize(glm::vec3(front * glm::vec4(1, 0, 0, 0)));
+                    lamps_.push_back({local(front, {static_cast<float>(half) + 0.04f, 0.16f, 0.0f}), 3.5f,
+                                      headlight * 0.9f * night,
+                                      glm::normalize(ahead + glm::vec3(0.0f, -0.25f, 0.0f)), 0.75f, 2.0f});
+                }
+                ++stats_.vehiclesDrawn;
+            }
+            continue;
+        }
         const auto pose = vehiclePose(world, v, tickFraction);
         if (!pose) continue;
-        u32 tint = companyTint(world, v.owner);
-        if (!v.passengers.empty() && dx*dx + dz*dz < 10000) tint = (tint & 0x00ffffffu) | (253u << 24);
+        const u32 tint = companyTint(world, v.owner);
         dynamic_.add(vehicleModelId(v.info()), makeInstance(poseMatrix(*pose), tint));
         addLoad(v, 0, *pose, v.model);
         if (v.breakdownTicks > 0) addSmoke(*pose, v.breakdownTicks);
@@ -742,8 +808,8 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
         ++stats_.vehiclesDrawn;
     }
 
-    // Pedestrians share the instanced model upload with vehicles. Indoor citizens
-    // and passengers already represented by a vehicle need no separate geometry.
+    // Walking and seated citizens share the upload. Opaque roofs and frames hide occupants
+    // naturally; glass is drawn afterwards so people are visible through the windows.
     for (const auto [id, person] : world.people) {
         if (person.state != PersonState::Walking && person.state != PersonState::ToStop &&
             person.state != PersonState::FromStop && person.state != PersonState::Waiting &&
@@ -761,7 +827,11 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
         const u32 tint = rgba(static_cast<u8>(70 + person.nameSeed % 150),
                              static_cast<u8>(70 + (person.nameSeed >> 8) % 150),
                              static_cast<u8>(70 + (person.nameSeed >> 16) % 150));
-        dynamic_.add(models::kPerson, makeInstance(glm::vec3(pose->pos - origin), pose->yaw, 1.0f, tint));
+        const bool seated =
+            person.state == PersonState::Riding &&
+            !(person.transitMotion == 1 && world.clock.tick + tickFraction < person.transitEnd);
+        dynamic_.add(seated ? models::kSeatedPerson : models::kPerson,
+                     makeInstance(glm::vec3(pose->pos - origin), pose->yaw, 1.0f, tint));
         ++stats_.peopleDrawn;
     }
 
@@ -1035,7 +1105,9 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     fu.origin = glm::vec4(static_cast<float>(origin.x), kCloudHeight, static_cast<float>(origin.z), mistLevel_);
     {
         // The lamps nearest the view (headlights count as much nearer) light the scene.
-        const auto score = [&](const Lamp& l) { return glm::length(glm::vec2(l.pos.x - focus.x, l.pos.z - focus.z)) - l.priority; };
+        const auto score = [&](const Lamp& l) {
+            return glm::length(glm::vec2(l.pos.x - focus.x, l.pos.z - focus.z)) - l.priority;
+        };
         const usize n = std::min<usize>(lamps_.size(), kMaxLamps);
         std::partial_sort(lamps_.begin(), lamps_.begin() + static_cast<std::ptrdiff_t>(n), lamps_.end(),
                           [&](const Lamp& a, const Lamp& b) { return score(a) < score(b); });
@@ -1099,6 +1171,15 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     modelShader_->set("uOffset", glm::vec3(0.0f));
     dynamic_.draw(models_);
     if (settings.wireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+    // Glazing follows all opaque bodies and passengers, with no depth writes. This preserves
+    // roofs and prevents a pane from hiding a person drawn later in the instance batch.
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    dynamic_.draw(models_, true);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
 
     // Water (translucent)
     glEnable(GL_BLEND);

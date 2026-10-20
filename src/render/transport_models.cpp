@@ -1,8 +1,10 @@
+#include "render/station_style.hpp"
 // Procedural low poly models for vehicles, stops and depots. Vehicles face +X; tintable parts
 // take the owning company's colour.
 
 #include "render/models.hpp"
 
+#include <algorithm>
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace tp::gfx {
@@ -12,11 +14,12 @@ namespace {
 const u32 kLivery = tintable(1.0f);
 const u32 kLiveryDark = tintable(0.75f);
 constexpr u32 kWhite = rgba(236, 236, 230);
-constexpr u32 kGlass = rgba(58, 78, 100, 254); // lit from inside at night
+constexpr u32 kGlass = rgba(58, 78, 100, 254);            // lit from inside at night
+constexpr u32 kPassengerGlass = rgba(100, 160, 190, 253); // transparent glazing pass
 constexpr u32 kTyre = rgba(34, 34, 38);
 constexpr u32 kChrome = rgba(170, 172, 176);
 constexpr u32 kRoofGrey = rgba(120, 124, 130);
-constexpr u32 kLight = rgba(250, 236, 170, 252);    // headlamp
+constexpr u32 kLight = rgba(250, 236, 170, 252); // headlamp
 constexpr u32 kTailLamp = rgba(200, 40, 30, 251);
 constexpr float kInset = 0.004f;
 // Tank engine running gear, shared with the renderer's animation (see vehicle_fx.cpp).
@@ -39,11 +42,29 @@ void lamps(MeshBuilder& mb, float x, float y, float spread, bool front) {
 }
 
 // Side window band from x0 to x1 at heights y0..y1 on both sides.
-void windowBand(MeshBuilder& mb, float x0, float x1, float y0, float y1, float halfW) {
-    mb.quadFacing({x0, y0, halfW + kInset}, {x1, y0, halfW + kInset}, {x1, y1, halfW + kInset}, {x0, y1, halfW + kInset},
-                  kGlass, {0, 0, 1});
+void windowBand(MeshBuilder& mb, float x0, float x1, float y0, float y1, float halfW, u32 glass = kGlass) {
+    mb.quadFacing({x0, y0, halfW + kInset}, {x1, y0, halfW + kInset}, {x1, y1, halfW + kInset},
+                  {x0, y1, halfW + kInset}, glass, {0, 0, 1});
     mb.quadFacing({x0, y0, -halfW - kInset}, {x1, y0, -halfW - kInset}, {x1, y1, -halfW - kInset},
-                  {x0, y1, -halfW - kInset}, kGlass, {0, 0, -1});
+                  {x0, y1, -halfW - kInset}, glass, {0, 0, -1});
+}
+
+// Hollow passenger body: full roof, floor and end walls, with real openings between pillars.
+void passengerShell(MeshBuilder& mb, float x0, float x1, float base, float top, float hw, u32 body, int bays,
+                    float sill = 0.14f, float windowTop = 0.24f) {
+    mb.box({x0, base, -hw}, {x1, sill, hw}, body);
+    mb.box({x0, windowTop, -hw}, {x1, top, hw}, body);
+    mb.box({x0, sill, -hw}, {x0 + 0.035f, windowTop, hw}, body);
+    mb.box({x1 - 0.035f, sill, -hw}, {x1, windowTop, hw}, body);
+    mb.box({x0 + 0.035f, base + 0.02f, -hw + 0.012f}, {x1 - 0.035f, base + 0.028f, hw - 0.012f},
+           rgba(75, 70, 65));
+    const float begin = x0 + 0.04f, finish = x1 - 0.04f;
+    windowBand(mb, begin, finish, sill, windowTop, hw, kPassengerGlass);
+    for (int i = 0; i <= bays; ++i) {
+        const float x = begin + (finish - begin) * i / bays;
+        for (const float side : {-1.0f, 1.0f})
+            mb.box({x - 0.006f, sill, side * hw - 0.008f}, {x + 0.006f, windowTop, side * hw + 0.008f}, body);
+    }
 }
 
 void busBody(MeshBuilder& mb, float length, float height, bool slantedFront, bool articulated) {
@@ -84,9 +105,8 @@ void tramBody(MeshBuilder& mb, float length, int sections) {
     for (int i = 0; i < sections; ++i) {
         const float x0 = -hl + seg * static_cast<float>(i) + (i ? 0.012f : 0.0f);
         const float x1 = -hl + seg * static_cast<float>(i + 1) - (i + 1 < sections ? 0.012f : 0.0f);
-        mb.box({x0, base, -hw}, {x1, top, hw}, kLivery);
+        passengerShell(mb, x0, x1, base, top, hw, kLivery, std::max(3, 8 / sections), 0.125f, top - 0.03f);
         mb.box({x0 + 0.01f, base, -hw - kInset}, {x1 - 0.01f, base + 0.05f, hw + kInset}, kLiveryDark);
-        windowBand(mb, x0 + 0.03f, x1 - 0.03f, base + 0.1f, top - 0.03f, hw);
         mb.box({x0 + 0.02f, top, -hw + 0.02f}, {x1 - 0.02f, top + 0.015f, hw - 0.02f}, kRoofGrey);
     }
     for (int i = 0; i + 1 < sections; ++i) {
@@ -104,6 +124,24 @@ void tramBody(MeshBuilder& mb, float length, int sections) {
     mb.quadFacing({-hl - kInset, base + 0.1f, -hw + 0.015f}, {-hl - kInset, top - 0.03f, -hw + 0.015f},
                   {-hl - kInset, top - 0.03f, hw - 0.015f}, {-hl - kInset, base + 0.1f, hw - 0.015f}, kGlass,
                   {-1, 0, 0});
+}
+
+void articulatedTramSection(MeshBuilder& mb, int visual, int section) {
+    constexpr float lengths[]{0.85f, 1.1f, 1.35f};
+    const int count = visual + 1;
+    const float length = lengths[visual] / count, half = length * 0.5f;
+    const float x0 = -half + (section + 1 < count ? 0.018f : 0), x1 = half - (section > 0 ? 0.018f : 0);
+    passengerShell(mb, x0, x1, 0.03f, 0.27f, 0.1f, kLivery, 3, 0.125f, 0.24f);
+    mb.box({x0 + 0.008f, 0.03f, -0.104f}, {x1 - 0.008f, 0.08f, 0.104f}, kLiveryDark);
+    mb.box({x0 + 0.01f, 0.27f, -0.08f}, {x1 - 0.01f, 0.285f, 0.08f}, kRoofGrey);
+    wheels(mb, -half * 0.48f, half * 0.48f, 0.095f, 0.028f);
+    if (section == count - 1) {
+        mb.quadFacing({-0.06f, 0.285f, 0}, {0, 0.36f, -0.004f}, {0.06f, 0.285f, 0}, {0, 0.36f, 0.004f},
+                      kChrome, {0, 0, 1});
+        mb.box({-0.05f, 0.358f, -0.04f}, {0.05f, 0.366f, 0.04f}, kChrome);
+    }
+    if (section == 0) lamps(mb, x1, 0.09f, 0.065f, true);
+    if (section == count - 1) lamps(mb, x0, 0.09f, 0.065f, false);
 }
 
 void busStopShelter(MeshBuilder& mb) {
@@ -475,16 +513,42 @@ void dieselEngine(MeshBuilder& mb, bool express) {
     railEnds(mb, hl, 0.085f, false);
 }
 
-void railcar(MeshBuilder& mb, float length, bool powered, bool wooden) {
+void railcar(MeshBuilder& mb, float length, bool powered, bool wooden, int style = 0) {
     constexpr u32 kWood = rgba(122, 70, 44);
-    const float hl = length * 0.5f, hw = 0.1f, base = 0.06f, top = 0.27f;
+    const float hl = length * 0.5f, hw = 0.1f, base = 0.06f, top = style == 6 ? 0.43f : 0.27f;
     const u32 body = wooden ? kWood : kLivery;
-    mb.box({-hl, base, -hw}, {hl, top, hw}, body);
+    passengerShell(mb, -hl, hl, base, top, hw, body,
+                   style == 2   ? 10
+                   : style == 3 ? 5
+                   : wooden     ? 7
+                                : 8,
+                   0.14f, top - 0.03f);
     mb.box({-hl + 0.01f, base, -hw - kInset}, {hl - 0.01f, base + 0.035f, hw + kInset}, wooden ? kLiveryDark : kLiveryDark);
-    windowBand(mb, -hl + 0.05f, hl - 0.05f, base + 0.09f, top - 0.04f, hw);
     // Curved-ish roof.
-    mb.box({-hl + 0.005f, top, -hw + 0.015f}, {hl - 0.005f, top + 0.02f, hw - 0.015f}, kRoofGrey);
+    mb.box({-hl + 0.005f, top, -hw + 0.015f}, {hl - 0.005f, top + 0.02f, hw - 0.015f},
+           style == 4 ? kWhite : kRoofGrey);
     mb.box({-hl + 0.01f, top + 0.02f, -hw + 0.04f}, {hl - 0.01f, top + 0.03f, hw - 0.04f}, kRoofGrey);
+    if (style == 1) { // commuter doors
+        for (const float x : {-0.23f, 0.23f})
+            for (const float side : {-1.0f, 1.0f})
+                mb.box({x - 0.018f, base, side * hw - 0.008f}, {x + 0.018f, top, side * hw + 0.008f}, kWhite);
+    }
+    if (style == 2 || style == 5) { // compartment / sleeper stripe
+        for (const float side : {-1.0f, 1.0f})
+            mb.box({-hl + 0.02f, 0.105f, side * hw - 0.006f}, {hl - 0.02f, 0.125f, side * hw + 0.006f},
+                   style == 5 ? rgba(45, 65, 110) : rgba(220, 190, 105));
+    }
+    if (style == 4) { // restaurant tables and roof ventilators
+        for (const float x : {-0.22f, -0.07f, 0.08f, 0.23f}) {
+            mb.box({x - 0.025f, 0.14f, -0.075f}, {x + 0.025f, 0.15f, 0.075f}, kWhite);
+            mb.box({x - 0.025f, top + 0.025f, -0.03f}, {x + 0.025f, top + 0.05f, 0.03f}, kChrome);
+        }
+    }
+    if (style == 6) { // two decks, with a solid floor and belt between their window rows
+        mb.box({-hl + 0.035f, 0.245f, -hw}, {hl - 0.035f, 0.26f, hw}, kLiveryDark);
+        for (const float side : {-1.0f, 1.0f})
+            mb.box({-hl, 0.23f, side * hw - 0.008f}, {hl, 0.275f, side * hw + 0.008f}, kLiveryDark);
+    }
     if (powered) {
         mb.quadFacing({hl + kInset, base + 0.09f, -hw + 0.015f}, {hl + kInset, base + 0.09f, hw - 0.015f},
                       {hl + kInset, top - 0.03f, hw - 0.015f}, {hl + kInset, top - 0.03f, -hw + 0.015f}, kGlass, {1, 0, 0});
@@ -667,13 +731,47 @@ void person(MeshBuilder& mb) {
 } // namespace
 
 void buildTransportModels(MeshBuilder& out, ModelId id) {
+    if (id >= models::kTramSectionBase && id < models::kTramBellows) {
+        const int slot = id - models::kTramSectionBase;
+        if (slot % 3 <= slot / 3) articulatedTramSection(out, slot / 3, slot % 3);
+        return;
+    }
     switch (id) {
+    case models::kStationApproach:
+        out.box({-0.5f, -0.025f, -0.35f}, {0.5f, 0, 0.35f}, stationStyle::paving);
+        for (float side : {-1.0f, 1.0f})
+            out.box({-0.5f, 0, side * 0.33f - 0.018f}, {0.5f, 0.018f, side * 0.33f + 0.018f},
+                    stationStyle::stone);
+        out.box({-0.5f, 0.001f, -0.33f}, {-0.487f, 0.003f, 0.33f}, stationStyle::mortar);
+        out.box({-0.5f, 0.001f, -0.004f}, {0.5f, 0.003f, 0.004f}, stationStyle::mortar);
+        break;
     case models::kStationEntrance:
-        out.box({-0.32f,0,-0.20f},{-0.12f,0.48f,0.20f},rgba(180,165,143));
-        out.box({0.12f,0,-0.20f},{0.32f,0.48f,0.20f},rgba(180,165,143));
-        out.box({-0.36f,0.48f,-0.24f},{0.36f,0.55f,0.24f},tintable(1.0f));
-        out.box({-0.22f,0.36f,0.205f},{0.22f,0.45f,0.215f},rgba(50,95,160));
-        out.box({-0.03f,0.37f,0.215f},{0.03f,0.44f,0.22f},rgba(240,240,235));
+        for (float side : {-1.0f, 1.0f}) {
+            const float x = side * 0.37f;
+            out.box({x - 0.055f, 0, -0.10f}, {x + 0.055f, 0.32f, 0.10f}, stationStyle::stone);
+            out.box({x - 0.067f, 0.02f, -0.112f}, {x + 0.067f, 0.06f, 0.112f}, stationStyle::trim);
+            out.box({x - 0.067f, 0.30f, -0.112f}, {x + 0.067f, 0.34f, 0.112f}, stationStyle::trim);
+            // Bollards frame the pedestrian opening rather than closing it off.
+            out.prism({side * 0.27f, 0, 0.22f}, 0.017f, 0.14f, 6, stationStyle::metal);
+            out.prism({side * 0.27f, 0.11f, 0.22f}, 0.018f, 0.02f, 6, stationStyle::lettering);
+            out.box({side * 0.49f - 0.07f, 0, -0.05f}, {side * 0.49f + 0.07f, 0.09f, 0.10f},
+                    stationStyle::stone);
+            out.icosphere({side * 0.49f, 0.12f, 0.025f}, 0.075f, rgba(75, 118, 70));
+        }
+        out.box({-0.44f, 0.34f, -0.13f}, {0.44f, 0.385f, 0.13f}, stationStyle::trim);
+        out.box({-0.25f, 0.24f, -0.025f}, {0.25f, 0.34f, 0.025f}, stationStyle::sign);
+        for (float face : {-1.0f, 1.0f}) {
+            const float z = face * 0.027f;
+            out.box({-0.16f, 0.27f, z - 0.001f}, {0.13f, 0.282f, z + 0.001f}, stationStyle::lettering);
+            out.box({-0.16f, 0.30f, z - 0.001f}, {0.18f, 0.316f, z + 0.001f}, stationStyle::lettering);
+        }
+        break;
+    case models::kTramBellows:
+        out.box({-0.04f, 0.05f, -0.085f}, {0.04f, 0.25f, 0.085f}, rgba(65, 69, 73));
+        for (int n = 0; n < 5; ++n) {
+            const float x = -0.038f + n * 0.019f;
+            out.box({x - 0.003f, 0.045f, -0.092f}, {x + 0.003f, 0.255f, 0.092f}, rgba(104, 108, 111));
+        }
         break;
     case models::kFootbridge:
         out.box({-0.5f,-0.045f,-0.15f},{0.5f,0,0.15f},rgba(155,157,160));
@@ -681,6 +779,12 @@ void buildTransportModels(MeshBuilder& out, ModelId id) {
             out.box({-0.5f,0.15f,z-0.015f},{0.5f,0.18f,z+0.015f},rgba(68,78,88));
             for(float x:{-0.48f,0.0f,0.48f})out.box({x-0.015f,0,z-0.015f},{x+0.015f,0.18f,z+0.015f},rgba(68,78,88));
         }
+        break;
+    case models::kSeatedPerson:
+        out.box({-0.022f, 0.015f, -0.02f}, {0.022f, 0.055f, 0.02f}, rgba(65, 80, 105));
+        out.box({-0.013f, 0.045f, -0.015f}, {0.013f, 0.10f, 0.015f}, tintable(1.0f));
+        out.box({-0.011f, 0.10f, -0.014f}, {0.011f, 0.14f, 0.014f}, rgba(226, 190, 160));
+        out.box({0.015f, 0.025f, -0.015f}, {0.038f, 0.05f, 0.015f}, rgba(50, 58, 76));
         break;
     case models::kCrate:
         out.box({-0.035f, 0, -0.035f}, {0.035f, 0.07f, 0.035f}, tintable(1.0f));
@@ -804,9 +908,33 @@ void buildTransportModels(MeshBuilder& out, ModelId id) {
     case models::train(0): steamEngine(out); break;
     case models::train(1): dieselEngine(out, false); break;
     case models::train(2): dieselEngine(out, true); break;
-    case models::train(3): railcar(out, 0.72f, true, false); break;
-    case models::train(8): railcar(out, 0.6f, false, true); break;
-    case models::train(9): railcar(out, 0.66f, false, false); break;
+    case models::train(3):
+        railcar(out, 0.75f, true, false);
+        break;
+    case models::train(4):
+        railcar(out, 0.75f, false, false, 1);
+        break;
+    case models::train(5):
+        railcar(out, 0.75f, false, false, 2);
+        break;
+    case models::train(6):
+        railcar(out, 0.75f, false, false, 3);
+        break;
+    case models::train(7):
+        railcar(out, 0.75f, false, false, 4);
+        break;
+    case models::train(8):
+        railcar(out, 0.75f, false, true);
+        break;
+    case models::train(9):
+        railcar(out, 0.75f, false, false);
+        break;
+    case models::train(14):
+        railcar(out, 0.75f, false, false, 5);
+        break;
+    case models::train(15):
+        railcar(out, 0.75f, false, false, 6);
+        break;
     case models::ship(0): harbourLaunch(out); break;
     case models::ship(1): coastalFerry(out); break;
     case models::ship(2): hydrofoil(out); break;

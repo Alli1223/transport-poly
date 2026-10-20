@@ -55,6 +55,7 @@ enum class Tool {
     StationEntrance,
     Electrify,   // put up overhead wires over track
     RemoveWires, // take them down
+    DemolishBuilding,
     PickOrder, // click a station to append it to the selected vehicle's orders
 };
 
@@ -118,6 +119,7 @@ private:
     void handleSignalTool(std::vector<gfx::OverlayQuad>& overlays);
     void handleElectrifyTool(std::vector<gfx::OverlayQuad>& overlays);
     bool pickTrackOrder(std::vector<gfx::OverlayQuad>& overlays);
+    void drawStationUpgradePreview(std::vector<gfx::OverlayQuad>& overlays);
 
     // app_menu.cpp
     void drawMainMenu();
@@ -136,6 +138,7 @@ private:
     // app_windows.cpp
     void drawWindows();
     void drawDepotWindow();
+    void drawVehicleCatalogue(DepotId depot);
     void drawVehicleWindow();
     void drawStationWindow();
     void drawTownWindow();
@@ -169,6 +172,7 @@ private:
     char chatBuf_[256] = "";
     int port_ = 3979;
     VehicleId consistVehicle_;
+    int requestedCatalogueTab_ = -1;
     u16 consistCar_ = 0;
     bool showGameMenu_ = false;
     bool showSettings_ = false;
@@ -193,6 +197,8 @@ private:
     ToolGroup toolGroup_ = ToolGroup::None;
     StationId stationEditTarget_;
     i32 stationPlatformLength_ = 6;
+    std::optional<CommandPayload> stationUpgradePreview_; // hovered station action, cleared every frame
+    std::string stationUpgradeLabel_;
     i32 brushRadius_ = 3;      // terraform brush size, tiles
     double lastBrush_ = 0.0;   // when the brush last applied (held mouse repeats)
     u16 levelTarget_ = 0;      // fine height the Level brush flattens to
@@ -284,7 +290,11 @@ private:
     bool demoShips_ = false;        // automation: build a demo ferry line on the nearest coast
     bool demoTrack_ = false;        // automation: lay curved free-form track near the camera
     bool demoStation_ = false;      // automation: road entrances, walking and station upgrades
+    bool previewStationDetails_ = false;
+    bool previewPassengers_ = false; // automation: occupied coaches and tram with intact roofs
+    bool previewDemolition_ = false;
     bool previewStation_ = false;   // automation: show the station tool placing a platform
+    std::string previewStationUpgradeAction_; // automation: left, right, west or east
     bool previewConsist_ = false;
     bool previewConsistPopup_ = false;
     bool previewOrders_ = false;    // automation: show the order picker over a platform

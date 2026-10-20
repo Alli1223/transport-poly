@@ -265,4 +265,59 @@ std::optional<VehiclePose> vehiclePose(const World& w, const Vehicle& v, double 
     return pose;
 }
 
+int tramSectionCount(const Vehicle& v) {
+    return v.info().type == VehicleType::Tram ? std::clamp(int(v.info().visual) + 1, 1, 3) : 1;
+}
+float tramSectionLength(const Vehicle& v) {
+    constexpr float lengths[]{0.85f, 1.1f, 1.35f};
+    return lengths[std::clamp(int(v.info().visual), 0, 2)] / tramSectionCount(v);
+}
+void tramSectionPoses(const World& w, const Vehicle& v, double fraction, std::vector<VehiclePose>& out) {
+    const auto front = vehiclePose(w, v, fraction);
+    if (!front) return;
+    out.push_back(*front);
+    const int count = tramSectionCount(v);
+    if (count == 1) return;
+    const double section = tramSectionLength(v);
+    double head = v.progress;
+    if (v.state == VehicleState::Driving && !v.stopped) head += v.speed * fraction;
+    const auto roadPoint = [&](double back) {
+        double s = head - back * kTrackUnits;
+        TrackSeg segment{v.tile, v.entry, v.exit};
+        if (s < 0)
+            for (const auto& previous : v.trail) {
+                segment = previous;
+                s += pathLength(segment.entry, segment.exit);
+                if (s >= 0) break;
+            }
+        // Saves made before tram articulation have no history: extend their entry tangent.
+        const float t =
+            static_cast<float>(std::clamp(s / double(pathLength(segment.entry, segment.exit)), 0.0, 1.0));
+        const Dir travel = opposite(segment.entry);
+        const auto sample = canonical(turnKind(segment.entry, segment.exit), t);
+        auto p = rotatePoint(sample.p, travel);
+        if (s < 0) p += rotateDir(sample.dir, travel) * static_cast<float>(s / kTrackUnits);
+        const float y =
+            roadSurfaceY(w, segment.tile, std::clamp(p.x, 0.0f, 1.0f), std::clamp(p.y, 0.0f, 1.0f));
+        return glm::dvec3(segment.tile.x + p.x, y + 0.03, segment.tile.y + p.y);
+    };
+    const auto forward = [](const VehiclePose& p) {
+        return glm::dvec3(std::cos(p.yaw) * std::cos(p.pitch), std::sin(p.pitch),
+                          -std::sin(p.yaw) * std::cos(p.pitch));
+    };
+    for (int i = 1; i < count; ++i) {
+        const auto& previous = out.back();
+        const auto joint = previous.pos - forward(previous) * section * 0.5;
+        const auto target = roadPoint((i + 0.5) * section);
+        auto direction = joint - target;
+        if (glm::length(direction) < 1e-6) direction = forward(previous);
+        direction = glm::normalize(direction);
+        VehiclePose pose;
+        pose.pos = joint - direction * section * 0.5;
+        pose.yaw = static_cast<float>(std::atan2(-direction.z, direction.x));
+        pose.pitch = static_cast<float>(std::atan2(direction.y, std::hypot(direction.x, direction.z)));
+        out.push_back(pose);
+    }
+}
+
 } // namespace tp::gfx

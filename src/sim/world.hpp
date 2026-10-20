@@ -121,6 +121,7 @@ public:
     // Tile key -> vehicles on the tile (rebuilt every tick).
     std::unordered_map<u64, std::vector<VehicleId>> vehicleTiles;
     RoutingTable routing;
+    TownLinks townLinks; // derived from the routing (not saved)
 
     // Advances the simulation by one tick (15 in-game seconds).
     void tick();
@@ -153,8 +154,15 @@ public:
             if (ar.version != 0 && ar.version < 17)
                 for (auto [id, v] : vehicles) v.loadingStartTick = clock.tick;
             people::rebuildEvents(*this);
+            if (ar.version != 0 && ar.version < 22) // railway stations reach further than they used to
+                for (auto [id, s] : stations)
+                    if (s.facilities & kFacilityRail)
+                        s.catchment = std::max(s.catchment, static_cast<decltype(s.catchment)>(catchmentRadius(StopKind::Rail)));
             stations::rebuildIndex(*this);
             routing = RoutingTable{};
+            // Older saves adopt daily connected-town demand on their first routing rebuild.
+            routing.preserveSchedulesOnBuild = ar.version == 0 || ar.version >= 23;
+            townLinks = TownLinks{};
             rebuildSignalIndex();
             track::rebuildDerived(*this);
             if (ar.version != 0 && ar.version < 18) walking::migrateLegacy(*this);

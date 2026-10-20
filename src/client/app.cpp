@@ -527,6 +527,14 @@ bool App::parseArgs(int argc, char** argv) {
             demoTrack_ = true;
         } else if (arg == "--demo-station") {
             demoStation_ = true;
+        } else if (arg == "--preview-station-details") {
+            demoStation_ = true;
+            previewStationDetails_ = true;
+        } else if (arg == "--preview-passengers") {
+            previewPassengers_ = true;
+        } else if (arg == "--preview-demolition") {
+            demoStation_ = true;
+            previewDemolition_ = true;
         } else if (arg == "--preview-consist" || arg == "--preview-consist-popup") {
             previewConsist_ = true;
             previewConsistPopup_ = arg == "--preview-consist-popup";
@@ -534,6 +542,9 @@ bool App::parseArgs(int argc, char** argv) {
             openWindows_ = "depot";
         } else if (arg == "--preview-station") {
             previewStation_ = true;
+        } else if (arg == "--preview-station-upgrade") {
+            if (const char* v = next()) previewStationUpgradeAction_ = v;
+            demoStation_ = true;
         } else if (arg == "--preview-orders") {
             previewOrders_ = true;
         } else if (arg == "--demo-bridge") {
@@ -662,10 +673,29 @@ void App::newGame(u64 seed) {
     settings.terrain = terrainSettings(preferences_);
     settings.seed = seed;
     startSession(std::make_unique<LocalSession>(settings));
+    if (previewPassengers_) {
+        buildPassengerShowcase(world(), session_->localCompany());
+        session_->setSpeed(0);
+        showMinimap_ = false;
+        if (!startCamera_) startCamera_ = glm::dvec4(46, 21, 7, 0);
+        if (startPitchDeg_ < 0) startPitchDeg_ = 15;
+        renderer_.invalidateAll();
+    }
     if (demoStation_) {
         selStation_ = buildDemoStation(world(),session_->localCompany());
+        if (previewStationDetails_) {
+            selStation_ = {};
+            showMinimap_ = false;
+            session_->setSpeed(0);
+        }
         if (!startCamera_) startCamera_=glm::dvec4(25,24,26,25);
         renderer_.invalidateAll();
+        if (previewDemolition_) {
+            selStation_ = {};
+            tool_ = Tool::DemolishBuilding;
+            toolGroup_ = ToolGroup::Road;
+            previewHover_ = glm::dvec3(20.5, 0, 27.5);
+        }
     }
 }
 
@@ -812,7 +842,14 @@ void App::processFeedback(double now) {
         if (f.name != "Explore") audio_.play(f.result.ok);
         if (f.result.ok) {
             if (f.seq == pendingBuySeq_ && f.result.createdId != 0xFFFFFFFFu) {
-                selVehicle_ = VehicleId(f.result.createdId);
+                const VehicleId bought(f.result.createdId);
+                const auto* vehicle = world().vehicles.tryGet(bought);
+                if (selDepot_.valid() && vehicle && vehicle->info().type == VehicleType::Rail) {
+                    consistVehicle_ = bought;
+                    consistCar_ = 0;
+                    requestedCatalogueTab_ = 1;
+                } else
+                    selVehicle_ = bought;
                 pendingBuySeq_ = 0;
             }
             if (f.result.cost != 0) {
@@ -1505,7 +1542,9 @@ int App::run(int argc, char** argv) {
 
             drawHud();
             drawToolbar();
+            stationUpgradePreview_.reset();
             drawWindows();
+            drawStationUpgradePreview(overlays);
             drawDebugUi();
             drawChat();
             drawGameMenu();

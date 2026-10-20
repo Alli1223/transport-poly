@@ -4,8 +4,10 @@
 #include "sim/walking.hpp"
 #include "sim/world.hpp"
 #include "test.hpp"
+#include <cmath>
 #ifdef TP_TEST_RENDERING
 #include "render/person_pose.hpp"
+#include "render/track_renderer.hpp"
 #endif
 using namespace tp;
 namespace {
@@ -249,10 +251,52 @@ TEST_CASE("stations: passengers cross between platforms using a raised concourse
     CHECK(walk.back().p == to);
     const auto door = track::pointOn(a,true,a.length-64).p;
     const auto along = walking::withinStation(f.w,sid,from,door);
-    REQUIRE(along.size() == 4u);
-    CHECK(along[1].p.z == from.z);
-    CHECK(along[2].p.z == from.z);
+    REQUIRE(along.size() >= 2u);
+    for (const auto p : along) {
+        CHECK_EQ(p.height, f.w.trackNodes[a.a].h);
+        CHECK(p.p.z >= door.z);
+    }
     CHECK(along.back().p == door);
+    auto opposite = from;
+    opposite.z -= 400;
+    const auto across = walking::withinStation(f.w, sid, from, opposite);
+    CHECK(std::ranges::any_of(across, [&](const WalkPoint& p) { return p.height > f.w.trackNodes[a.a].h; }));
+}
+
+TEST_CASE("stations: complete compact footbridges exist without road entrances and follow upgrades") {
+    Streets f;
+    const auto sid = f.platform();
+    const auto first = track::platformsOf(f.w, sid).front().front();
+    REQUIRE(f.w.stations[sid].entrances.empty());
+    const auto check = [&](usize platforms) {
+        const auto stairs = walking::stationConcourse(f.w, sid);
+        REQUIRE(stairs.size() == platforms * 2);
+        const i32 rail = f.w.trackNodes[f.w.trackEdges[first].a].h;
+        for (const auto& stair : stairs) {
+            CHECK_EQ(stair.landing.height, rail + 24);
+            const auto platform = track::platformsOf(f.w, sid)[stair.platform - 1].front();
+            CHECK_EQ(stair.foot.height, f.w.trackNodes[f.w.trackEdges[platform].a].h);
+            CHECK(distance(stair.foot.p, stair.landing.p) >= kTrackUnits);
+            const auto walk = walking::withinStation(f.w, sid, stair.foot.p, stairs.back().foot.p);
+            for (const auto& point : walk) CHECK(point.height <= rail + 24);
+        }
+#ifdef TP_TEST_RENDERING
+        gfx::MeshBuilder mesh;
+        gfx::buildStationConcourseMesh(f.w, sid, {}, mesh);
+        REQUIRE(!mesh.vertices.empty());
+        for (const auto& vertex : mesh.vertices) {
+            CHECK(std::isfinite(vertex.pos.x));
+            CHECK(vertex.pos.y < (rail + 24) / 32.0f + 0.3f);
+        }
+#endif
+    };
+    check(1);
+    REQUIRE(f.run(CmdAddPlatform{sid, first, 1, 8}).ok);
+    REQUIRE(f.run(CmdAddPlatform{sid, first, -1, 8}).ok);
+    check(3);
+    const auto end = track::platformEnds(f.w, first).front().node;
+    REQUIRE(f.run(CmdExtendPlatform{sid, end, 4}).ok);
+    check(3);
 }
 
 TEST_CASE("stations: extending a connected platform keeps real trains shuttling") {

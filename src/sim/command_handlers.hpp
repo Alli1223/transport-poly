@@ -20,6 +20,7 @@ CommandResult handle(World& w, const Command& c, const CmdBuildTrackStation& x, 
 CommandResult handle(World& w, const Command& c, const CmdBuildTrackDepot& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdTrackSignal& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdClearArea& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdDemolishBuilding& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdPlantTrees& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdBuildRoad& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdRemoveRoad& x, bool exec);

@@ -51,6 +51,7 @@ CommandResult executeCommand(World& world, const Command& cmd) {
 
 std::string_view commandName(const CommandPayload& payload) {
     return std::visit(Overloaded{
+                          [](const CmdDemolishBuilding&) { return std::string_view("Demolish building"); },
                           [](const CmdActivateChunks&) { return std::string_view("Explore"); },
                           [](const CmdCreateCompany&) { return std::string_view("Create company"); },
                           [](const CmdSetLoan&) { return std::string_view("Change loan"); },

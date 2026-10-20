@@ -1,4 +1,5 @@
 #include "render/terrain_mesher.hpp"
+#include "render/station_style.hpp"
 
 #include "core/hash.hpp"
 #include "sim/rail.hpp"
@@ -329,7 +330,7 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 const float depth = std::min((nw.y + ne.y + se.y + sw.y) * 0.25f, 0.0f);
                 base = shade(base, std::max(0.45f, 1.0f + depth * 0.18f));
             } else if (tile.type == TileType::Footpath) {
-                base = kPavement;
+                base = stationStyle::mortar;
             } else if (tile.type == TileType::Building) {
                 base = lod == 0 ? (residential ? (residential(tile.index) ? kGarden : kPlaza) : buildingGround(tile, world)) : kUrbanBuilding;
             } else if ((tile.type == TileType::Road || tile.type == TileType::Station) && lod > 0) {
@@ -410,6 +411,48 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 }
                 if (axisX) ground.box({x0 + 0.4f, y + 0.6f, z0 + 0.08f}, {x0 + 0.6f, y + 0.75f, z0 + 0.92f}, kFoundation);
                 else ground.box({x0 + 0.08f, y + 0.6f, z0 + 0.4f}, {x0 + 0.92f, y + 0.75f, z0 + 0.6f}, kFoundation);
+            }
+            if (lod == 0 && tile.type == TileType::Footpath) {
+                const auto fine = chunk.fineCorners(lx, ly);
+                const auto pave = [&](float u0, float v0, float u1, float v1, float lift, u32 colour) {
+                    const auto p = [&](float u, float v) {
+                        return glm::vec3(x0 + u, tileSurfaceLevel(fine, u, v) * kHeightStep + lift, z0 + v);
+                    };
+                    ground.triangleUp(p(u0, v0), p(u1, v1), p(u1, v0), colour);
+                    ground.triangleUp(p(u0, v0), p(u0, v1), p(u1, v1), colour);
+                };
+                // Warm stone slabs echo the platforms, with dark joints and contrasting kerbs.
+                for (int row = 0; row < 4; ++row)
+                    for (int col = 0; col < 4; ++col) {
+                        const float u = col * 0.25f, v = row * 0.25f;
+                        pave(u + 0.007f, v + 0.007f, u + 0.243f, v + 0.243f, 0.012f,
+                             shade(stationStyle::paving, ((wp.x + wp.y + row + col) & 1) ? 1.0f : 0.97f));
+                    }
+                const auto connected = [&](int dx, int dz) {
+                    const Tile* neighbour = nullptr;
+                    if (lx + dx >= 0 && lx + dx < kChunkSize && ly + dz >= 0 && ly + dz < kChunkSize)
+                        neighbour = &chunk.tile(lx + dx, ly + dz);
+                    else if (world)
+                        neighbour = world->map.tile({wp.x + dx, wp.y + dz});
+                    return !neighbour || neighbour->type == TileType::Footpath ||
+                           neighbour->type == TileType::Road || neighbour->type == TileType::Rail ||
+                           neighbour->type == TileType::Station;
+                };
+                if (!connected(-1, 0)) pave(0, 0, 0.045f, 1, 0.027f, stationStyle::stone);
+                if (!connected(1, 0)) pave(0.955f, 0, 1, 1, 0.027f, stationStyle::stone);
+                if (!connected(0, -1)) pave(0, 0, 1, 0.045f, 0.027f, stationStyle::stone);
+                if (!connected(0, 1)) pave(0, 0.955f, 1, 1, 0.027f, stationStyle::stone);
+                // A small pedestrian stencil distinguishes the approach from a service road.
+                if ((wp.x + wp.y) % 3 == 0) {
+                    const auto mark = [&](float a, float b, float c, float d) {
+                        pave(a, b, c, d, 0.018f, stationStyle::lettering);
+                    };
+                    mark(0.47f, 0.28f, 0.53f, 0.34f);
+                    mark(0.475f, 0.36f, 0.525f, 0.53f);
+                    mark(0.40f, 0.39f, 0.60f, 0.425f);
+                    mark(0.45f, 0.51f, 0.485f, 0.67f);
+                    mark(0.515f, 0.51f, 0.55f, 0.67f);
+                }
             }
             if (structure && roadLike)
                 addRoad(ground, top, x0, z0, roadPieces(tile), tramPieces(tile), tile.type == TileType::Station);

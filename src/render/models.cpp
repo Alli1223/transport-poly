@@ -120,8 +120,15 @@ void buildCloud(MeshBuilder& mb, int variant) {
 void ModelLibrary::build() {
     std::vector<Vertex> all;
     const auto add = [&](ModelId id, const MeshBuilder& mb) {
-        ranges_[id] = {static_cast<GLint>(all.size()), static_cast<GLsizei>(mb.vertices.size())};
-        all.insert(all.end(), mb.vertices.begin(), mb.vertices.end());
+        for (const bool glass : {false, true}) {
+            const auto begin = all.size();
+            for (usize i = 0; i + 2 < mb.vertices.size(); i += 3) {
+                if (((mb.vertices[i].color >> 24) == 253) != glass) continue;
+                all.insert(all.end(), mb.vertices.begin() + i, mb.vertices.begin() + i + 3);
+            }
+            (glass ? glassRanges_ : ranges_)[id] = {static_cast<GLint>(begin),
+                                                    static_cast<GLsizei>(all.size() - begin)};
+        }
     };
     // Opaque vertices of trees take alpha 250, so the shaders sway them in the wind.
     const auto swaying = [](MeshBuilder& mb) {
@@ -160,11 +167,11 @@ void ModelLibrary::build() {
         buildCloud(mb, v);
         add(static_cast<ModelId>(models::kCloud0 + v), mb);
     }
-    for (const ModelId id : {models::kBusStop, models::kRoadDepot, models::kTramDepot, models::kPerson,
-                             models::kRailDepot, models::kSignal, models::kPlatformCanopy, models::kDock,
-                             models::kShipDepot, models::kSmoke, models::kStreetLamp, models::kCrate,
-                             models::kGrain, models::kFoodLogo, models::kGoodsLogo, models::kStationEntrance,
-                             models::kFootbridge}) {
+    for (const ModelId id :
+         {models::kBusStop, models::kRoadDepot, models::kTramDepot, models::kPerson, models::kRailDepot,
+          models::kSignal, models::kPlatformCanopy, models::kDock, models::kShipDepot, models::kSmoke,
+          models::kStreetLamp, models::kCrate, models::kGrain, models::kFoodLogo, models::kGoodsLogo,
+          models::kStationEntrance, models::kFootbridge, models::kSeatedPerson, models::kStationApproach}) {
         MeshBuilder mb;
         buildTransportModels(mb, id);
         add(id, mb);
@@ -176,6 +183,11 @@ void ModelLibrary::build() {
             buildTransportModels(mb, id);
             if (!mb.vertices.empty()) add(id, mb);
         }
+    }
+    for (ModelId id = models::kTramSectionBase; id <= models::kTramBellows; ++id) {
+        MeshBuilder mb;
+        buildTransportModels(mb, id);
+        if (!mb.vertices.empty()) add(id, mb);
     }
     for (const ModelId id : {models::kSteamWheelset, models::kSideRod, models::kMainRod, models::kCatenaryMast,
                              models::kCatenaryWire, models::kPantograph}) {
@@ -205,8 +217,9 @@ void ModelLibrary::build() {
     glBindVertexArray(0);
 }
 
-void ModelLibrary::drawInstanced(ModelId id, GLuint instanceBuffer, usize byteOffset, GLsizei count) const {
-    const Range r = range(id);
+void ModelLibrary::drawInstanced(ModelId id, GLuint instanceBuffer, usize byteOffset, GLsizei count,
+                                 bool glass) const {
+    const Range r = glass ? glassRanges_[id] : range(id);
     if (count <= 0 || r.count == 0) return;
     glBindVertexArray(vao_.get());
     glBindBuffer(GL_ARRAY_BUFFER, instanceBuffer);
@@ -244,12 +257,12 @@ void InstanceBatch::upload() {
     glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(bytes), staging_.data());
 }
 
-void InstanceBatch::draw(const ModelLibrary& lib) const {
+void InstanceBatch::draw(const ModelLibrary& lib, bool glass) const {
     if (staging_.empty()) return;
     for (usize i = 0; i < kModelCount; ++i) {
         if (perModel_[i].empty()) continue;
         lib.drawInstanced(static_cast<ModelId>(i), buffer_.get(), offsets_[i] * sizeof(ModelInstance),
-                          static_cast<GLsizei>(perModel_[i].size()));
+                          static_cast<GLsizei>(perModel_[i].size()), glass);
     }
 }
 

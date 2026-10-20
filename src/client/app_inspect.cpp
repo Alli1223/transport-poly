@@ -44,6 +44,10 @@ void vehicleBodies(const World& w, const Vehicle& v, double fraction, std::vecto
         std::vector<gfx::CarPose> cars;
         gfx::trainCarPoses(w, v, fraction, cars);
         for (const gfx::CarPose& car : cars) out.push_back({car.pose, vehicleModel(car.model).length / 32.0, 0.1, 0.17});
+    } else if (type == VehicleType::Tram) {
+        std::vector<gfx::VehiclePose> parts;
+        gfx::tramSectionPoses(w, v, fraction, parts);
+        for (const gfx::VehiclePose& part : parts) out.push_back({part, gfx::tramSectionLength(v) * 0.5, 0.09, 0.15});
     } else if (const auto pose = gfx::vehiclePose(w, v, fraction)) {
         const bool ship = type == VehicleType::Ship;
         out.push_back({*pose, v.info().length / 32.0, ship ? 0.2 : 0.08, ship ? 0.22 : 0.14});
@@ -118,6 +122,16 @@ Trip tripOf(const World& w, const Person& p) {
     case TripPurpose::Home:
         t = {resolveBuilding(w, p.home), "Going home", "home", ui::Icon::Home, ui::col::kLeaf};
         break;
+    case TripPurpose::Visit: {
+        t.dest = resolveBuilding(w, p.visit);
+        const bool business = t.dest && t.dest->info().category != BuildingCategory::Retail &&
+                              t.dest->info().category != BuildingCategory::Civic;
+        t.purpose = business ? "On a business trip" : "On a day out";
+        t.place = business ? "a meeting" : "a day out";
+        t.icon = business ? ui::Icon::Briefcase : ui::Icon::Star;
+        t.colour = ui::col::kPurple;
+        break;
+    }
     default: break;
     }
     return t;

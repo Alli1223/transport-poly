@@ -245,43 +245,69 @@ std::optional<std::vector<WalkPoint>> fromStation(const World& w, StationId sid,
     if (path) std::reverse(path->begin(), path->end());
     return path;
 }
+std::vector<PlatformStairs> stationConcourse(const World& w, StationId sid) {
+    const auto platforms = track::platformsOf(w, sid);
+    if (platforms.empty()) return {};
+    const auto ends = track::platformEnds(w, platforms.front().front());
+    if (ends.size() != 2) return {};
+    const auto origin = w.trackNodes[ends.front().node].pos;
+    const auto dir = -ends.front().outward;
+    const TDir normal{-dir.z, dir.x};
+    const auto along = [&](TPoint p) {
+        return ((i64(p.x) - origin.x) * dir.x + (i64(p.z) - origin.z) * dir.z) / kDirOne;
+    };
+    i64 lo = 0, hi = INT64_MAX;
+    i32 height = 0;
+    for (const auto& chain : platforms) {
+        const auto tips = track::platformEnds(w, chain.front());
+        if (tips.size() != 2) return {};
+        const auto a = along(w.trackNodes[tips[0].node].pos), b = along(w.trackNodes[tips[1].node].pos);
+        lo = std::max(lo, std::min(a, b));
+        hi = std::min(hi, std::max(a, b));
+        height = std::max(height, w.trackNodes[w.trackEdges[chain.front()].a].h);
+    }
+    // A 0.75-tile rise clears carriage roofs while keeping the stairs in scale.
+    height += 24;
+    const i64 landingAlong = lo + std::min<i64>(kTrackUnits / 2, std::max<i64>(32, (hi - lo) / 4));
+    const i64 footAlong = std::min(landingAlong + 3 * kTrackUnits / 2, hi - 32);
+    std::vector<PlatformStairs> stairs;
+    for (usize n = 0; n < platforms.size(); ++n) {
+        const auto& edge = w.trackEdges[platforms[n].front()];
+        const auto centre = w.trackNodes[edge.a].pos;
+        const auto top = offset(centre, dir, landingAlong - along(centre));
+        for (const i32 side : {-1, 1}) {
+            const auto landing = offset(top, normal, side * 190);
+            stairs.push_back({static_cast<i32>(n + 1),
+                              {offset(landing, dir, footAlong - landingAlong), w.trackNodes[edge.a].h},
+                              {landing, height}});
+        }
+    }
+    return stairs;
+}
 std::vector<WalkPoint> withinStation(const World& w, StationId sid, TPoint from, TPoint to) {
     const auto a = track::platformNear(w, sid, from), b = track::platformNear(w, sid, to);
     if (!a.valid() || !b.valid()) return {{from}, {to}};
-    const bool same = track::platformNumber(w, sid, from) == track::platformNumber(w, sid, to);
-    const auto platforms = track::platformsOf(w, sid);
-    const auto ends = track::platformEnds(w, platforms.front().front());
-    if (ends.size() != 2) return {{from}, {to}};
-    const auto& na = w.trackNodes[ends.front().node];
-    const auto dir = -ends.front().outward;
-    const auto origin = offset(na.pos, dir, kTrackUnits);
-    const auto stairs = [&](TPoint p) {
-        const i64 along = (i64(origin.x) - p.x) * dir.x / kDirOne + (i64(origin.z) - p.z) * dir.z / kDirOne;
-        return offset(p, dir, along);
+    const auto stairs = stationConcourse(w, sid);
+    if (stairs.empty()) return {{from}, {to}};
+    const auto nearest = [&](TPoint p) -> const PlatformStairs& {
+        const auto platform = track::platformNumber(w, sid, p);
+        const PlatformStairs* best = nullptr;
+        i64 cost = INT64_MAX;
+        for (const auto& stair : stairs)
+            if (stair.platform == platform) {
+                const auto d = distance(p, stair.foot.p);
+                if (d <= cost) {
+                    best = &stair;
+                    cost = d;
+                }
+            }
+        return best ? *best : stairs.front();
     };
-    const auto platformSide = [&](TPoint p, TrackEdgeId id, TPoint side) {
-        const auto& e = w.trackEdges[id];
-        const TrackSample* near = &e.samples.front();
-        for (const auto& sample : e.samples)
-            if (distance(sample.p, p) < distance(near->p, p)) near = &sample;
-        const auto tangent = normalised(i64(w.trackNodes[e.b].pos.x) - w.trackNodes[e.a].pos.x,
-                                        i64(w.trackNodes[e.b].pos.z) - w.trackNodes[e.a].pos.z);
-        const TDir normal{-tangent.z, tangent.x};
-        const i64 lateral = ((i64(p.x) - near->p.x) * normal.x + (i64(p.z) - near->p.z) * normal.z) / kDirOne;
-        const i64 facing = (i64(side.x) - near->p.x) * normal.x + (i64(side.z) - near->p.z) * normal.z;
-        return offset(p, normal, (facing < 0 ? -200 : 200) - lateral);
-    };
-    const auto fromSide = platformSide(from, a, from), toSide = platformSide(to, b, same ? from : to);
-    const auto sa = stairs(fromSide), sb = stairs(toSide);
+    const auto& start = nearest(from);
+    const auto& finish = nearest(to);
     const i32 ha = w.trackNodes[w.trackEdges[a].a].h, hb = w.trackNodes[w.trackEdges[b].a].h;
-    if (same) return {{from, ha}, {fromSide, ha}, {toSide, hb}, {to, hb}};
-    i32 bridge = std::max(ha, hb);
-    for (const auto& chain : platforms)
-        bridge = std::max(bridge, w.trackNodes[w.trackEdges[chain.front()].a].h);
-    bridge += 64;
-    return {{from, ha},   {fromSide, ha}, {offset(sa, dir, kTrackUnits), ha},
-            {sa, bridge}, {sb, bridge},   {offset(sb, dir, kTrackUnits), hb},
-            {toSide, hb}, {to, hb}};
+    if (&start == &finish) return {{from, ha}, {to, hb}};
+    return {{from, ha}, start.foot, start.landing, finish.landing, finish.foot, {to, hb}};
 }
 void migrateLegacy(World& w) {
     for (auto [id, p] : w.people) {
@@ -307,6 +333,7 @@ void migrateLegacy(World& w) {
     }
 }
 void invalidate(World& w) {
+    passengers::markDirty(w);
     for (auto [id, p] : w.people) {
         if (p.walkPath.empty() || p.walkEnd <= w.clock.tick || p.state == PersonState::Riding ||
             p.state == PersonState::Waiting)

@@ -1,7 +1,10 @@
 #include "render/track_renderer.hpp"
 
+#include "render/station_style.hpp"
 #include "render/terrain_mesher.hpp"
 #include "sim/track.hpp"
+#include "sim/walking.hpp"
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -14,11 +17,11 @@ constexpr u32 kBallast = rgba(128, 118, 106);
 constexpr u32 kBallastSide = rgba(112, 104, 94);
 constexpr u32 kSleeper = rgba(96, 74, 56);
 constexpr u32 kSteel = rgba(150, 152, 158);
-constexpr u32 kPlatform = rgba(188, 182, 170);
+constexpr u32 kPlatform = stationStyle::paving;
 constexpr u32 kPlatformSide = rgba(150, 144, 134);
 constexpr u32 kPlatformEdge = rgba(232, 206, 90);
-constexpr u32 kCanopy = rgba(150, 156, 166);
-constexpr u32 kPost = rgba(96, 100, 108);
+constexpr u32 kCanopy = stationStyle::trim;
+constexpr u32 kPost = stationStyle::metal;
 constexpr u32 kPlatformLamp = rgba(255, 244, 214, 252); // self-lit (see the shaders' emission codes)
 constexpr u32 kConcrete = rgba(178, 172, 162);
 constexpr u32 kConcreteSide = rgba(150, 145, 136);
@@ -221,6 +224,8 @@ void buildTrackMesh(const World& world, const TrackEdge& edge, TilePos anchor, M
         // Platforms either side of the track, with an edge line and a canopy on posts.
         constexpr float kInner = 0.33f, kOuter = 0.93f, kTop = 0.05f, kFoot = -0.16f;
         constexpr float kRoofIn = 0.42f, kRoofOut = 0.88f, kRoof = 0.46f;
+        const float platformLength = static_cast<float>(edge.length) / kTrackUnits;
+        const auto covered = [&](float s) { return s > 2.35f && s < platformLength - 1.2f; };
         for (usize i = 0; i + 1 < frames.size(); ++i) {
             const Frame& a = frames[i];
             const Frame& b = frames[i + 1];
@@ -231,7 +236,15 @@ void buildTrackMesh(const World& world, const TrackEdge& edge, TilePos anchor, M
                 };
                 quadTop(kInner, kOuter, kTop, kPlatform);
                 quadTop(kInner, kInner + 0.035f, kTop + 0.002f, kPlatformEdge);
-                quadTop(kRoofIn, kRoofOut, kRoof, kCanopy);
+                const float middle = (sm[i].s + sm[i + 1].s) * 0.5f / kTrackUnits;
+                if (covered(middle)) {
+                    const auto roof = frameAt(middle * kTrackUnits);
+                    const glm::vec2 forward(-roof.left.y, roof.left.x);
+                    orientedBox(out, at(roof, side * (kRoofIn + kRoofOut) * 0.5f, 0), forward, roof.left,
+                                (sm[i + 1].s - sm[i].s) * 0.5f / kTrackUnits + 0.001f,
+                                (kRoofOut - kRoofIn) * 0.5f, roof.p.y + kRoof - 0.025f, roof.p.y + kRoof,
+                                kCanopy, kCanopy);
+                }
                 // Platform walls facing the track and the outside.
                 const glm::vec3 fwd(b.p.x - a.p.x, 0.0f, b.p.z - a.p.z);
                 for (const float edgeOff : {kInner, kOuter}) {
@@ -244,21 +257,58 @@ void buildTrackMesh(const World& world, const TrackEdge& edge, TilePos anchor, M
                 }
             }
         }
-        // Canopy posts every couple of tiles.
-        const float length = static_cast<float>(edge.length) / kTrackUnits;
-        const int posts = std::max(2, static_cast<int>(length / 1.6f) + 1);
-        for (int n = 0; n < posts; ++n) {
-            const usize idx = std::min(frames.size() - 1, static_cast<usize>((frames.size() - 1) * n / std::max(1, posts - 1)));
-            const Frame& f = frames[idx];
-            for (const float side : {-1.0f, 1.0f}) {
-                const glm::vec3 c = at(f, side * 0.65f, 0.0f);
-                MeshBuilder post;
-                post.box({c.x - 0.02f, c.y + kTop, c.z - 0.02f}, {c.x + 0.02f, c.y + kRoof, c.z + 0.02f}, kPost);
-                // A lamp hanging under the canopy beside the post.
-                const glm::vec3 l = at(f, side * 0.58f, 0.0f);
-                post.box({l.x - 0.05f, l.y + kRoof - 0.04f, l.z - 0.05f}, {l.x + 0.05f, l.y + kRoof - 0.012f, l.z + 0.05f}, kPlatformLamp);
-                out.append(post);
+        // Paving joints and tactile studs give the platform scale without cluttering its edge.
+        for (float s = 0.25f; s < platformLength; s += 0.5f) {
+            const auto f = frameAt(s * kTrackUnits);
+            const glm::vec2 forward(-f.left.y, f.left.x);
+            for (float side : {-1.0f, 1.0f}) {
+                orientedBox(out, at(f, side * 0.64f, 0), forward, f.left, 0.004f, 0.29f,
+                            f.p.y + kTop + 0.001f, f.p.y + kTop + 0.003f, stationStyle::mortar,
+                            stationStyle::mortar);
+                for (float lateral : {0.39f, 0.415f})
+                    orientedBox(out, at(f, side * lateral, 0), forward, f.left, 0.008f, 0.006f,
+                                f.p.y + kTop + 0.003f, f.p.y + kTop + 0.008f, kPlatformEdge, kPlatformEdge);
             }
+        }
+        // Furniture sits at the back, leaving the boarding edge and stair approaches open.
+        for (float s = 0.75f; s < platformLength; s += 2.0f) {
+            const auto f = frameAt(s * kTrackUnits);
+            const auto saved = out.transform;
+            out.transform = saved * glm::translate(glm::mat4(1), f.p) *
+                            glm::rotate(glm::mat4(1), std::atan2(-f.left.x, -f.left.y), glm::vec3(0, 1, 0));
+            for (float side : {-1.0f, 1.0f}) {
+                const float z = side * 0.84f;
+                // Lamps and double-sided enamel signs remain visible in uncovered sections.
+                out.box({-0.014f, kTop, z - 0.014f}, {0.014f, 0.37f, z + 0.014f}, kPost);
+                out.box({-0.07f, 0.36f, z - 0.035f}, {0.07f, 0.385f, z + 0.035f}, stationStyle::trim);
+                out.box({-0.052f, 0.355f, z - 0.025f}, {0.052f, 0.36f, z + 0.025f}, kPlatformLamp);
+                out.box({-0.13f, 0.22f, z - 0.019f}, {0.13f, 0.31f, z + 0.019f}, stationStyle::sign);
+                for (float face : {-1.0f, 1.0f}) {
+                    const float front = z + face * 0.020f;
+                    out.box({-0.10f, 0.263f, front - 0.001f}, {0.06f, 0.273f, front + 0.001f},
+                            stationStyle::lettering);
+                    out.box({-0.10f, 0.24f, front - 0.001f}, {-0.015f, 0.247f, front + 0.001f},
+                            stationStyle::lettering);
+                }
+                if (covered(s)) {
+                    out.box({-0.018f, kTop, side * 0.67f - 0.018f}, {0.018f, kRoof, side * 0.67f + 0.018f},
+                            kPost);
+                    out.box({-0.04f, kRoof - 0.035f, side * 0.65f - 0.22f},
+                            {0.04f, kRoof - 0.015f, side * 0.65f + 0.22f}, stationStyle::stone);
+                }
+                if (s > 2.3f && s < platformLength - 1.4f) {
+                    const float bz = side * 0.76f;
+                    out.box({0.23f, 0.105f, bz - 0.065f}, {0.61f, 0.13f, bz + 0.065f}, stationStyle::wood);
+                    out.box({0.23f, 0.13f, bz + side * 0.06f - 0.012f},
+                            {0.61f, 0.225f, bz + side * 0.06f + 0.012f}, stationStyle::wood);
+                    for (float leg : {0.27f, 0.57f})
+                        out.box({leg, kTop, bz - 0.045f}, {leg + 0.02f, 0.11f, bz + 0.045f}, kPost);
+                    out.box({-0.31f, kTop, bz - 0.05f}, {-0.22f, 0.18f, bz + 0.05f}, stationStyle::trim);
+                    out.box({-0.315f, 0.18f, bz - 0.055f}, {-0.215f, 0.195f, bz + 0.055f},
+                            stationStyle::metal);
+                }
+            }
+            out.transform = saved;
         }
     }
     // Sleepers at even spacing along the edge.
@@ -285,9 +335,111 @@ void buildTrackMesh(const World& world, const TrackEdge& edge, TilePos anchor, M
     }
 }
 
+// A complete station crossing, independent of which entrances or walking routes are in use.
+void buildStationConcourseMesh(const World& world, StationId sid, TilePos anchor, MeshBuilder& out) {
+    const auto stairs = walking::stationConcourse(world, sid);
+    if (stairs.empty()) return;
+    const auto origin = stairs.front().landing.p;
+    const auto dir =
+        normalised(i64(stairs.front().foot.p.x) - origin.x, i64(stairs.front().foot.p.z) - origin.z);
+    const TDir normal{-dir.z, dir.x};
+    const float unit = 1.0f / kTrackUnits, heightUnit = kHeightStep / kSubLevels;
+    const auto coord = [&](TPoint p) {
+        const i64 dx = i64(p.x) - origin.x, dz = i64(p.z) - origin.z;
+        return glm::vec2((dx * dir.x + dz * dir.z) * unit / kDirOne,
+                         (dx * normal.x + dz * normal.z) * unit / kDirOne);
+    };
+    const auto saved = out.transform;
+    out.transform = saved * glm::translate(glm::mat4(1), glm::vec3(origin.x * unit - anchor.x, 0,
+                                                                   origin.z * unit - anchor.y));
+    out.transform = out.transform * glm::rotate(glm::mat4(1),
+                                                static_cast<float>(std::atan2(-double(dir.z), double(dir.x))),
+                                                glm::vec3(0, 1, 0));
+    const float y = stairs.front().landing.height * heightUnit + 0.05f;
+    float lo = 0, hi = 0;
+    std::vector<float> openings;
+    for (const auto& stair : stairs) {
+        const float z = coord(stair.landing.p).y;
+        lo = std::min(lo, z);
+        hi = std::max(hi, z);
+        openings.push_back(z);
+    }
+    lo -= 0.17f;
+    hi += 0.17f;
+    out.box({-0.18f, y - 0.065f, lo}, {0.18f, y, hi}, stationStyle::stone);
+    for (float z = lo; z < hi; z += 0.24f)
+        out.box({-0.16f, y + 0.001f, z}, {0.16f, y + 0.003f, std::min(z + 0.008f, hi)}, stationStyle::mortar);
+    const auto beam = [&](glm::vec3 a, glm::vec3 b, float thickness, u32 colour) {
+        const auto delta = b - a;
+        const auto base = out.transform;
+        out.transform = base * glm::translate(glm::mat4(1), (a + b) * 0.5f);
+        out.transform =
+            out.transform * glm::rotate(glm::mat4(1), std::atan2(-delta.z, delta.x), glm::vec3(0, 1, 0));
+        out.transform =
+            out.transform *
+            glm::rotate(glm::mat4(1), std::atan2(delta.y, std::hypot(delta.x, delta.z)), glm::vec3(0, 0, 1));
+        const float half = glm::length(delta) * 0.5f;
+        out.box({-half, -thickness / 2, -thickness / 2}, {half, thickness / 2, thickness / 2}, colour);
+        out.transform = base;
+    };
+    // Continuous back rail; the stair side has openings at every platform landing.
+    for (const float x : {-0.18f, 0.18f}) {
+        for (float z = lo; z < hi; z += 0.12f) {
+            const float end = std::min(z + 0.12f, hi), mid = (z + end) * 0.5f;
+            if (x > 0 && std::ranges::any_of(openings, [&](float o) { return std::abs(mid - o) < 0.16f; }))
+                continue;
+            for (float lift : {0.09f, 0.19f})
+                beam({x, y + lift, z}, {x, y + lift, end}, 0.014f, stationStyle::trim);
+            out.box({x - 0.009f, y, z - 0.009f}, {x + 0.009f, y + 0.2f, z + 0.009f}, stationStyle::metal);
+        }
+    }
+    for (float z : {lo, hi}) beam({-0.18f, y + 0.19f, z}, {0.18f, y + 0.19f, z}, 0.014f, stationStyle::trim);
+    for (const auto& stair : stairs) {
+        const auto foot = coord(stair.foot.p), top = coord(stair.landing.p);
+        const float base = stair.foot.height * heightUnit + 0.05f;
+        const int steps = std::max(8, static_cast<int>(std::ceil((y - base) / 0.065f)));
+        for (int n = 0; n < steps; ++n) {
+            const float t0 = n / float(steps), t1 = (n + 1) / float(steps);
+            const float x0 = foot.x + (top.x - foot.x) * t0, x1 = foot.x + (top.x - foot.x) * t1;
+            const float tread = base + (y - base) * t1;
+            out.box({x1, tread - 0.045f, top.y - 0.14f}, {x0, tread, top.y + 0.14f}, stationStyle::stone);
+            out.box({x0 - 0.012f, tread + 0.001f, top.y - 0.14f}, {x0, tread + 0.003f, top.y + 0.14f},
+                    stationStyle::lettering);
+        }
+        for (float side : {-0.15f, 0.15f}) {
+            const float z = top.y + side;
+            beam({foot.x, base - 0.025f, z}, {top.x, y - 0.025f, z}, 0.035f, stationStyle::metal);
+            for (float lift : {0.09f, 0.19f})
+                beam({foot.x, base + lift, z}, {top.x, y + lift, z}, 0.014f, stationStyle::trim);
+            for (int n = 0; n <= 4; ++n) {
+                const float t = n / 4.0f, x = foot.x + (top.x - foot.x) * t, floor = base + (y - base) * t;
+                out.box({x - 0.009f, floor, z - 0.009f}, {x + 0.009f, floor + 0.2f, z + 0.009f},
+                        stationStyle::metal);
+            }
+            out.box({top.x - 0.045f, base - 0.06f, z - 0.035f}, {top.x + 0.045f, y - 0.04f, z + 0.035f},
+                    stationStyle::trim);
+        }
+    }
+    out.transform = saved;
+}
+
 void TrackRenderer::sync(const World& world) {
     if (revision_ == world.trackRevision) return;
     revision_ = world.trackRevision;
+    concourses_.clear();
+    for (const auto [sid, station] : world.stations) {
+        const auto stairs = walking::stationConcourse(world, sid);
+        if (stairs.empty()) continue;
+        auto& m = concourses_[sid.value];
+        m.anchor = tileAt(stairs.front().landing.p);
+        MeshBuilder mesh;
+        buildStationConcourseMesh(world, sid, m.anchor, mesh);
+        m.mesh.upload(mesh.vertices);
+        m.centre = glm::dvec2(m.anchor.x, m.anchor.y);
+        for (const auto& stair : stairs)
+            m.extent = std::max(m.extent,
+                                distance(stairs.front().landing.p, stair.foot.p) / double(kTrackUnits) + 1);
+    }
     // Drop meshes of removed edges, build those of new ones (edges never change once built).
     std::erase_if(meshes_, [&](const auto& kv) {
         const TrackEdge* e = world.trackEdges.tryGet(TrackEdgeId{kv.first});
@@ -310,15 +462,19 @@ void TrackRenderer::sync(const World& world) {
 usize TrackRenderer::draw(const Shader& shader, const glm::dvec3& origin, const glm::dvec3& focus, double radius,
                           bool shadowPass) const {
     usize triangles = 0;
-    for (const auto& [id, m] : meshes_) {
-        const double dx = m.centre.x - focus.x, dz = m.centre.y - focus.z;
-        if (std::sqrt(dx * dx + dz * dz) > radius + m.extent) continue;
-        shader.set("uOffset", glm::vec3(static_cast<float>(m.anchor.x - origin.x), 0.0f,
-                                        static_cast<float>(m.anchor.y - origin.z)));
-        if (!shadowPass) shader.set("uExplored", 1.0f);
-        m.mesh.draw();
-        triangles += static_cast<usize>(m.mesh.vertexCount() / 3);
-    }
+    const auto drawMeshes = [&](const auto& meshes) {
+        for (const auto& [id, m] : meshes) {
+            const double dx = m.centre.x - focus.x, dz = m.centre.y - focus.z;
+            if (std::sqrt(dx * dx + dz * dz) > radius + m.extent) continue;
+            shader.set("uOffset", glm::vec3(static_cast<float>(m.anchor.x - origin.x), 0.0f,
+                                            static_cast<float>(m.anchor.y - origin.z)));
+            if (!shadowPass) shader.set("uExplored", 1.0f);
+            m.mesh.draw();
+            triangles += static_cast<usize>(m.mesh.vertexCount() / 3);
+        }
+    };
+    drawMeshes(meshes_);
+    drawMeshes(concourses_);
     return triangles;
 }
 

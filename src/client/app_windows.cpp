@@ -520,16 +520,18 @@ void App::drawDepotWindow() {
                                                     : "Bus depot";
     const std::string sub = town ? std::format("Near {}", town->name) : std::string("In the countryside");
     const bool rail = d->kind == DepotKind::Rail;
-    const i32 year = w.clock.date().year;
-    const auto models = vehicleModels();
     bool open = true;
     ui::PanelSpec spec;
     spec.pos = viewportPoint(0.0f, 0.0f, 20.0f, 80.0f);
-    spec.width = rail ? 620.0f : 440.0f;
+    spec.width = rail ? 700.0f : 560.0f;
+    if (rail) spec.height = std::max(400.0f, std::min(760.0f, ImGui::GetIO().DisplaySize.y / s - 160.0f));
     spec.accent = depotColour(d->kind);
     spec.subtitle = sub.c_str();
     if (ui::beginPanel("###depotPanel", kind, d->kind == DepotKind::Ship ? ui::Icon::Shipyard : ui::Icon::Depot, &open,
                        spec)) {
+        // Older UI preferences can retain a small depot window from before the catalogue.
+        if (rail && ImGui::IsWindowAppearing())
+            ImGui::SetWindowSize(ImVec2(700*s, std::max(400.0f*s, std::min(760.0f*s, ImGui::GetIO().DisplaySize.y - 160.0f*s))));
         const bool mine = d->owner == session_->localCompany();
         ui::sectionHeader("Inside");
         int inside = 0;
@@ -564,7 +566,7 @@ void App::drawDepotWindow() {
                     consistVehicle_ = id; consistCar_ = to;
                 };
                 ui::mutedText("FRONT  <   Drag vehicles to change their order   >  REAR");
-                ImGui::BeginChild("##consist", ImVec2(0, 116.0f*s), ImGuiChildFlags_Borders,
+                ImGui::BeginChild("##consist", ImVec2(0, 96.0f*s), ImGuiChildFlags_Borders,
                                   ImGuiWindowFlags_HorizontalScrollbar);
                 ImDrawList* dl = ImGui::GetWindowDrawList();
                 struct CarDrag { u32 vehicle; u16 index; };
@@ -641,70 +643,20 @@ void App::drawDepotWindow() {
                     if (lastEngine) ui::mutedText("Keep at least one engine. Buy another before removing this one.");
                 }
                 if (editable) {
-                    if (ui::button("Add engine / wagon", ui::Icon::Plus, ui::Btn::Ghost)) ImGui::OpenPopup("addcar");
-                    if (previewConsistPopup_) ImGui::OpenPopup("addcar");
-                    if (ImGui::BeginPopup("addcar")) {
-                        {
-                            // Restore this popup's font before EndPopup changes the current window.
-                            ui::FontScope font(ui::fonts().small);
-                            ui::mutedText("ENGINES AND WAGONS - ADDED AT THE REAR");
-                            for (u16 i = 0; i < models.size(); ++i) {
-                                const auto& m = models[i];
-                                if (m.type != VehicleType::Rail || m.introYear > year) continue;
-                                const auto item = std::format("{}   {} {}  {} km/h  {}", m.name,
-                                    m.cargoCapacity ? m.cargoCapacity : m.capacity,cargoName(m.cargoType),
-                                    m.maxSpeedKmh,formatMoney(w.inflated(m.price)));
-                                if (ImGui::Selectable(item.c_str())) session_->submit(CmdAddCarriage{id,i});
-                            }
-                        }
-                        ImGui::EndPopup();
-                    }
+                    const auto openCatalogue = [&](const char* label, int tab) {
+                        if (ImGui::Button(label)) { consistVehicle_ = id; requestedCatalogueTab_ = tab; }
+                    };
+                    openCatalogue("Engines", 0); ImGui::SameLine();
+                    openCatalogue("Passenger carriages", 1); ImGui::SameLine();
+                    openCatalogue("Freight wagons", 2);
+                    if (previewConsistPopup_) { consistVehicle_ = id; requestedCatalogueTab_ = 1; }
                 } else if (mine) ui::mutedText("Stop the train in its depot to edit its consist.");
             }
             ImGui::Dummy(ImVec2(0, 2.0f * s));
             ImGui::PopID();
         }
         if (inside == 0) ui::emptyState(vehicleIcon(rail ? VehicleType::Rail : VehicleType::Road), "No vehicles inside");
-        if (mine) {
-            ui::sectionHeader(rail ? "Buy an engine" : "Buy a vehicle");
-            const VehicleType want = d->kind == DepotKind::Tram   ? VehicleType::Tram
-                                     : d->kind == DepotKind::Rail ? VehicleType::Rail
-                                     : d->kind == DepotKind::Ship ? VehicleType::Ship
-                                                                  : VehicleType::Road;
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            for (u16 i = 0; i < models.size(); ++i) {
-                const VehicleModel& m = models[i];
-                if (m.type != want || m.introYear > year || (rail && !m.powered)) continue;
-                ImGui::PushID(i);
-                const ImVec2 p = ImGui::GetCursorScreenPos();
-                const float avail = ImGui::GetContentRegionAvail().x;
-                const float h = 52.0f * s;
-                dl->AddRectFilled(p, ImVec2(p.x + avail, p.y + h), ui::col::kCard, 10.0f * s);
-                ui::drawIcon(dl, vehicleIcon(m.type), ImVec2(p.x + 22.0f * s, p.y + h * 0.5f), 22.0f * s, typeColour(m.type));
-                dl->AddText(ImVec2(p.x + 44.0f * s, p.y + 8.0f * s), ui::col::kText, m.name.data());
-                const std::string spec2 = (m.capacity > 0 || m.cargoCapacity > 0)
-                                              ? std::format("{} {}  -  {} km/h  -  {}/yr", m.cargoCapacity ? m.cargoCapacity : m.capacity, cargoName(m.cargoType), m.maxSpeedKmh,
-                                                            formatMoney(w.inflated(m.runningCost)))
-                                              : std::format("{} km/h  -  {}/yr", m.maxSpeedKmh, formatMoney(w.inflated(m.runningCost)));
-                ImFont* sf = ui::fonts().small;
-                dl->AddText(sf, sf->FontSize, ImVec2(p.x + 44.0f * s, p.y + 29.0f * s), ui::col::kTextMuted, spec2.c_str());
-                ImGui::Dummy(ImVec2(avail, h));
-                const std::string price = formatMoney(w.inflated(m.price));
-                const float bw = 110.0f;
-                ImGui::SetCursorScreenPos(ImVec2(p.x + avail - bw * s - 10.0f * s, p.y + (h - ImGui::GetFrameHeight() - 4.0f * s) * 0.5f));
-                const std::string label = std::format("{}##buy", price);
-                if (ui::button(label.c_str(), ui::Icon::Plus, ui::Btn::Primary, ImVec2(bw, 0)))
-                    pendingBuySeq_ = session_->submit(CmdBuyVehicle{selDepot_, i});
-                ui::itemTooltip({"Buy", std::format("Introduced {}, expected life {} years", m.introYear, m.lifeYears).c_str()});
-                ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h + 6.0f * s));
-                ImGui::Dummy(ImVec2(0, 0));
-                ImGui::PopID();
-            }
-            if (rail) {
-                ui::FontScope f(ui::fonts().small);
-                ui::mutedText("Carriages are added to a stopped train inside the depot.");
-            }
-        }
+        if (mine) drawVehicleCatalogue(selDepot_);
     }
     ui::endPanel();
     if (!open) selDepot_ = {};
@@ -1024,20 +976,26 @@ void App::drawStationWindow() {
             if (st->entrances.empty()) ImGui::TextWrapped("Connect this station to a road so passengers can walk here.");
             ImGui::BeginDisabled(!mine);
             if (ImGui::Button("Add road entrance")) tool_ = Tool::StationEntrance;
-            ui::itemTooltip({"Road entrance","Click a nearby surface road. A station building and paved approach will connect it to a platform."});
+            ui::itemTooltip({"Road entrance","Click a nearby surface road or a cleared plot beside it. A gate and paved approach connect it to a platform."});
             if (!st->entrances.empty()) {
                 ImGui::SameLine();
                 if (ImGui::Button("Remove entrances")) session_->submit(CmdStationEntrance{selStation_,{},true});
             }
+            if (ImGui::Button("Clear building for access")) { tool_=Tool::DemolishBuilding;toolGroup_=ToolGroup::Road; }
+            ui::itemTooltip({"Clear space","Preview the cost and click a building to clear room for an entrance or road."});
             ImGui::SetNextItemWidth(170.0f*s);
             ImGui::SliderInt("New / extra length",&stationPlatformLength_,2,16,"%d tiles");
+            ui::mutedText("Hover an upgrade to preview its position and direction.");
+            bool firstPlatform = true;
             const auto action = [&](const char* label,CommandPayload payload) {
-                if (ImGui::Button(label)) session_->submit(payload);
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    Command c; c.company = session_->localCompany(); c.payload = payload;
-                    const auto result = testCommand(w,c);
-                    ImGui::SetTooltip("%s",result.ok ? std::format("Cost {}",formatMoney(result.cost)).c_str() : result.error.c_str());
+                const bool clicked = ImGui::Button(label);
+                const bool scriptedPreview = firstPlatform && !previewStationUpgradeAction_.empty() &&
+                    std::string_view(label).find(previewStationUpgradeAction_) != std::string_view::npos;
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) || scriptedPreview) {
+                    stationUpgradePreview_ = payload;
+                    stationUpgradeLabel_ = label;
                 }
+                if (clicked) { stationUpgradePreview_.reset(); session_->submit(payload); }
             };
             for (usize k=0;k<platforms.size();++k) {
                 ImGui::PushID(static_cast<int>(k));
@@ -1054,6 +1012,7 @@ void App::drawStationWindow() {
                     action(std::format("Extend {} end",heading).c_str(),CmdExtendPlatform{selStation_,ends[end].node,stationPlatformLength_});
                 }
                 ImGui::PopID();
+                firstPlatform = false;
             }
             ImGui::TextWrapped("Open ends grow by the chosen length. Connected ends convert the next straight, level track section into platform. Trains must clear it first.");
             if(ImGui::Button("Draw custom platform")) { stationEditTarget_=selStation_;stationStart_.reset();tool_=Tool::RailStation;toolGroup_=ToolGroup::Rail; }

@@ -52,6 +52,10 @@ inline constexpr ModelId kTreeCactus0 = kEffectBase + 10;
 inline constexpr ModelId kTreeAcacia0 = kEffectBase + 12;
 inline constexpr ModelId kShrub0 = kEffectBase + 14;
 inline constexpr ModelId kCloud0 = kEffectBase + 16; // three variants, unit size
+inline constexpr ModelId kSeatedPerson = kEffectBase + 19;
+inline constexpr ModelId kTramSectionBase = kEffectBase + 20;
+inline constexpr ModelId kTramBellows = kEffectBase + 29;
+inline constexpr ModelId kStationApproach = kEffectBase + 30;
 inline constexpr ModelId kSteamWheelset = kEffectBase + 31; // a driving axle, turned about +Z
 inline constexpr ModelId kSideRod = kEffectBase + 32;       // coupling rod of one side
 inline constexpr ModelId kMainRod = kEffectBase + 33;       // connecting rod, one tile long along +X
@@ -65,6 +69,9 @@ constexpr ModelId building(u16 type, u8 variant) {
 }
 constexpr ModelId bus(int visual) { return static_cast<ModelId>(kVehicleBase + visual); }
 constexpr ModelId tram(int visual) { return static_cast<ModelId>(kVehicleBase + 8 + visual); }
+constexpr ModelId tramSection(int visual, int section) {
+    return static_cast<ModelId>(kTramSectionBase + visual * 3 + section);
+}
 constexpr ModelId train(int visual) { return static_cast<ModelId>(kVehicleBase + 16 + visual); }
 constexpr ModelId ship(int visual) { return static_cast<ModelId>(kVehicleBase + 32 + visual); }
 } // namespace models
@@ -99,12 +106,14 @@ public:
     Range range(ModelId id) const { return id < kModelCount ? ranges_[id] : Range{}; }
 
     // Draws `count` instances of a model whose instance data starts at `byteOffset` in `instanceBuffer`.
-    void drawInstanced(ModelId id, GLuint instanceBuffer, usize byteOffset, GLsizei count) const;
+    void drawInstanced(ModelId id, GLuint instanceBuffer, usize byteOffset, GLsizei count,
+                       bool glass = false) const;
 
 private:
     VertexArray vao_;
     Buffer vbo_;
     std::array<Range, kModelCount> ranges_{};
+    std::array<Range, kModelCount> glassRanges_{};
 };
 
 // Collects per-frame dynamic instances grouped by model and draws them in one upload.
@@ -115,7 +124,7 @@ public:
     usize size() const;
     // Uploads all instances; must be called before draw() each frame.
     void upload();
-    void draw(const ModelLibrary& lib) const;
+    void draw(const ModelLibrary& lib, bool glass = false) const;
 
 private:
     std::array<std::vector<ModelInstance>, kModelCount> perModel_;

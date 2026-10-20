@@ -187,6 +187,37 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
     constexpr u32 kOk = gfx::rgba(120, 240, 120, 110);
     constexpr u32 kBad = gfx::rgba(250, 90, 80, 120);
 
+    if (tool_ == Tool::DemolishBuilding) {
+        if (!hover_.hit || mouseOverUi_) return;
+        const auto* tile = w.map.tile(hover_.tile);
+        const auto* building =
+            tile && tile->type == TileType::Building ? w.buildings.tryGet(BuildingId(tile->index)) : nullptr;
+        if (!building) {
+            addTileOverlay(overlays, hover_.tile, kBad);
+            ImGui::SetTooltip("Click a town building to demolish it for a cost");
+            return;
+        }
+        const CmdDemolishBuilding cmd{building->ref(BuildingId(tile->index))};
+        const auto result = test(cmd);
+        for (i32 y = 0; y < building->info().size; ++y)
+            for (i32 x = 0; x < building->info().size; ++x)
+                addTileOverlay(overlays, {building->pos.x + x, building->pos.y + y},
+                               result.ok ? gfx::rgba(250, 160, 70, 130) : kBad);
+        if (ImGui::BeginTooltip()) {
+            if (result.ok)
+                ui::iconText(ui::Icon::Coins, ui::col::kAccent,
+                             std::format("Demolition cost {}", formatMoney(result.cost)).c_str());
+            else
+                ui::iconText(ui::Icon::Warning, ui::col::kRed, result.error.c_str(), ui::col::kRed);
+            ImGui::Text("%s: %u residents, %u workers", building->info().name.data(),
+                        static_cast<unsigned>(building->residents), static_cast<unsigned>(building->workers));
+            ImGui::TextUnformatted("Clears the whole building. Lowers the town's opinion of your company.");
+            ImGui::EndTooltip();
+        }
+        if (result.ok && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) session_->submit(cmd);
+        return;
+    }
+
     if (isDragTool(tool_)) {
         if (dragStart_ && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
             dragStart_.reset();
@@ -388,39 +419,55 @@ struct ToolInfo {
 };
 
 constexpr ToolInfo kTools[] = {
-    {Tool::Raise, ToolGroup::Land, ui::Icon::Raise, "Raise", "Hold the mouse to raise the land under the brush", false},
-    {Tool::Lower, ToolGroup::Land, ui::Icon::Lower, "Lower", "Hold the mouse to lower the land under the brush", false},
+    {Tool::Raise, ToolGroup::Land, ui::Icon::Raise, "Raise",
+     "Hold the mouse to raise the land under the brush", false},
+    {Tool::Lower, ToolGroup::Land, ui::Icon::Lower, "Lower",
+     "Hold the mouse to lower the land under the brush", false},
     {Tool::Level, ToolGroup::Land, ui::Icon::Level, "Level",
      "Click to pick a height, then hold and move to flatten the land to it", false},
-    {Tool::Smooth, ToolGroup::Land, ui::Icon::Smooth, "Smooth", "Hold the mouse to smooth out bumps and edges", false},
-    {Tool::Clear, ToolGroup::Land, ui::Icon::Bulldoze, "Bulldoze", "Drag to demolish everything in an area", false},
+    {Tool::Smooth, ToolGroup::Land, ui::Icon::Smooth, "Smooth",
+     "Hold the mouse to smooth out bumps and edges", false},
+    {Tool::Clear, ToolGroup::Land, ui::Icon::Bulldoze, "Bulldoze", "Drag to demolish everything in an area",
+     false},
+    {Tool::DemolishBuilding, ToolGroup::Land, ui::Icon::Bulldoze, "Building",
+     "Click a building to preview its demolition cost, then clear it", true},
     {Tool::Trees, ToolGroup::Land, ui::Icon::Tree, "Trees", "Drag to plant trees", false},
     {Tool::Road, ToolGroup::Road, ui::Icon::Road, "Road", "Drag to build a straight road", false},
+    {Tool::DemolishBuilding, ToolGroup::Road, ui::Icon::Bulldoze, "Demolish",
+     "Click a building to preview its demolition cost, then clear it", true},
     {Tool::RemoveRoad, ToolGroup::Road, ui::Icon::Road, "Remove", "Drag to remove road", true},
-    {Tool::BusStop, ToolGroup::Road, ui::Icon::BusStop, "Bus stop", "Build a drive-through stop on a straight road",
-     false},
+    {Tool::BusStop, ToolGroup::Road, ui::Icon::BusStop, "Bus stop",
+     "Build a drive-through stop on a straight road", false},
     {Tool::RoadDepot, ToolGroup::Road, ui::Icon::Depot, "Depot", "Build a bus depot next to a road", false},
-    {Tool::RoadBridge, ToolGroup::Road, ui::Icon::Road, "Bridge", "Drag between equal-height flat banks across a valley or water", false},
-    {Tool::RoadTunnel, ToolGroup::Road, ui::Icon::Road, "Tunnel", "Drag between equal-height flat ends through a hill", false},
-    {Tool::RemoveSpan, ToolGroup::Road, ui::Icon::Bulldoze, "Remove span", "Remove an entire owned bridge or tunnel", true},
-    {Tool::TramTrack, ToolGroup::Tram, ui::Icon::Track, "Track", "Drag to lay tram track, on roads or on its own",
-     false},
+    {Tool::RoadBridge, ToolGroup::Road, ui::Icon::Road, "Bridge",
+     "Drag between equal-height flat banks across a valley or water", false},
+    {Tool::RoadTunnel, ToolGroup::Road, ui::Icon::Road, "Tunnel",
+     "Drag between equal-height flat ends through a hill", false},
+    {Tool::RemoveSpan, ToolGroup::Road, ui::Icon::Bulldoze, "Remove span",
+     "Remove an entire owned bridge or tunnel", true},
+    {Tool::TramTrack, ToolGroup::Tram, ui::Icon::Track, "Track",
+     "Drag to lay tram track, on roads or on its own", false},
     {Tool::RemoveTram, ToolGroup::Tram, ui::Icon::Track, "Remove", "Drag to remove tram track", true},
-    {Tool::TramStop, ToolGroup::Tram, ui::Icon::BusStop, "Tram stop", "Build a tram stop on straight track", false},
-    {Tool::TramDepot, ToolGroup::Tram, ui::Icon::Depot, "Depot", "Build a tram depot next to tram track", false},
+    {Tool::TramStop, ToolGroup::Tram, ui::Icon::BusStop, "Tram stop", "Build a tram stop on straight track",
+     false},
+    {Tool::TramDepot, ToolGroup::Tram, ui::Icon::Depot, "Depot", "Build a tram depot next to tram track",
+     false},
     {Tool::RailTrack, ToolGroup::Rail, ui::Icon::Track, "Track",
      "Click to start, click again to lay curved track; it carries on from there. Start on a track end to "
      "continue it, finish on one to join up. Bridges, tunnels and level crossings are added where needed",
      false},
-    {Tool::RemoveRail, ToolGroup::Rail, ui::Icon::Track, "Remove", "Click a piece of track to remove it", true},
+    {Tool::RemoveRail, ToolGroup::Rail, ui::Icon::Track, "Remove", "Click a piece of track to remove it",
+     true},
+    {Tool::DemolishBuilding, ToolGroup::Rail, ui::Icon::Bulldoze, "Demolish",
+     "Click a building to preview its demolition cost, then clear it", true},
     {Tool::Signal, ToolGroup::Rail, ui::Icon::Signal, "Signal",
      "Click where track joins track to add path signals; click again for one-way and back to none", false},
     {Tool::RailStation, ToolGroup::Rail, ui::Icon::Station, "Station",
      "Click to start a platform (on a track end to line it up), click again to set its length. The ground is "
      "levelled for it",
      false},
-    {Tool::RailDepot, ToolGroup::Rail, ui::Icon::Depot, "Depot", "Click the open end of a track to put a train depot there",
-     false},
+    {Tool::RailDepot, ToolGroup::Rail, ui::Icon::Depot, "Depot",
+     "Click the open end of a track to put a train depot there", false},
     {Tool::Electrify, ToolGroup::Rail, ui::Icon::Spark, "Electrify",
      "Click or drag along track to put up overhead wires for electric trains. Shift-click to wire all the track joined to it",
      false},

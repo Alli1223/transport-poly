@@ -1,5 +1,6 @@
 #include "sim/passengers.hpp"
 
+#include "core/hash.hpp"
 #include "core/math.hpp"
 #include "sim/person.hpp"
 #include "sim/rail.hpp"
@@ -10,6 +11,7 @@
 #include <limits>
 #include <map>
 #include <queue>
+#include <tuple>
 
 namespace tp {
 
@@ -24,7 +26,7 @@ namespace passengers {
 
 namespace {
 
-constexpr i64 kMaxWaitTicks = 3 * kTicksPerHour;
+constexpr i64 kWaitReviewTicks = 3 * kTicksPerHour;
 constexpr i64 kDwellEstimate = 4 * kTicksPerMinute;
 
 std::vector<StationId> stationOrders(const World& w, const Vehicle& v) {
@@ -54,8 +56,32 @@ bool vehicleVisits(const Vehicle& v, StationId s) {
     return false;
 }
 
+bool walkTransfer(World& w, PersonId pid, StationId from, StationId to) {
+    const auto it = w.routing.transfers.find({from.value, to.value});
+    if (it == w.routing.transfers.end() || it->second.empty()) return false;
+    auto& p = w.people[pid];
+    std::vector<WalkPoint> path;
+    if (p.transitMotion == 2 && p.transitBegin == w.clock.tick) path = p.walkPath;
+    const auto current = path.empty()
+                             ? (p.walkPath.empty() ? it->second.front() : walking::position(p, w.clock.tick))
+                             : path.back();
+    auto internal = walking::withinStation(w, from, current.p, it->second.front().p);
+    if (!internal.empty()) internal.front() = current;
+    path.insert(path.end(), internal.begin(), internal.end());
+    path.insert(path.end(), it->second.begin(), it->second.end());
+    p.state = PersonState::ToStop;
+    p.station = to;
+    if (const auto* route = w.routing.find(to, p.finalStation)) p.targetStation = route->nextHop;
+    walking::begin(w, pid, std::move(path), w.clock.tick);
+    people::schedule(w, pid, p.walkEnd);
+    return true;
+}
+
 void waitAt(World& w, PersonId pid, StationId at, StationId nextHop) {
     Person& p = w.people[pid];
+    if (const auto* route = w.routing.find(at, p.finalStation);
+        route && route->walk && walkTransfer(w, pid, at, route->nextHop))
+        return;
     Station& station = w.stations[at];
     if (station.waitingCount() >= station.waitingCapacity()) {
         station.rating = std::max(0, station.rating - 4);
@@ -65,8 +91,10 @@ void waitAt(World& w, PersonId pid, StationId at, StationId nextHop) {
     p.state = PersonState::Waiting;
     p.station = at;
     p.targetStation = nextHop;
+    p.boardTick = w.clock.tick; // queue arrival until boarding records the ride start
     station.waiting[nextHop].push_back(pid);
-    people::schedule(w, pid, w.clock.tick + kMaxWaitTicks);
+    people::schedule(w, pid, w.clock.tick + kWaitReviewTicks);
+    positionWaiting(w, at);
 }
 
 void removeFromWaiting(World& w, PersonId pid) {
@@ -85,39 +113,47 @@ TilePos stationPos2(const World& w, StationId id, TilePos fallback2) {
     return fallback2;
 }
 
-// The person reached a station they get off at: pay, then transfer or walk on.
-// Door position of the carriage containing this seat, in half-tile coordinates.
-TilePos doorPosition2(const World& w, const Vehicle& v, usize seat) {
-    TilePos tile = v.tile;
-    if (v.freeTrack && !v.runs.empty()) {
-        i32 back = 0;
-        for (const u16 model : v.cars) {
-            const auto& car = vehicleModel(model);
-            if (seat < car.capacity) { back += car.length * 8; break; }
-            seat -= std::min<usize>(seat, car.capacity);
-            back += car.length * 16 + 4;
+// Two precise doors per passenger carriage, located along the train's actual track history.
+struct Door {
+    TPoint centre;
+    TDir direction;
+    i32 height = -1;
+};
+Door doorForSeat(const World& w, const Vehicle& v, usize seat) {
+    i32 back = 0;
+    const auto addCar = [&](const VehicleModel& car) {
+        if (seat < car.capacity) {
+            back += car.length * (seat < (car.capacity + 1u) / 2 ? 4 : 12);
+            return true;
         }
+        seat -= car.capacity;
+        back += car.length * 16 + 4;
+        return false;
+    };
+    if (v.cars.empty())
+        addCar(v.info());
+    else
+        for (const auto model : v.cars)
+            if (addCar(vehicleModel(model))) break;
+    if (v.freeTrack && !v.runs.empty()) {
         i32 distance = v.progress - back;
         for (usize i = 0; i < v.runs.size(); ++i) {
             const auto run = v.runs[i];
             const auto* edge = w.trackEdges.tryGet(run.edge);
             if (!edge) break;
             if (i > 0) distance += edge->length;
-            if (distance >= 0) {
-                const auto sample = track::pointOn(*edge, run.forward, distance);
-                return {floorDiv(sample.p.x * 2, kTrackUnits), floorDiv(sample.p.z * 2, kTrackUnits)};
-            }
+            if (distance < 0) continue;
+            const auto sample = track::pointOn(*edge, run.forward, distance);
+            const auto& a = w.trackNodes[edge->a];
+            const auto& b = w.trackNodes[edge->b];
+            auto direction = normalised(i64(b.pos.x) - a.pos.x, i64(b.pos.z) - a.pos.z);
+            if (!run.forward) direction = -direction;
+            return {sample.p, direction, sample.h};
         }
     }
+    TilePos tile = v.tile;
     if (v.info().type == VehicleType::Rail && !v.trail.empty()) {
-        i32 offset = 0;
-        for (const u16 model : v.cars) {
-            const auto& car = vehicleModel(model);
-            if (seat < car.capacity) { offset += car.length * 8; break; }
-            seat -= std::min<usize>(seat, car.capacity);
-            offset += car.length * 16 + 4;
-        }
-        i32 remaining = offset - v.progress;
+        i32 remaining = back - v.progress;
         for (usize i = 0; i < v.trail.size(); ++i) {
             tile = v.trail[i].tile;
             if (i == 0 && remaining <= 0) break;
@@ -126,10 +162,41 @@ TilePos doorPosition2(const World& w, const Vehicle& v, usize seat) {
             if (remaining <= 0) break;
         }
     }
-    return {tile.x * 2 + 1, tile.y * 2 + 1};
+    const TDir direction = v.exit == Dir::E   ? TDir{kDirOne, 0}
+                           : v.exit == Dir::W ? TDir{-kDirOne, 0}
+                           : v.exit == Dir::S ? TDir{0, kDirOne}
+                                              : TDir{0, -kDirOne};
+    return {tileCentre(tile), direction, -1};
+}
+TPoint doorSide(const Door& door, i32 side, i32 distance) {
+    return offset(door.centre, {-door.direction.z, door.direction.x}, side * distance);
+}
+TilePos halfTile(TPoint p) { return {floorDiv(p.x * 2, kTrackUnits), floorDiv(p.z * 2, kTrackUnits)}; }
+
+void chooseLocalContinuation(World& w, Person& p, StationId at) {
+    if (at != p.finalStation || !(w.stations[at].facilities & kFacilityRail)) return;
+    const auto endpoint = walking::endpoint(w, p.tripTo2);
+    const auto direct = walking::fromStation(w, at, endpoint);
+    const i64 directLength = direct ? walking::length(*direct) : INT64_MAX / 4;
+    i64 best = direct ? 3 * directLength * kWalkTicksPerTile / kTrackUnits : INT64_MAX;
+    std::vector<StationId> destinations;
+    accessStations(w, p.tripTo2, destinations);
+    for (const auto destination : destinations) {
+        if (destination == at || !(w.stations[destination].facilities & (kFacilityBus | kFacilityTram)))
+            continue;
+        const auto* route = w.routing.find(at, destination);
+        if (!route || !route->hasRide) continue;
+        const auto finalWalk = walking::fromStation(w, destination, endpoint);
+        if (!finalWalk || walking::length(*finalWalk) + 2 * kTrackUnits >= directLength) continue;
+        const i64 cost = route->cost + 3 * walking::length(*finalWalk) * kWalkTicksPerTile / kTrackUnits;
+        if (cost < best) {
+            best = cost;
+            p.finalStation = destination;
+        }
+    }
 }
 
-void alight(World& w, PersonId pid, StationId at, Vehicle& v, usize seat, i32 sequence) {
+void alight(World& w, PersonId pid, StationId at, Vehicle& v, usize seat) {
     Person& p = w.people[pid];
     const Station* from = w.stations.tryGet(p.station);
     const Station* to = w.stations.tryGet(at);
@@ -148,22 +215,28 @@ void alight(World& w, PersonId pid, StationId at, Vehicle& v, usize seat, i32 se
     p.walkPath.clear(); p.walkEnd = 0;
     p.station = at;
     p.transitMotion = 2;
-    p.transitFrom2 = doorPosition2(w, v, seat);
-    p.transitTo2 = p.transitFrom2;
-    // Walk sideways onto the platform / kerb (or up the dock gangway).
-    if (v.info().type == VehicleType::Ship && to) p.transitTo2 = {to->sign.x * 2 + 1, to->sign.y * 2 + 1};
-    else if (v.exit == Dir::E || v.exit == Dir::W) ++p.transitTo2.y;
-    else ++p.transitTo2.x;
-    p.transitBegin = w.clock.tick + sequence * 2;
-    p.transitEnd = p.transitBegin + 8;
+    const Door door = doorForSeat(w, v, seat);
+    const i32 side = (mix32(p.serial ^ at.value) & 1) ? 1 : -1;
+    const TPoint start = doorSide(door, side, 30);
+    const TPoint platform =
+        v.info().type == VehicleType::Ship && to ? tileCentre(to->sign) : doorSide(door, side, 115);
+    p.transitFrom2 = halfTile(start);
+    p.transitTo2 = halfTile(platform);
+    p.transitBegin = w.clock.tick;
+    p.transitEnd =
+        p.transitBegin +
+        std::max<i64>(8, (distance(start, platform) * kWalkTicksPerTile + kTrackUnits - 1) / kTrackUnits);
+    v.loadingUntil = std::max(v.loadingUntil, p.transitEnd);
 
+    chooseLocalContinuation(w, p, at);
     if (at == p.finalStation || !w.stations.contains(p.finalStation)) {
         p.state = PersonState::FromStop;
         auto walk = walking::fromStation(w,at,walking::endpoint(w,p.tripTo2));
         if (walk) {
-            auto internal = walking::withinStation(w,at,{p.transitTo2.x*kTrackUnits/2,p.transitTo2.y*kTrackUnits/2},walk->front().p);
+            auto internal = walking::withinStation(w, at, platform, walk->front().p);
+            internal.insert(internal.begin(), {{start, door.height}, {platform, door.height}});
             internal.insert(internal.end(),walk->begin(),walk->end());
-            walking::begin(w,pid,std::move(internal),p.transitEnd);
+            walking::begin(w, pid, std::move(internal), p.transitBegin);
             people::schedule(w,pid,p.walkEnd);
         } else people::travelAbstract(w,pid,p.transitTo2,p.tripTo2,false);
         return;
@@ -173,8 +246,7 @@ void alight(World& w, PersonId pid, StationId at, Vehicle& v, usize seat, i32 se
         people::travelAbstract(w, pid, stationPos2(w, at, p.tripTo2), p.tripTo2, false);
         return;
     }
-    p.walkPath = {{{p.transitTo2.x*kTrackUnits/2,p.transitTo2.y*kTrackUnits/2}}};
-    p.walkBegin = p.walkEnd = p.transitEnd;
+    walking::begin(w, pid, {{start, door.height}, {platform, door.height}}, p.transitBegin);
     waitAt(w, pid, at, r->nextHop);
 }
 
@@ -185,7 +257,10 @@ void markDirty(World& w) { w.routing.dirty = true; }
 void updateRouting(World& w) {
     RoutingTable& rt = w.routing;
     if (!rt.dirty) return;
+    const bool preserveSchedules = rt.preserveSchedulesOnBuild;
+    rt.preserveSchedulesOnBuild = false;
     rt.routes.clear();
+    rt.transfers.clear();
 
     struct Agg {
         i64 travel = 0;
@@ -223,6 +298,7 @@ void updateRouting(World& w) {
     struct Edge {
         u32 to;
         i64 cost;
+        bool walk = false;
     };
     std::map<u32, std::vector<Edge>> adj;
     for (const auto& [key, agg] : links) {
@@ -231,40 +307,97 @@ void updateRouting(World& w) {
         adj[key.first].push_back({key.second, travel + headway / 2});
     }
 
+    // A train entrance and a nearby street stop form an interchange only when a real
+    // pedestrian route joins them. Track distance alone must never create a transfer.
+    for (const auto [railId, rail] : w.stations) {
+        if (!(rail.facilities & kFacilityRail) || rail.entrances.empty() || !adj.contains(railId.value))
+            continue;
+        for (const auto [localId, local] : w.stations) {
+            if (localId == railId || !(local.facilities & (kFacilityBus | kFacilityTram)) ||
+                !adj.contains(localId.value))
+                continue;
+            bool near = false;
+            for (const auto& entrance : rail.entrances)
+                for (const auto tile : local.tiles)
+                    near = near || chebyshev(entrance.road.x - tile.x, entrance.road.y - tile.y) <= 4;
+            if (!near) continue;
+            const TPoint meeting{local.sign.x * kTrackUnits + 40, local.sign.y * kTrackUnits + 40};
+            auto path = walking::fromStation(w, railId, meeting);
+            if (!path) continue;
+            const i64 cost = std::max<i64>(1, walking::length(*path) * kWalkTicksPerTile / kTrackUnits);
+            rt.transfers[{railId.value, localId.value}] = *path;
+            std::reverse(path->begin(), path->end());
+            rt.transfers[{localId.value, railId.value}] = std::move(*path);
+            adj[railId.value].push_back({localId.value, cost, true});
+            adj[localId.value].push_back({railId.value, cost, true});
+        }
+    }
+
     for (const auto& [origin, edges] : adj) {
         struct Item {
             i64 cost;
             u32 station;
             u32 firstHop;
+            bool walk;
+            bool hasRide;
             bool operator>(const Item& o) const {
-                return cost != o.cost ? cost > o.cost : (station != o.station ? station > o.station : firstHop > o.firstHop);
+                return std::tie(cost, station, firstHop, walk, hasRide) >
+                       std::tie(o.cost, o.station, o.firstHop, o.walk, o.hasRide);
             }
         };
         std::priority_queue<Item, std::vector<Item>, std::greater<Item>> pq;
         std::unordered_map<u32, RouteEntry> best;
-        for (const Edge& e : edges) pq.push({e.cost, e.to, e.to});
+        for (const Edge& e : edges) pq.push({e.cost, e.to, e.to, e.walk, !e.walk});
         while (!pq.empty()) {
             const Item it = pq.top();
             pq.pop();
             if (it.station == origin || best.contains(it.station)) continue;
-            best[it.station] = RouteEntry{StationId(it.firstHop), static_cast<i32>(std::min<i64>(it.cost, 1 << 30))};
+            best[it.station] =
+                RouteEntry{StationId(it.firstHop), static_cast<i32>(std::min<i64>(it.cost, 1 << 30)), it.walk,
+                           it.hasRide};
             const auto a = adj.find(it.station);
             if (a == adj.end()) continue;
             for (const Edge& e : a->second)
-                if (!best.contains(e.to)) pq.push({it.cost + e.cost, e.to, it.firstHop});
+                if (!best.contains(e.to))
+                    pq.push({it.cost + e.cost, e.to, it.firstHop, it.walk, it.hasRide || !e.walk});
         }
         rt.routes[origin] = std::move(best);
     }
     rt.dirty = false;
     rt.builtTick = w.clock.tick;
+    w.townLinks.routing = -2;
+    // Entrances can change access without changing the station graph. Refresh after every
+    // network edit; the first rebuild after loading a current save keeps saved departures.
+    if (!preserveSchedules) {
+        for (const auto [id, person] : w.people) {
+            if (person.state == PersonState::AtHome)
+                people::reschedule(w, id);
+            else if (person.state == PersonState::Waiting)
+                reviewWaiting(w, id);
+        }
+    }
+}
+
+void accessStations(const World& w, TilePos centre2, std::vector<StationId>& out) {
+    const TilePos tile{floorDiv(centre2.x, 2), floorDiv(centre2.y, 2)};
+    stations::stationsCovering(w, tile, out);
+    const auto* surface = w.map.tile(tile);
+    const auto* building = surface && surface->type == TileType::Building
+                               ? w.buildings.tryGet(BuildingId(surface->index))
+                               : nullptr;
+    if (!building || !w.towns.contains(building->town)) return;
+    for (const auto [sid, station] : w.stations)
+        if (station.town == building->town && (station.facilities & kFacilityRail) &&
+            std::ranges::find(out, sid) == out.end())
+            out.push_back(sid);
 }
 
 bool planTrip(const World& w, TilePos from2, TilePos to2, TransitPlan& out) {
     if (w.routing.routes.empty()) return false;
     std::vector<StationId> origins, dests;
-    stations::stationsCovering(w, {from2.x / 2, from2.y / 2}, origins);
+    accessStations(w, from2, origins);
     if (origins.empty()) return false;
-    stations::stationsCovering(w, {to2.x / 2, to2.y / 2}, dests);
+    accessStations(w, to2, dests);
     if (dests.empty()) return false;
     bool found = false;
     for (const StationId o : origins) {
@@ -274,11 +407,12 @@ bool planTrip(const World& w, TilePos from2, TilePos to2, TransitPlan& out) {
         for (const StationId d : dests) {
             if (o == d) continue;
             const RouteEntry* r = w.routing.find(o, d);
-            if (!r) continue;
+            if (!r || !r->hasRide) continue;
             const auto destinationWalk = walking::fromStation(w,d,walking::endpoint(w,to2));
             if (!destinationWalk) continue;
             const i64 walkD = walking::length(*destinationWalk)*kWalkTicksPerTile/kTrackUnits;
-            const i64 total = walkO + r->cost + walkD;
+            // Prefer useful feeder services over long walks across the town.
+            const i64 total = 3 * (walkO + walkD) + r->cost;
             if (!found || total < out.total) {
                 found = true;
                 out = TransitPlan{o, r->nextHop, d, walkO, total};
@@ -294,7 +428,47 @@ void arriveAtStation(World& w, PersonId pid) {
         people::travelAbstract(w, pid, p.tripFrom2, p.tripTo2, false);
         return;
     }
-    waitAt(w, pid, p.station, p.targetStation);
+    if (p.station == p.finalStation) {
+        const auto path = walking::fromStation(w, p.station, walking::endpoint(w, p.tripTo2));
+        if (path) {
+            p.state = PersonState::FromStop;
+            walking::begin(w, pid, *path, w.clock.tick);
+            people::schedule(w, pid, p.walkEnd);
+        } else
+            people::travelAbstract(w, pid, stationPos2(w, p.station, p.tripTo2), p.tripTo2, false);
+        return;
+    }
+    const auto* route = w.routing.find(p.station, p.finalStation);
+    if (!route && !p.finalStation.valid()) {
+        waitAt(w, pid, p.station, p.targetStation);
+        return;
+    }
+    if (!route) {
+        people::travelAbstract(w, pid, stationPos2(w, p.station, p.tripTo2), p.tripTo2, false);
+        return;
+    }
+    waitAt(w, pid, p.station, route->nextHop);
+}
+
+void reviewWaiting(World& w, PersonId pid) {
+    Person& p = w.people[pid];
+    if (w.stations.contains(p.station) && w.stations.contains(p.finalStation)) {
+        if (const auto* route = w.routing.find(p.station, p.finalStation)) {
+            if (route->walk) {
+                removeFromWaiting(w, pid);
+                if (walkTransfer(w, pid, p.station, route->nextHop)) return;
+            }
+            if (route->nextHop != p.targetStation) {
+                removeFromWaiting(w, pid);
+                p.targetStation = route->nextHop;
+                w.stations[p.station].waiting[p.targetStation].push_back(pid);
+                positionWaiting(w, p.station);
+            }
+            people::schedule(w, pid, std::max(w.clock.tick, p.walkEnd) + kWaitReviewTicks);
+            return;
+        }
+    }
+    giveUpWaiting(w, pid);
 }
 
 void giveUpWaiting(World& w, PersonId pid) {
@@ -309,61 +483,128 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
     Station* station = w.stations.tryGet(sid);
     if (!station) return 0;
     i32 moved = cargo::exchangeAtStop(w, vid, sid);
-    const auto o = v.currentOrder();
-    if (o && o->passThrough()) return 0;
-    // Unload.
+    if (moved) v.loadingUntil = std::max(v.loadingUntil, w.clock.tick + moved * 2 + 8);
+    const auto order = v.currentOrder();
+    if (order && order->passThrough()) return 0;
+    if (v.passengerSeats.size() != v.passengers.size()) {
+        v.passengerSeats.clear();
+        for (usize i = 0; i < v.passengers.size(); ++i) v.passengerSeats.push_back(static_cast<u16>(i));
+    }
+    // Every carriage unloads concurrently. Through passengers retain their actual seats.
     std::vector<PersonId> staying;
-    staying.reserve(v.passengers.size());
-    usize seat = 0;
-    for (const PersonId pid : v.passengers) {
-        const usize seatNumber = seat++;
+    std::vector<u16> stayingSeats;
+    for (usize i = 0; i < v.passengers.size(); ++i) {
+        const PersonId pid = v.passengers[i];
         Person* p = w.people.tryGet(pid);
         if (!p) continue;
-        if ((o && (o->flags & kOrderUnloadOnly)) || p->targetStation == sid || p->finalStation == sid || !vehicleVisits(v, p->targetStation)) {
-            alight(w, pid, sid, v, seatNumber, moved);
+        if ((order && (order->flags & kOrderUnloadOnly)) || p->targetStation == sid ||
+            p->finalStation == sid || !vehicleVisits(v, p->targetStation)) {
+            alight(w, pid, sid, v, v.passengerSeats[i]);
             ++moved;
         } else {
             staying.push_back(pid);
+            stayingSeats.push_back(v.passengerSeats[i]);
         }
     }
     v.passengers = std::move(staying);
-    // Load passengers heading for our next stop.
-    if (o && (o->flags & (kOrderNoLoading | kOrderUnloadOnly))) return moved;
+    v.passengerSeats = std::move(stayingSeats);
+    if (order && (order->flags & (kOrderNoLoading | kOrderUnloadOnly))) return moved;
     const StationId next = nextStopAfterCurrent(w, v);
     if (!next.valid() || next == sid) return moved;
+    if (v.freeTrack) positionWaiting(w, sid);
     station = w.stations.tryGet(sid);
-    auto it = station->waiting.find(next);
-    if (it == station->waiting.end()) return moved;
-    std::vector<PersonId>& queue = it->second;
+    auto queue = station->waiting.find(next);
+    if (queue == station->waiting.end()) return moved;
     const usize capacity = v.capacity();
-    usize taken = 0;
-    while (taken < queue.size() && v.passengers.size() < capacity) {
-        if (const Person* nextPerson = w.people.tryGet(queue[taken]); nextPerson && nextPerson->transitMotion == 2 &&
-            std::max(nextPerson->transitEnd,nextPerson->walkEnd) > w.clock.tick) break; // finish walking off the previous vehicle first
-        const PersonId pid = queue[taken++];
+    if (v.passengers.size() >= capacity) return moved;
+    std::vector<Door> doors;
+    std::vector<bool> occupied(capacity, false);
+    std::map<std::pair<i32, i32>, i32> doorLoads;
+    for (usize seat = 0; seat < capacity; ++seat) doors.push_back(doorForSeat(w, v, seat));
+    for (const auto seat : v.passengerSeats)
+        if (seat < capacity) {
+            occupied[seat] = true;
+            ++doorLoads[{doors[seat].centre.x, doors[seat].centre.z}];
+        }
+    int actualPlatform = 0;
+    if (v.freeTrack && !v.runs.empty()) {
+        const auto& edge = w.trackEdges[v.runs.front().edge];
+        actualPlatform = track::platformNumber(w, sid, track::pointOn(edge, true, edge.length / 2).p);
+    }
+    std::vector<PersonId> remaining;
+    for (const PersonId pid : queue->second) {
         Person* p = w.people.tryGet(pid);
         if (!p || p->state != PersonState::Waiting || p->station != sid) continue;
+        if (v.passengers.size() >= capacity || (p->transitMotion == 2 && p->transitEnd > w.clock.tick)) {
+            remaining.push_back(pid);
+            continue;
+        }
+        const WalkPoint current =
+            p->walkPath.empty()
+                ? WalkPoint{station->entrances.empty() ? tileCentre(station->sign)
+                                                       : station->entrances.front().path.back()}
+                : walking::position(*p, w.clock.tick);
+        if (v.freeTrack) {
+            // A walk to a waiting spot need not finish: anyone already on the correct platform
+            // can head directly for a door. Concourse / street walkers never hold up the train.
+            const auto platform = track::platformNear(w, sid, current.p, kPlatformHalfWidth);
+            if (!actualPlatform || !platform.valid() ||
+                track::platformNumber(w, sid, current.p) != actualPlatform ||
+                (current.height >= 0 &&
+                 std::abs(current.height - w.trackNodes[w.trackEdges[platform].a].h) > 8)) {
+                remaining.push_back(pid);
+                continue;
+            }
+        }
+        usize best = capacity;
+        i64 bestCost = std::numeric_limits<i64>::max();
+        for (usize seat = 0; seat < capacity; ++seat) {
+            if (occupied[seat]) continue;
+            const auto& door = doors[seat];
+            const i64 cost =
+                distance(current.p, door.centre) + doorLoads[{door.centre.x, door.centre.z}] * 12;
+            if (cost < bestCost) {
+                best = seat;
+                bestCost = cost;
+            }
+        }
+        if (best == capacity) {
+            remaining.push_back(pid);
+            continue;
+        }
+        const Door& door = doors[best];
+        const TDir normal{-door.direction.z, door.direction.x};
+        const i64 lateral =
+            (i64(current.p.x) - door.centre.x) * normal.x + (i64(current.p.z) - door.centre.z) * normal.z;
+        const i32 side = lateral < 0 ? -1 : 1;
+        const TPoint approach = doorSide(door, side, 115), entrance = doorSide(door, side, 30);
+        std::vector<WalkPoint> path;
+        if (v.freeTrack)
+            path = {{current.p, door.height}, {approach, door.height}, {entrance, door.height}};
+        else
+            path = walking::withinStation(w, sid, current.p, entrance);
         p->state = PersonState::Riding;
         p->vehicle = vid;
         p->boardTick = w.clock.tick;
         p->nextEvent = -1;
         p->transitMotion = 1;
-        const TPoint waiting = p->walkPath.empty() ? TPoint{station->sign.x*kTrackUnits+40,station->sign.y*kTrackUnits+40} : p->walkPath.back().p;
-        p->transitFrom2 = {waiting.x*2/kTrackUnits,waiting.z*2/kTrackUnits};
-        p->transitTo2 = doorPosition2(w, v, v.passengers.size());
-        p->transitBegin = w.clock.tick + moved * 2;
-        auto boarding = walking::withinStation(w,sid,waiting,{p->transitTo2.x*kTrackUnits/2,p->transitTo2.y*kTrackUnits/2});
-        walking::begin(w,pid,std::move(boarding),p->transitBegin);
-        p->transitEnd = std::max(p->transitBegin+8,p->walkEnd);
+        p->transitFrom2 = halfTile(current.p);
+        p->transitTo2 = halfTile(entrance);
+        p->transitBegin = w.clock.tick;
+        walking::begin(w, pid, std::move(path), p->transitBegin);
+        p->transitEnd = std::max(p->transitBegin + 8, p->walkEnd);
         p->walkEnd = p->transitEnd;
-        v.loadingUntil = std::max(v.loadingUntil,p->transitEnd);
+        v.loadingUntil = std::max(v.loadingUntil, p->transitEnd);
         v.passengers.push_back(pid);
+        v.passengerSeats.push_back(static_cast<u16>(best));
+        occupied[best] = true;
+        ++doorLoads[{door.centre.x, door.centre.z}];
         ++station->boardedThisMonth;
         ++moved;
     }
-    queue.erase(queue.begin(), queue.begin() + static_cast<std::ptrdiff_t>(taken));
-    if (queue.empty()) station->waiting.erase(it);
-    station->rating = std::min(255, station->rating + 1);
+    queue->second = std::move(remaining);
+    if (queue->second.empty()) station->waiting.erase(queue);
+    if (moved > 0) station->rating = std::min(255, station->rating + 1);
     return moved;
 }
 

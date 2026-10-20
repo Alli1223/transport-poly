@@ -180,3 +180,5 @@ relies on every peer computing exactly the same game state.
 - [x] 13.8 Retire the grid rail system (building tools; old saves keep their grid railways)
 - [x] 13.9 Road-connected station entrances and protected approach paths; citizens follow connected pavements and building doors for work, home and shopping, with saved paths and deterministic journey times
 - [x] 13.10 Upgrade placed stations: add parallel or custom platforms and connecting lines, extend open ends or convert adjoining straight level track, preserve station orders and passengers, and link platforms with a raised walkway
+- [x] 13.11 Spread waiting passengers evenly along their departure platform, follow platform orders and reserved arrivals, walk across the concourse after reassignment, and wait for transfers before boarding
+- [x] 13.12 Building-only demolition with a full-footprint cost preview in road, rail and station tools; road entrances can use cleared roadside plots and pave the full connector to a platform
