@@ -5,6 +5,25 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-20
+
+### Installation and updates
+- Windows installer with a selectable folder, per-user or all-user installation,
+  Start menu and optional desktop shortcuts, and an uninstaller that preserves saves.
+- Background startup checks for new stable GitHub releases, with release notes,
+  download progress, checksum verification, skip/later choices and install/restart.
+- Installed upgrades keep the installation folder and scope; portable Windows
+  upgrades back up replaced files and restore them if copying fails.
+- Release builds publish the installer alongside portable Windows and Linux packages.
+
+### Towns and industries
+- Completed passenger arrivals and goods deliveries increase town growth.
+- Every industry can expand to production level 8 through sustained completed exports;
+  processing plants gain capacity too, provided their inputs are supplied.
+- Larger countryside sites with varied starting sizes, extra fields, paddocks,
+  storage and outbuildings, plus expansion meters and industry growth news.
+- Save format 27 loads older saves; multiplayer protocol 36 requires matching peers.
+
 ### Multiplayer
 - A company lobby when joining: found your own company with a name and a
   colour, join a friend's company to play it together (co-op), or watch.
@@ -71,5 +90,6 @@ Transport Fever, with deterministic lockstep multiplayer.
 - Multiplayer through a dedicated server or a hosted game, with chat, a
   player list and host-controlled pause and speed; save, load and autosave.
 
-[Unreleased]: https://github.com/Alli1223/transport-poly/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Alli1223/transport-poly/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Alli1223/transport-poly/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Alli1223/transport-poly/releases/tag/v0.1.0

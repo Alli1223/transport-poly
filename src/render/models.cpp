@@ -199,7 +199,7 @@ void ModelLibrary::build() {
     for (u16 t = 0; t < types.size() && t < models::kMaxBuildingTypes; ++t) {
         for (u8 v = 0; v < models::kBuildingVariants; ++v) {
             MeshBuilder mb;
-            buildBuildingModel(mb, t, static_cast<u8>(v % std::max<u8>(1, types[t].variants)));
+            buildBuildingModel(mb, t, t >= 15 && t <= 28 ? v : static_cast<u8>(v % std::max<u8>(1, types[t].variants)));
             add(models::building(t, v), mb);
         }
     }

@@ -58,18 +58,21 @@ struct Building {
     u16 workers = 0;    // people employed here
     u16 customers = 0;  // people who shop here
     i64 builtTick = 0;
+    u8 footprint = 0; // 0 uses the catalogue size (including legacy saves)
 
     const BuildingType& info() const { return buildingType(type); }
+    u8 size() const { return footprint ? footprint : info().size; }
     BuildingRef ref(BuildingId id) const { return {id, serial}; }
     // Centre of the footprint in tile units (x2 to stay integral).
     TilePos centre2() const {
-        const i32 s = info().size;
+        const i32 s = size();
         return {pos.x * 2 + s, pos.y * 2 + s};
     }
 
     template <class Ar>
     void serialize(Ar& ar) {
         ar(serial, type, town, pos, facing, variant, residents, workers, customers, builtTick);
+        if (ar.version == 0 || ar.version >= 27) ar(footprint);
     }
 };
 

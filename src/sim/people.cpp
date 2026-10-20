@@ -183,6 +183,8 @@ void startTrip(World& w, PersonId id, TilePos from2, TilePos to2) {
 
 void arrive(World& w, PersonId id) {
     Person& p = w.people[id];
+    if (p.state == PersonState::FromStop)
+        if (Town* town = w.towns.tryGet(towns::townAt(w, {floorDiv(p.tripTo2.x, 2), floorDiv(p.tripTo2.y, 2)}))) ++town->arrivals;
     const i64 now = w.clock.tick;
     switch (p.purpose) {
     case TripPurpose::Work: {

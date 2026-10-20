@@ -5,6 +5,7 @@
 #include "core/math.hpp"
 #include <algorithm>
 #include <map>
+#include <format>
 #include <queue>
 #include <set>
 
@@ -152,7 +153,7 @@ const Building* building(const World& w, BuildingRef ref) {
     return b && b->serial == ref.serial ? b : nullptr;
 }
 bool covered(const Station& s, const Building& b) {
-    const i32 size = b.info().size;
+    const i32 size = b.size();
     for (const auto tile : s.tiles) {
         const i32 dx = std::max({0, b.pos.x - tile.x, tile.x - (b.pos.x + size - 1)});
         const i32 dy = std::max({0, b.pos.y - tile.y, tile.y - (b.pos.y + size - 1)});
@@ -189,7 +190,7 @@ void daily(World& w) {
             if (r->inputs[0] == CargoType::None) {
                 n = std::min<u32>(n, r->rate * i.level / 2);
             } else {
-                n = std::min<u32>(n, r->rate);
+                n = std::min<u32>(n, r->rate * i.level / 2);
                 for (const CargoType in : r->inputs)
                     if (in != CargoType::None) n = std::min(n, i.stock[static_cast<usize>(in)]);
                 for (const CargoType in : r->inputs)
@@ -234,8 +235,9 @@ void daily(World& w) {
                 if (!accepts(w, target, type)) continue;
                 for (const auto [tid, t] : w.stations) {
                     if (tid == sid || !reachable.contains(tid) || !covered(t, target)) continue;
-                    const u32 n = std::min({stock, 128u, static_cast<u32>(s.waitingCapacity()) - waiting});
-                    w.stations[sid].cargoWaiting.push_back({type, n, sid, tid, dest.building, w.clock.tick});
+                    const u32 dispatch = std::max<u32>(128, recipe->rate * source.level / 2);
+                    const u32 n = std::min({stock, dispatch, static_cast<u32>(s.waitingCapacity()) - waiting});
+                    w.stations[sid].cargoWaiting.push_back({type, n, sid, tid, dest.building, w.clock.tick, source.building});
                     stock -= n; source.shippedThisMonth += n; sent = true; break;
                 }
                 if (sent) break;
@@ -246,6 +248,28 @@ void daily(World& w) {
 }
 void monthly(World& w) {
     for (auto& i : w.industries) {
+        const Building* b = building(w, i.building);
+        const IndustryRecipe* r = b ? recipeFor(b->type) : nullptr;
+        // Count completed exports, never cargo merely waiting at a station. Require a
+        // useful share of full capacity so input-starved plants cannot grow on a trickle.
+        if (r && i.level < 8) {
+            const u32 capacity = static_cast<u32>(r->rate) * i.level / 2 * 30;
+            const u32 utilisation = static_cast<u32>(std::min<u64>(100, static_cast<u64>(i.exportedThisMonth) * 100 / std::max(1u, capacity)));
+            if (utilisation >= 50) i.growthProgress += static_cast<u16>(utilisation / 4);
+            else i.growthProgress = static_cast<u16>(i.growthProgress > 5 ? i.growthProgress - 5 : 0);
+            if (i.growthProgress >= 100) {
+                i.growthProgress -= 100;
+                ++i.level;
+                Building& grown = w.buildings[i.building.id];
+                if (grown.type >= 15 && grown.type <= 28) {
+                    grown.variant = static_cast<u8>((i.level - 1) / 3);
+                    w.map.touch(grown.pos);
+                }
+                w.addNews(NewsKind::General, std::format("{} has expanded to production level {}", b->info().name, i.level), b->pos);
+            }
+        }
+        i.exportedLastMonth = i.exportedThisMonth;
+        i.exportedThisMonth = 0;
         i.producedLastMonth = i.producedThisMonth;
         i.shippedLastMonth = i.shippedThisMonth;
         i.producedThisMonth = i.shippedThisMonth = 0;
@@ -290,6 +314,11 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
                     stock += delivered;
                 }
                 it->delivered += delivered;
+                if (auto source = std::ranges::find_if(w.industries, [&](const Industry& i) { return i.building == batch.producer; }); source != w.industries.end())
+                    source->exportedThisMonth += delivered;
+                // Deliveries to town consumers drive growth; factory inputs grow the factory.
+                if (!r)
+                    if (Town* town = w.towns.tryGet(target->town)) town->goodsReceived += delivered;
                 // A town counts the deliveries it needs towards its growth.
                 if (Town* town = w.towns.tryGet(target->town); town && towns::needs(*town, batch.type))
                     town->supplied[static_cast<usize>(batch.type)] += delivered;

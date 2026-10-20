@@ -33,12 +33,41 @@ x.y.z** with these assets:
 
 | File | Contents |
 | --- | --- |
-| `transport-poly-x.y.z-windows-x64.zip` | Game, dedicated server, font and the MSVC runtime |
+| `transport-poly-x.y.z-windows-x64-setup.exe` | Windows installer, folder and install-scope selection, shortcuts and uninstaller |
+| `transport-poly-x.y.z-windows-x64.zip` | Portable game, dedicated server, font and the MSVC runtime |
 | `transport-poly-x.y.z-linux-x64.tar.gz` | Game and dedicated server (C++ runtime linked in) |
 | `SHA256SUMS.txt` | Checksums of the packages |
 
 A tag with a suffix, such as `vx.y.z-rc1`, is published as a pre-release; its
 notes come from the `x.y.z` changelog section.
+
+## Building the Windows installer locally
+
+Install Inno Setup 6 or 7, configure `windows-msvc`, then run this from a VS
+developer prompt:
+
+```powershell
+powershell -File scripts/package-windows.ps1
+```
+
+Use `-BuildDir build/another-tree` for a different build tree or `-Iscc` to specify
+the compiler. The script builds, stages the installation, compiles Inno Setup,
+creates the portable ZIP and writes `SHA256SUMS.txt` in that tree's `packages/`.
+CI performs the same steps and publishes both Windows assets on a version tag.
+
+Presets set `TP_UPDATE_FEED` to the public repository's latest-release API. An
+empty value disables checks for development builds; the Windows packaging script
+requires the production feed. Each update needs its exact versioned platform asset
+and `SHA256SUMS.txt`. Release notes come from the GitHub release body. Drafts and
+pre-releases are not offered by the stable feed. Keep releases public so players
+can check and download without signing in. Upload all packages and checksums before
+making the release the latest stable release.
+
+The installer keeps its app ID across versions. Upgrades retain the destination
+and per-user/all-user scope. Saves, settings and screenshots are separate from an
+installed game and are preserved by uninstalling. Test silent installs can use
+`/CURRENTUSER /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOICONS /DIR="..."`;
+only the updater adds `/RESTARTGAME=1` to launch the game after a silent upgrade.
 
 ## If the release job fails
 

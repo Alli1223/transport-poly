@@ -3,6 +3,7 @@
 #include "net/session.hpp"
 #include "net/host_session.hpp"
 #include "net/net_client.hpp"
+#include "client/updater.hpp"
 #include "core/preferences.hpp"
 #include "audio/audio.hpp"
 #include "render/camera.hpp"
@@ -120,6 +121,12 @@ private:
     void drawPlayersWindow();
     void drawPlayerCursors(std::vector<gfx::OverlayQuad>& overlays);
     void updateBots(double dt);
+
+    // app_update.cpp
+    bool updatesConfigured() const;
+    void startUpdateCheck();
+    void drawUpdatePanel();
+    void drawUpdateSettings();
 
     // app_companies.cpp
     void drawCompaniesWindow();
@@ -249,6 +256,13 @@ private:
     bool showLines_ = false;
     // Multiplayer: the company lobby, chat to a company or a player, other players' pointers.
     bool showLobby_ = false;
+    // Updates: the release feed (set by release builds, or --update-feed) and what the player chose.
+    update::Updater updater_;
+    std::string updateFeed_;
+    bool updateDismissed_ = false;
+    bool showUpdateErrors_ = false; // only after the player asked to check
+    bool autoUpdate_ = false;        // automation: install an update as soon as it is found
+    bool updateAnnounced_ = false;
     // Companies window: league, graphs and ratings; the competition chosen for a new game.
     bool showCompanies_ = false;
     int companiesTab_ = 0;

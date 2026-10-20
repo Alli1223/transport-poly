@@ -27,6 +27,15 @@ if(TP_BUILD_CLIENT)
     file(GLOB_RECURSE TP_CLIENT_SOURCES CONFIGURE_DEPENDS client/*.cpp client/*.hpp)
     add_executable(transport-poly ${TP_CLIENT_SOURCES})
     target_link_libraries(transport-poly PRIVATE tp_render tp_net tp_imgui glfw tp_audio)
+    # Release builds check this feed for a newer version (GitHub's latest release API).
+    set(TP_UPDATE_FEED "" CACHE STRING "Release feed the game checks for updates (empty: no update checks)")
+    if(TP_UPDATE_FEED)
+        target_compile_definitions(transport-poly PRIVATE TP_UPDATE_FEED="${TP_UPDATE_FEED}")
+    endif()
+    if(WIN32)
+        target_link_libraries(transport-poly PRIVATE winhttp)
+        target_sources(transport-poly PRIVATE client/transport-poly.rc)
+    endif()
     # Ship the UI font next to the executable.
     add_custom_command(TARGET transport-poly POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:transport-poly>/fonts

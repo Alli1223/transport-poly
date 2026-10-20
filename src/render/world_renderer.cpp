@@ -397,14 +397,14 @@ void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, Ch
                 if (t.type != TileType::Building || t.extra != 0) continue;
                 const Building* b = world.buildings.tryGet(BuildingId(t.index));
                 if (!b) continue;
-                const u8 size = b->info().size;
+                const u8 size = b->size();
                 // Surface level of the footprint (flat or on a foundation).
                 const Slope s = map.slope(b->pos);
                 const float y = static_cast<float>(flatSurfaceLevel(s, buildingSurface(s))) * kHeightStep;
                 const glm::vec3 p(static_cast<float>(b->pos.x - o.x) + size * 0.5f, y,
                                   static_cast<float>(b->pos.y - o.y) + size * 0.5f);
                 items.emplace_back(models::building(b->type, b->variant),
-                                   makeInstance(p, facingYaw(b->facing), 1.0f, buildingTint(*b)));
+                                   makeInstance(p, facingYaw(b->facing), b->type >= 15 && b->type <= 28 ? static_cast<float>(size) / (b->info().size + 2) : 1.0f, buildingTint(*b)));
                 mesh.maxY = std::max(mesh.maxY, y + 4.6f);
             }
         }
@@ -634,7 +634,7 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
     };
     for (const auto& industry : world.industries)
         if (const auto* b = world.buildings.tryGet(industry.building.id); b && b->serial == industry.building.serial)
-            addStock({b->pos.x, b->pos.y + b->info().size}, industry.stock);
+            addStock({b->pos.x, b->pos.y + b->size()}, industry.stock);
     // Smoke rising from industry chimneys.
     {
         struct Stack {
@@ -651,10 +651,11 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
             if (dx * dx + dz * dz > std::min(radius * radius, 40000.0)) continue;
             for (const Stack& st : kStacks) {
                 if (st.type != b->type) continue;
-                const float size = b->info().size;
-                const glm::dvec3 base(b->pos.x + size * 0.5 + st.x, terrainHeightAt(world.map, b->pos.x + size * 0.5, b->pos.y + size * 0.5),
-                                      b->pos.y + size * 0.5 + st.z);
-                fx_.addStack(base + glm::dvec3(0.0, st.top, 0.0), industry.building.id.value * 8u + static_cast<u32>(&st - kStacks));
+                const float size = b->size();
+                const float scale = b->type >= 15 && b->type <= 28 ? size / (b->info().size + 2) : 1.0f;
+                const glm::dvec3 base(b->pos.x + size * 0.5 + st.x * scale, terrainHeightAt(world.map, b->pos.x + size * 0.5, b->pos.y + size * 0.5),
+                                      b->pos.y + size * 0.5 + st.z * scale);
+                fx_.addStack(base + glm::dvec3(0.0, st.top * scale, 0.0), industry.building.id.value * 8u + static_cast<u32>(&st - kStacks));
             }
         }
     }
@@ -993,7 +994,7 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
             snapshot = *active;
             for (const auto& tile : active->tiles) if (tile.type == TileType::Building) {
                 const auto* b = world.buildings.tryGet(BuildingId(tile.index));
-                if (!b || b->info().category == BuildingCategory::Residential) residential.insert(tile.index);
+                if (!b || b->info().category == BuildingCategory::Residential || b->type == 12 || (b->type >= 15 && b->type <= 18)) residential.insert(tile.index);
             }
         }
         std::map<TilePos, bool> border;

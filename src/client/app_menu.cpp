@@ -727,6 +727,10 @@ void App::drawSettings() {
                 ImGui::TextWrapped("Year, interest and economy events apply when starting a new world.");
                 ImGui::EndTabItem();
             }
+            if (ImGui::BeginTabItem("Updates")) {
+                drawUpdateSettings();
+                ImGui::EndTabItem();
+            }
             ImGui::EndTabBar();
         }
         if (changed) applyPreferences();

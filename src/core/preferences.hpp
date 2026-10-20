@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
 
 namespace tp {
 // Local presentation / control preferences, deliberately outside the simulation state.
@@ -26,6 +27,8 @@ struct ClientPreferences {
     int rivers = 2;
     int climate = 0;
     bool weather = true; // clouds, cloud shadows and mist
+    bool checkUpdates = true;   // look for a newer release when the game starts
+    std::string skippedVersion; // a release the player chose not to be offered again
     void clamp();
     bool load(const std::filesystem::path& path);
     bool save(const std::filesystem::path& path) const;

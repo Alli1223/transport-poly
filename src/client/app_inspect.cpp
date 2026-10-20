@@ -351,7 +351,7 @@ void App::drawPersonRoute(std::vector<gfx::OverlayQuad>& overlays) {
     }
     if (trip.dest && !travelling(p->state)) {
         // Staying put: mark where they go next.
-        addRing(overlays, buildingPoint(w, *trip.dest, kLift), trip.dest->info().size * 0.5 + 0.15, gfx::rgba(255, 186, 66, 110));
+        addRing(overlays, buildingPoint(w, *trip.dest, kLift), trip.dest->size() * 0.5 + 0.15, gfx::rgba(255, 186, 66, 110));
     } else if (trip.dest) {
         const glm::dvec3 end = buildingPoint(w, *trip.dest, kLift);
         if (from && !(onFoot && p->state != PersonState::ToStop)) {
@@ -359,7 +359,7 @@ void App::drawPersonRoute(std::vector<gfx::OverlayQuad>& overlays) {
             addRibbon(overlays, groundLeg(w, *from, end, kLift), drive ? 0.05 : 0.035, drive ? abstractColour : walkColour,
                       drive ? 0.0 : 0.12);
         }
-        const double size = trip.dest->info().size * 0.5 + 0.15;
+        const double size = trip.dest->size() * 0.5 + 0.15;
         addRing(overlays, end, size, gfx::rgba(255, 186, 66, 200));
     }
 }
@@ -371,7 +371,7 @@ void App::drawPersonLabels() {
     if (!p || p->serial != selPersonSerial_) return;
     const Trip trip = tripOf(w, *p);
     if (!trip.dest) return;
-    const glm::dvec3 at = buildingPoint(w, *trip.dest, 0.6 + trip.dest->info().size * 0.15);
+    const glm::dvec3 at = buildingPoint(w, *trip.dest, 0.6 + trip.dest->size() * 0.15);
     if (const auto sp = worldToScreen(at)) {
         const std::string title = travelling(p->state) ? std::format("{}'s destination", generatePersonFirstName(p->nameSeed))
                                                        : std::string("Next trip");

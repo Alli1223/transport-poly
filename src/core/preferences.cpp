@@ -22,7 +22,7 @@ bool ClientPreferences::load(const std::filesystem::path& path) {
     std::ifstream in(path);
     ClientPreferences candidate;
     int version = 0;
-    if (!(in >> version) || (version < 1 || version > 6) ||
+    if (!(in >> version) || (version < 1 || version > 7) ||
         !(in >> candidate.shadows >> candidate.vsync >> candidate.daylightOnly >> candidate.viewDistance >>
           candidate.panPercent >> candidate.orbitPercent >> candidate.zoomPercent >> candidate.autosaveMonths >>
           candidate.startYear >> candidate.interestPercent)) return false;
@@ -31,6 +31,11 @@ bool ClientPreferences::load(const std::filesystem::path& path) {
     if (version >= 4 && !(in >> candidate.landmass >> candidate.mountains >> candidate.lakes >> candidate.rivers)) return false;
     if (version >= 5 && !(in >> candidate.climate)) return false;
     if (version >= 6 && !(in >> candidate.weather)) return false;
+    if (version >= 7) {
+        std::string skipped;
+        if (!(in >> candidate.checkUpdates >> skipped)) return false;
+        candidate.skippedVersion = skipped == "-" ? std::string() : skipped;
+    }
     candidate.clamp();
     *this = candidate;
     return true;
@@ -39,10 +44,11 @@ bool ClientPreferences::save(const std::filesystem::path& path) const {
     ClientPreferences p = *this;
     p.clamp();
     std::ofstream out(path, std::ios::trunc);
-    out << 6 << '\n' << p.shadows << ' ' << p.vsync << ' ' << p.daylightOnly << ' ' << p.viewDistance << ' '
+    out << 7 << '\n' << p.shadows << ' ' << p.vsync << ' ' << p.daylightOnly << ' ' << p.viewDistance << ' '
         << p.panPercent << ' ' << p.orbitPercent << ' ' << p.zoomPercent << ' ' << p.autosaveMonths << ' '
         << p.startYear << ' ' << p.interestPercent << ' ' << p.inflation << ' ' << p.recessions << ' ' << p.sounds << ' ' << p.aiCompetitors << ' '
-        << p.landmass << ' ' << p.mountains << ' ' << p.lakes << ' ' << p.rivers << ' ' << p.climate << ' ' << p.weather << '\n';
+        << p.landmass << ' ' << p.mountains << ' ' << p.lakes << ' ' << p.rivers << ' ' << p.climate << ' ' << p.weather << ' ' << p.checkUpdates << ' '
+        << (p.skippedVersion.empty() ? std::string("-") : p.skippedVersion) << '\n';
     out.flush();
     return static_cast<bool>(out);
 }

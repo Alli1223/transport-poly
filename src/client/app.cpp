@@ -457,10 +457,12 @@ void App::onFramebufferSize(int width, int height) { camera_.setViewport(width, 
 
 bool App::parseArgs(int argc, char** argv) {
     if (argc > 0 && argv[0]) exeDir_ = std::filesystem::path(argv[0]).parent_path().string();
+    if (const auto exe = update::executablePath(); !exe.empty()) exeDir_ = exe.parent_path().string();
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (arg != "--no-debug" && arg != "--screenshot" && arg != "--frames" && arg != "--time" && arg != "--open" &&
-            arg != "--land" && arg != "--climate" && arg != "--clouds" && arg != "--mist" && arg != "--mountains" && arg != "--lakes" && arg != "--rivers")
+            arg != "--land" && arg != "--climate" && arg != "--clouds" && arg != "--mist" && arg != "--mountains" && arg != "--lakes" && arg != "--rivers" &&
+            arg != "--update-feed" && arg != "--auto-update")
             directStart_ = true;
         const auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : nullptr; };
         if (arg == "--screenshot") {
@@ -565,6 +567,12 @@ bool App::parseArgs(int argc, char** argv) {
             if (const char* v = next()) std::snprintf(playerName_, sizeof(playerName_), "%s", v);
         } else if (arg == "--password") {
             if (const char* v = next()) std::snprintf(serverPassword_, sizeof(serverPassword_), "%s", v);
+        } else if (arg == "--update-feed") {
+            // Automation and testing: check this release feed (even in development builds).
+            if (const char* v = next()) updateFeed_ = v;
+        } else if (arg == "--auto-update") {
+            autoUpdate_ = true;
+            showUpdateErrors_ = true;
         } else if (arg == "--fast-forward") {
             // Automation: run the --host-demo game this many days before showing it.
             if (const char* v = next()) fastForwardDays_ = std::clamp(std::atoi(v), 0, 3650);
@@ -605,7 +613,15 @@ void App::captureScreenshot(const std::string& path) {
 }
 
 bool App::init() {
+    // An installed game keeps saves, settings and screenshots in the player's own folder.
+    if (update::installKind() == releases::Kind::WindowsInstaller) {
+        std::error_code ec;
+        const auto data = update::userDataDir();
+        std::filesystem::create_directories(data, ec);
+        std::filesystem::current_path(data, ec);
+    }
     preferences_.load("settings.cfg");
+    if (preferences_.checkUpdates || !updateFeed_.empty()) startUpdateCheck();
     audio_.setEnabled(preferences_.sounds);
     renderer_.settings.shadows = preferences_.shadows;
     renderer_.settings.weather = preferences_.weather;
@@ -1283,6 +1299,7 @@ int App::run(int argc, char** argv) {
             }
             updatePreview(dt);
             drawMainMenu();
+            drawUpdatePanel();
             if (preview_) renderer_.render(preview_->world(), camera_, 15.5 * 60.0, timeSeconds_, preview_->tickFraction(), {});
         } else if (!session_->ready()) {
             glViewport(0, 0, camera_.viewportWidth(), camera_.viewportHeight());
@@ -1418,7 +1435,7 @@ int App::run(int argc, char** argv) {
                     }
                 }
                 if (best) {
-                    const double size = best->info().size;
+                    const double size = best->size();
                     camera_.targetGoal = glm::dvec3(best->pos.x + size * 0.5, 0.0, best->pos.y + size * 0.5);
                     camera_.targetGoal.y = gfx::terrainHeightAt(w.map, camera_.targetGoal.x, camera_.targetGoal.z);
                     camera_.distanceGoal = 9.0;
@@ -1606,6 +1623,11 @@ int App::run(int argc, char** argv) {
             drawDebugUi();
             drawChat();
             drawGameMenu();
+            if (!updateAnnounced_ && updater_.state() == update::Updater::State::Available &&
+                updater_.release().version != preferences_.skippedVersion) {
+                updateAnnounced_ = true;
+                toasts_.push_back({std::format("{} is available: update from the main menu", updater_.release().title), now + 8.0, false});
+            }
             drawToasts(now);
             drawNews(now);
             drawMinimap(now);

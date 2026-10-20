@@ -199,8 +199,8 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
         }
         const CmdDemolishBuilding cmd{building->ref(BuildingId(tile->index))};
         const auto result = test(cmd);
-        for (i32 y = 0; y < building->info().size; ++y)
-            for (i32 x = 0; x < building->info().size; ++x)
+        for (i32 y = 0; y < building->size(); ++y)
+            for (i32 x = 0; x < building->size(); ++x)
                 addTileOverlay(overlays, {building->pos.x + x, building->pos.y + y},
                                result.ok ? gfx::rgba(250, 160, 70, 130) : kBad);
         if (ImGui::BeginTooltip()) {

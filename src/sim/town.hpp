@@ -88,6 +88,8 @@ struct Town {
 
     std::map<u8, i16> ratings; // by company id; companies without an entry are rated kRatingInitial
     i32 servedStations = 0;    // stations in town visited last month (drives growth)
+    u32 arrivals = 0, arrivalsLastMonth = 0; // completed passenger journeys into town
+    u32 goodsReceived = 0, goodsReceivedLastMonth = 0;
 
     // What the town needs delivered to keep growing: one thing as a village, more (and more
     // elaborate) as it grows. Deliveries count at its shops, offices and civic buildings.
@@ -102,6 +104,7 @@ struct Town {
            thisMonth, lastMonth);
         if (ar.version == 0 || ar.version >= 3) ar(ratings, servedStations);
         if (ar.version == 0 || ar.version >= 21) ar(needs, supplied, suppliedLastMonth);
+        if (ar.version == 0 || ar.version >= 27) ar(arrivals, arrivalsLastMonth, goodsReceived, goodsReceivedLastMonth);
     }
 };
 
@@ -119,7 +122,7 @@ void growAll(World& w);
 void monthly(World& w);
 void recompute(World& w, TownId id);
 
-BuildingId placeBuilding(World& w, TownId town, u16 type, TilePos pos, Dir facing, u8 variant);
+BuildingId placeBuilding(World& w, TownId town, u16 type, TilePos pos, Dir facing, u8 variant, u8 footprint = 0);
 void removeBuilding(World& w, BuildingId id);
 
 // True if a building of the given size could be placed with its NW corner at `pos`.

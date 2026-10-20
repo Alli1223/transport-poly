@@ -14,6 +14,15 @@ same day; closing it refreshes their plans. Stations need connected road entranc
 Passengers keep waiting until a vehicle with space arrives while their service
 exists. A full train leaves the remaining passengers queued for the next one.
 
+Towns grow faster when passengers arrive and goods reach their shops and civic
+buildings. Their increasing needs still have to be supplied to unlock further
+growth. Countryside industries start at different sizes, with larger farm plots,
+yards and outbuildings. All producers and processing plants can expand to level 8:
+deliver at least half their monthly production capacity consistently to build
+expansion progress. Successful deliveries count, including through transfers;
+cargo left waiting at stations does not. Expanded industries produce more each
+day, and processing plants need enough of every input to use their new capacity.
+
 * C++23, OpenGL 3.3 core, Windows and Linux
 * Infinite chunked terrain generated deterministically from a seed
 * Server-authoritative lockstep multiplayer (OpenTTD style): clients issue
@@ -71,6 +80,20 @@ To build only the dedicated server and tests (no X11/OpenGL needed) use the
 `cpack --preset windows-msvc` (or `linux-gcc` / `linux-headless`) after a release
 build writes a self-contained zip / tar.gz with the game, the dedicated server and
 the font to `build/<preset>/packages/`.
+
+On Windows, install Inno Setup 6 or 7 and run
+`powershell -File scripts/package-windows.ps1` from a VS developer prompt after
+configuring the Windows preset. This builds the game, portable ZIP, checksums and
+`transport-poly-0.2.0-windows-x64-setup.exe`. The installer lets you choose a folder,
+install for yourself or everyone, and create shortcuts. Windows Settings or the
+Start menu uninstaller removes the game while preserving saves and settings.
+
+Packaged builds check for a newer stable release at startup and show its release
+notes. Choose **Download update**, then **Install and restart** after verification;
+or skip that release or defer it. Update checks and a manual **Check now** button
+are in Settings. Offline checks fail quietly. Installed Windows copies keep player
+data in `%APPDATA%\transport-poly`; updates retain the chosen installation folder.
+Portable copies keep their existing player data when updated.
 
 ### Releases
 

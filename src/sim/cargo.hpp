@@ -54,24 +54,31 @@ struct CargoBatch {
     StationId origin, destination;
     BuildingRef receiver;
     i64 producedTick = 0;
-    template<class Ar> void serialize(Ar& ar) { ar(type, quantity, origin, destination, receiver, producedTick); }
+    BuildingRef producer;
+    template<class Ar> void serialize(Ar& ar) {
+        ar(type, quantity, origin, destination, receiver, producedTick);
+        if (ar.version == 0 || ar.version >= 27) ar(producer);
+    }
 };
 
 struct Industry {
     BuildingRef building;
     CargoCounts stock;
     u64 delivered = 0;
-    u8 level = 2;           // production level 1-4 (raw producers make rate * level / 2 a day)
+    u8 level = 2;           // production level 1-8; every recipe makes rate * level / 2 a day
+    u16 growthProgress = 0; // 100 points per level, earned through sustained deliveries
+    u32 exportedThisMonth = 0, exportedLastMonth = 0; // successfully delivered output
     u32 producedThisMonth = 0, producedLastMonth = 0;
     u32 shippedThisMonth = 0, shippedLastMonth = 0; // handed to stations
     template<class Ar> void serialize(Ar& ar) {
         ar(building, stock, delivered);
         if (ar.version == 0 || ar.version >= 21) ar(level, producedThisMonth, producedLastMonth, shippedThisMonth, shippedLastMonth);
+        if (ar.version == 0 || ar.version >= 27) ar(growthProgress, exportedThisMonth, exportedLastMonth);
     }
 };
 
 // What an industry building makes: raw producers have no inputs; processing plants need all of
-// theirs and make up to `rate` units a day from them.
+// theirs and make up to `rate * level / 2` units a day from them.
 struct IndustryRecipe {
     u16 building;
     std::array<CargoType, 2> inputs;
