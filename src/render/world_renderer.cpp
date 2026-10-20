@@ -225,6 +225,7 @@ bool WorldRenderer::init() {
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, kGlowStride, reinterpret_cast<const void*>(5 * sizeof(float)));
     glBindVertexArray(0);
+    if (!fx_.init()) return false;
     ensureShadowTarget();
     return true;
 }
@@ -496,6 +497,7 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
     dynamic_.clear();
     lamps_.clear();
     glows_.clear();
+    fx_.beginFrame(lastSeconds_);
     const float night = sky_.night;
     const glm::vec3 headlight(1.0f, 0.93f, 0.8f), tailLamp(1.0f, 0.12f, 0.08f), interior(1.0f, 0.75f, 0.45f);
     const auto local = [](const glm::mat4& m, glm::vec3 p) { return glm::vec3(m * glm::vec4(p, 1.0f)); };
@@ -695,6 +697,7 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
                 dynamic_.add(vehicleModelId(info), makeInstance(poseMatrix(c.pose), carTint));
                 addLoad(v, c.index, c.pose, c.model);
             }
+            fx_.addTrain(dynamic_, id, cars, origin);
             if (v.breakdownTicks > 0)
                 for (const auto& car : cars) if (vehicleModel(car.model).powered) {
                     addSmoke(car.pose, v.breakdownTicks);
@@ -1117,6 +1120,8 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
 
     // Halos around lamps at night.
     drawGlows(view);
+    // Steam and smoke.
+    fx_.draw(view, origin);
 
     // Clouds: low poly puffs where the cloud field is thick, drifting with the wind. They show
     // once the camera is well above the land, fading in as it rises, and are skipped above it.

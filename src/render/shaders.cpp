@@ -372,6 +372,45 @@ void main() {
 )"});
 }
 
+std::string puffVS() {
+    return join({kHeader, R"(
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec2 aUv;
+layout(location = 2) in vec4 aColor;
+out vec2 vUv;
+out vec4 vColor;
+void main() {
+    vUv = aUv;
+    float d = length(aPos.xz - uFogParams.zw);
+    float fog = clamp((d - uFogParams.x) / max(uFogParams.y - uFogParams.x, 1.0), 0.0, 1.0);
+    vColor = vec4(aColor.rgb, aColor.a * (1.0 - fog));
+    gl_Position = uViewProj * vec4(aPos, 1.0);
+}
+)"});
+}
+
+std::string puffFS() {
+    // Soft round puffs of steam and smoke, lit by the sky and the sun: brighter on top, a little
+    // denser in the middle, with a lumpy edge.
+    return join({kHeader, R"(
+in vec2 vUv;
+in vec4 vColor;
+out vec4 fragColor;
+void main() {
+    float r2 = dot(vUv, vUv);
+    float edge = 1.0 - 0.12 * sin(atan(vUv.y, vUv.x) * 5.0 + vColor.a * 7.0);
+    if (r2 > edge) discard;
+    float a = (1.0 - r2 / edge);
+    a = a * a * (3.0 - 2.0 * a) * vColor.a;
+    vec3 light = uAmbientSky.rgb * 1.1 + uAmbientGround.rgb * 0.35 +
+                 uSunColor.rgb * uSunDir.w * (0.5 + 0.3 * vUv.y);
+    vec3 c = toLinear(vColor.rgb) * light;
+    c = mix(c, uHorizonColor.rgb, 0.12);
+    fragColor = vec4(toSrgb(c), a);
+}
+)"});
+}
+
 std::string shadowStaticVS() {
     return join({kHeader, R"(
 layout(location = 0) in vec3 aPos;

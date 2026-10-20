@@ -7,6 +7,7 @@
 #include "render/gl_util.hpp"
 #include "render/mesh.hpp"
 #include "render/track_renderer.hpp"
+#include "render/vehicle_fx.hpp"
 #include "render/models.hpp"
 #include "render/shader.hpp"
 #include "render/terrain_mesher.hpp"
@@ -164,6 +165,7 @@ private:
     std::vector<Glow> glows_;
     VertexArray glowVao_;
     Buffer glowVbo_;
+    VehicleFx fx_; // turning steam engine wheels, steam and smoke
     InstanceBatch clouds_;
     glm::vec2 cloudDrift_{0.0f};
     float mistLevel_ = 0.0f; // mist settles below about this height (eases after the camera)

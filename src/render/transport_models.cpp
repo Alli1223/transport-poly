@@ -19,6 +19,10 @@ constexpr u32 kRoofGrey = rgba(120, 124, 130);
 constexpr u32 kLight = rgba(250, 236, 170, 252);    // headlamp
 constexpr u32 kTailLamp = rgba(200, 40, 30, 251);
 constexpr float kInset = 0.004f;
+// Tank engine running gear, shared with the renderer's animation (see vehicle_fx.cpp).
+constexpr float kSteamWheelRadius = 0.052f;
+constexpr float kSteamCrank = 0.022f;
+constexpr float kSteamCrossheadY = kSteamWheelRadius + 0.016f;
 
 void wheels(MeshBuilder& mb, float x0, float x1, float halfW, float r = 0.045f) {
     for (const float x : {x0, x1}) {
@@ -133,25 +137,154 @@ void depotBuilding(MeshBuilder& mb, bool tram) {
 }
 
 // Railway vehicles: length along X in tiles (matching the simulation's car length).
-void steamEngine(MeshBuilder& mb) {
-    constexpr u32 kBlack = rgba(40, 42, 46);
-    constexpr u32 kRed = rgba(160, 40, 34);
-    const float hl = 0.31f, hw = 0.1f;
-    mb.box({-hl, 0.05f, -hw}, {hl, 0.08f, hw}, kBlack);                     // frame
+constexpr u32 kEngineBlack = rgba(38, 40, 44);
+constexpr u32 kSmokebox = rgba(48, 48, 52);
+constexpr u32 kBufferRed = rgba(168, 42, 34);
+constexpr u32 kBrass = rgba(214, 170, 72);
+constexpr u32 kCoal = rgba(26, 26, 28);
+constexpr u32 kSteel = rgba(150, 152, 158);
+
+// A cylinder of `length` along +X from (x, y, z) (prism axis turned from +Y).
+void cylinderX(MeshBuilder& mb, float x, float y, float z, float radius, float length, int sides, u32 colour) {
     const glm::mat4 saved = mb.transform;
-    mb.transform = saved * glm::translate(glm::mat4(1.0f), glm::vec3(0.05f, 0.155f, 0.0f)) *
-                   glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0, 0, 1));
-    mb.prism({0.0f, -0.25f, 0.0f}, 0.075f, 0.45f, 8, kLivery, true);      // boiler
+    mb.transform = saved * glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z)) *
+                   glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0, 0, 1));
+    mb.prism({0.0f, 0.0f, 0.0f}, radius, length, sides, colour, true);
     mb.transform = saved;
-    mb.prism({0.24f, 0.22f, 0.0f}, 0.03f, 0.1f, 6, kBlack, true);          // chimney
-    mb.box({-hl, 0.08f, -hw}, {-0.12f, 0.28f, hw}, kLiveryDark);             // cab
-    mb.box({-hl - 0.01f, 0.28f, -hw - 0.01f}, {-0.1f, 0.3f, hw + 0.01f}, kBlack);
-    windowBand(mb, -0.28f, -0.15f, 0.18f, 0.25f, hw);
-    mb.box({hl - 0.02f, 0.05f, -hw + 0.01f}, {hl + 0.02f, 0.08f, hw - 0.01f}, kRed); // buffer beam
-    lamps(mb, hl + 0.02f, 0.095f, 0.06f, true);
-    mb.box({0.27f, 0.21f, -0.012f}, {0.3f, 0.24f, 0.012f}, kLight); // lamp on the smokebox
+}
+
+// A disc of `thickness` along +Z from z, centred on (x, y).
+void discZ(MeshBuilder& mb, float x, float y, float z, float radius, float thickness, int sides, u32 colour) {
+    const glm::mat4 saved = mb.transform;
+    mb.transform = saved * glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z)) *
+                   glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1, 0, 0));
+    mb.prism({0.0f, 0.0f, 0.0f}, radius, thickness, sides, colour, true);
+    mb.transform = saved;
+}
+
+// Tank engine (0-6-0T): boiler with brass bands and dome, smokebox and chimney, side tanks, cab and
+// coal bunker, cylinders and slide bars. Its driving wheels and rods are separate models
+// (kSteamWheelset, kSideRod, kMainRod) that the renderer turns as the engine runs.
+void steamEngine(MeshBuilder& mb) {
+    const float hl = 0.31f, hw = 0.1f;
+    // Frames, footplate with its red valance, buffer beams, buffers and couplings.
+    mb.box({-hl, 0.07f, -hw - 0.005f}, {hl, 0.085f, hw + 0.005f}, kEngineBlack);
+    for (const float side : {-1.0f, 1.0f}) {
+        mb.box({-0.27f, 0.026f, side * 0.07f - 0.006f}, {0.27f, 0.07f, side * 0.07f + 0.006f}, kEngineBlack);
+        mb.box({-hl, 0.062f, side * (hw + 0.002f) - 0.004f}, {hl, 0.072f, side * (hw + 0.002f) + 0.004f}, kBufferRed);
+    }
+    for (const float end : {-1.0f, 1.0f}) {
+        const float x = end * hl;
+        mb.box({std::min(x, x - end * 0.012f), 0.04f, -hw}, {std::max(x, x - end * 0.012f), 0.088f, hw}, kBufferRed);
+        for (const float z : {-0.068f, 0.068f}) {
+            cylinderX(mb, end > 0 ? x : x - 0.024f, 0.062f, z, 0.008f, 0.024f, 6, kSteel);
+            cylinderX(mb, end > 0 ? x + 0.024f : x - 0.03f, 0.062f, z, 0.016f, 0.006f, 8, kEngineBlack);
+        }
+        mb.box({std::min(x, x + end * 0.022f), 0.055f, -0.006f}, {std::max(x, x + end * 0.022f), 0.068f, 0.006f}, kSteel);
+    }
+    // Boiler, bands, smokebox and its door, saddle and chimney.
+    cylinderX(mb, -0.07f, 0.165f, 0.0f, 0.066f, 0.28f, 12, kLivery);
+    for (const float x : {-0.01f, 0.06f, 0.13f}) cylinderX(mb, x, 0.165f, 0.0f, 0.0675f, 0.007f, 12, kBrass);
+    cylinderX(mb, 0.205f, 0.165f, 0.0f, 0.07f, 0.07f, 12, kSmokebox);
+    cylinderX(mb, 0.275f, 0.165f, 0.0f, 0.058f, 0.006f, 12, kEngineBlack);
+    mb.box({0.281f, 0.12f, -0.004f}, {0.286f, 0.2f, 0.004f}, kSteel);
+    mb.box({0.2f, 0.085f, -0.05f}, {0.27f, 0.12f, 0.05f}, kSmokebox);
+    mb.frustum({0.24f, 0.212f, 0.0f}, 0.034f, 0.021f, 0.022f, 10, kSmokebox);
+    mb.prism({0.24f, 0.232f, 0.0f}, 0.021f, 0.054f, 10, kEngineBlack, true);
+    mb.prism({0.24f, 0.282f, 0.0f}, 0.027f, 0.013f, 10, kEngineBlack, true);
+    mb.prism({0.24f, 0.2952f, 0.0f}, 0.017f, 0.001f, 10, kCoal, true);
+    // Dome, safety valves and whistle; a handrail along each side of the boiler.
+    mb.prism({0.075f, 0.212f, 0.0f}, 0.028f, 0.032f, 10, kBrass, true);
+    mb.icosphere({0.075f, 0.244f, 0.0f}, 0.028f, kBrass, 1, 0.45f);
+    mb.prism({-0.035f, 0.222f, 0.0f}, 0.012f, 0.03f, 8, kBrass, true);
+    mb.prism({-0.055f, 0.228f, 0.0f}, 0.005f, 0.04f, 6, kBrass, true);
+    for (const float side : {-1.0f, 1.0f})
+        mb.box({-0.06f, 0.198f, side * 0.074f - 0.003f}, {0.25f, 0.204f, side * 0.074f + 0.003f}, kSteel);
+    // Side tanks with lining and filler caps.
+    constexpr u32 kLining = rgba(232, 204, 124);
+    for (const float side : {-1.0f, 1.0f}) {
+        const float inner = side * 0.046f, outer = side * 0.104f;
+        mb.box({-0.06f, 0.085f, std::min(inner, outer)}, {0.175f, 0.205f, std::max(inner, outer)}, kLivery);
+        mb.box({-0.062f, 0.205f, std::min(inner, outer) - 0.002f}, {0.177f, 0.211f, std::max(inner, outer) + 0.002f}, kLiveryDark);
+        const float face = outer + side * 0.0015f;
+        const auto line = [&](float x0, float y0, float x1, float y1) {
+            mb.box({x0, y0, face - 0.0012f}, {x1, y1, face + 0.0012f}, kLining);
+        };
+        line(-0.045f, 0.105f, 0.16f, 0.109f);
+        line(-0.045f, 0.187f, 0.16f, 0.191f);
+        line(-0.045f, 0.105f, -0.041f, 0.191f);
+        line(0.156f, 0.105f, 0.16f, 0.191f);
+        mb.prism({0.12f, 0.211f, side * 0.075f}, 0.012f, 0.008f, 8, kEngineBlack, true);
+    }
+    // Cab: lower sides as high as the tanks, front plate with spectacle windows, side openings
+    // glowing from the firebox at night, and an arched roof.
+    mb.box({-0.225f, 0.085f, -0.104f}, {-0.06f, 0.205f, 0.104f}, kLivery);
+    mb.box({-0.077f, 0.205f, -0.104f}, {-0.06f, 0.305f, 0.104f}, kLivery);
+    mb.box({-0.225f, 0.205f, -0.104f}, {-0.207f, 0.305f, 0.104f}, kLivery);
+    for (const float side : {-1.0f, 1.0f}) {
+        mb.box({-0.207f, 0.285f, side * 0.104f - 0.008f}, {-0.077f, 0.305f, side * 0.104f + 0.008f}, kLivery);
+        mb.quadFacing({-0.0595f, 0.248f, side * 0.042f}, {-0.0595f, 0.248f, side * 0.088f}, {-0.0595f, 0.288f, side * 0.088f},
+                      {-0.0595f, 0.288f, side * 0.042f}, kGlass, {1, 0, 0});
+    }
+    mb.box({-0.207f, 0.205f, -0.096f}, {-0.077f, 0.285f, 0.096f}, rgba(44, 34, 28));
+    windowBand(mb, -0.205f, -0.079f, 0.215f, 0.283f, 0.1f);
+    mb.box({-0.235f, 0.305f, -0.113f}, {-0.05f, 0.316f, 0.113f}, kEngineBlack);
+    mb.box({-0.228f, 0.316f, -0.082f}, {-0.057f, 0.325f, 0.082f}, kEngineBlack);
+    // Coal bunker heaped with coal.
+    mb.box({-hl + 0.004f, 0.085f, -0.1f}, {-0.225f, 0.25f, 0.1f}, kLivery);
+    mb.box({-hl + 0.004f, 0.25f, -0.102f}, {-0.225f, 0.256f, 0.102f}, kLiveryDark);
+    mb.box({-0.298f, 0.256f, -0.085f}, {-0.232f, 0.27f, 0.085f}, kCoal);
+    mb.box({-0.286f, 0.27f, -0.05f}, {-0.246f, 0.281f, 0.035f}, kCoal);
+    // Cylinders with steel covers, and the slide bars the crossheads run in.
+    for (const float side : {-1.0f, 1.0f}) {
+        cylinderX(mb, 0.17f, kSteamCrossheadY, side * 0.1f, 0.026f, 0.085f, 10, kEngineBlack);
+        cylinderX(mb, 0.164f, kSteamCrossheadY, side * 0.1f, 0.021f, 0.006f, 10, kSteel);
+        cylinderX(mb, 0.255f, kSteamCrossheadY, side * 0.1f, 0.021f, 0.006f, 10, kSteel);
+        for (const float y : {kSteamCrossheadY + 0.012f, kSteamCrossheadY - 0.012f})
+            mb.box({0.11f, y - 0.003f, side * 0.121f - 0.003f}, {0.17f, y + 0.003f, side * 0.121f + 0.003f}, kSteel);
+    }
+    lamps(mb, hl + 0.008f, 0.1f, 0.06f, true);
+    mb.box({0.262f, 0.236f, -0.012f}, {0.284f, 0.26f, 0.012f}, kLight); // lamp on the smokebox
     lamps(mb, -hl, 0.1f, 0.06f, false);
-    wheels(mb, -0.2f, 0.18f, hw, 0.05f);
+}
+
+// One driving axle of the tank engine, centred on the axle: steel tyres, red centres with spokes
+// and a counterweight, and the crank pins (the left a quarter turn ahead of the right).
+void steamWheelset(MeshBuilder& mb) {
+    constexpr float r = kSteamWheelRadius;
+    constexpr u32 kTyreSteel = rgba(52, 52, 56);
+    mb.box({-0.008f, -0.008f, -0.09f}, {0.008f, 0.008f, 0.09f}, kEngineBlack);
+    for (const float side : {-1.0f, 1.0f}) {
+        const float z0 = side > 0 ? 0.084f : -0.1f;
+        discZ(mb, 0.0f, 0.0f, z0, r, 0.016f, 14, kTyreSteel);
+        const float face = side > 0 ? 0.1f : -0.1015f;
+        discZ(mb, 0.0f, 0.0f, face, r * 0.84f, 0.0015f, 14, kBufferRed);
+        const float spokeZ = side > 0 ? face + 0.0015f : face - 0.001f;
+        const glm::mat4 saved = mb.transform;
+        for (int k = 0; k < 8; ++k) {
+            mb.transform = saved * glm::rotate(glm::mat4(1.0f), glm::radians(45.0f * k), glm::vec3(0, 0, 1));
+            mb.box({0.009f, -0.0025f, spokeZ}, {r * 0.8f, 0.0025f, spokeZ + 0.001f}, kEngineBlack);
+        }
+        // Counterweight opposite the crank.
+        mb.transform = saved * glm::rotate(glm::mat4(1.0f), side > 0 ? 0.0f : glm::radians(90.0f), glm::vec3(0, 0, 1));
+        mb.box({-r * 0.8f, -0.014f, spokeZ}, {-0.012f, 0.014f, spokeZ + 0.0012f}, kEngineBlack);
+        mb.transform = saved;
+        discZ(mb, 0.0f, 0.0f, side > 0 ? face : face - 0.003f, 0.011f, 0.003f, 8, kSteel);
+        const glm::vec2 pin = side > 0 ? glm::vec2(kSteamCrank, 0.0f) : glm::vec2(0.0f, kSteamCrank);
+        discZ(mb, pin.x, pin.y, side > 0 ? face : face - 0.008f, 0.006f, 0.008f, 8, kSteel);
+    }
+}
+
+// Coupling rod of one side, in the engine's own X (the axles at -0.15, -0.02 and 0.11).
+void steamSideRod(MeshBuilder& mb) {
+    mb.box({-0.162f, -0.006f, -0.003f}, {0.122f, 0.006f, 0.003f}, kSteel);
+    for (const float x : {-0.15f, -0.02f, 0.11f}) discZ(mb, x, 0.0f, -0.0035f, 0.01f, 0.007f, 8, kSteel);
+}
+
+// Connecting rod, one tile long along +X (scaled to length), with the crosshead at its far end.
+void steamMainRod(MeshBuilder& mb) {
+    mb.box({0.0f, -0.0065f, -0.003f}, {1.0f, 0.0065f, 0.003f}, kSteel);
+    mb.box({0.94f, -0.013f, -0.006f}, {1.06f, 0.013f, 0.006f}, kSteel);
 }
 
 void dieselEngine(MeshBuilder& mb, bool express) {
@@ -457,6 +590,9 @@ void buildTransportModels(MeshBuilder& out, ModelId id) {
     case models::kRoadDepot: depotBuilding(out, false); break;
     case models::kTramDepot: depotBuilding(out, true); break;
     case models::kPerson: person(out); break;
+    case models::kSteamWheelset: steamWheelset(out); break;
+    case models::kSideRod: steamSideRod(out); break;
+    case models::kMainRod: steamMainRod(out); break;
     case models::bus(0): busBody(out, 0.58f, 0.2f, true, false); break;
     case models::bus(1): busBody(out, 0.62f, 0.21f, false, false); break;
     case models::bus(2): busBody(out, 0.66f, 0.24f, false, false); break;

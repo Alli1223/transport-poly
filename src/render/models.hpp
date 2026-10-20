@@ -52,7 +52,10 @@ inline constexpr ModelId kTreeCactus0 = kEffectBase + 10;
 inline constexpr ModelId kTreeAcacia0 = kEffectBase + 12;
 inline constexpr ModelId kShrub0 = kEffectBase + 14;
 inline constexpr ModelId kCloud0 = kEffectBase + 16; // three variants, unit size
-inline constexpr ModelId kCount = kEffectBase + 19;
+inline constexpr ModelId kSteamWheelset = kEffectBase + 31; // a driving axle, turned about +Z
+inline constexpr ModelId kSideRod = kEffectBase + 32;       // coupling rod of one side
+inline constexpr ModelId kMainRod = kEffectBase + 33;       // connecting rod, one tile long along +X
+inline constexpr ModelId kCount = kEffectBase + 34;
 
 constexpr ModelId building(u16 type, u8 variant) {
     return static_cast<ModelId>(kBuildingBase + type * kBuildingVariants + variant % kBuildingVariants);
