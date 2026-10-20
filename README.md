@@ -100,6 +100,18 @@ pointers in the world in their company's colour, with their names. Chat goes to
 everyone, to your company only, or privately to one player (**Message** in the
 players window); the host can remove a player with **Kick**. The host controls
 pause and speed (including **Space**).
+
+Press **G** or open **Companies** in the dock to compare companies. The league
+ranks them by a performance rating out of 1000, in the style of OpenTTD's
+detailed performance rating: vehicles making a profit, stations served, the
+lowest vehicle profit, income and operating profit over the last year,
+passengers carried, cash, loan and company value. Each rating earns a title,
+from Engineer to Tycoon, and the news announces a new league leader. The graphs
+plot every company's value, monthly operating profit, monthly income or rating
+over up to ten years, and the rating tab breaks a company's score down. A new or
+hosted game can be played as a competition: the first company to a company value
+of $1,000,000, $5,000,000 or $20,000,000 wins, or the best rated company after
+5, 10 or 20 years (`--goal-value` and `--goal-years` for the dedicated server).
 Clients see changes immediately while paused; commands submitted during pause
 wait until the host resumes. The dedicated server uses its console controls.
 

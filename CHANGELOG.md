@@ -5,6 +5,19 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
 
 ## [Unreleased]
 
+### Multiplayer
+- A company lobby when joining: found your own company with a name and a
+  colour, join a friend's company to play it together (co-op), or watch.
+- Co-op companies can be locked with a password; servers can require one.
+- Every player's pointer is shown in the world in their company's colour.
+- Chat to everyone, to your company, or privately to one player; the host can
+  remove players.
+- A companies window with a league table ranked by a performance rating out of
+  1000, graphs comparing every company month by month, and each company's
+  rating broken down; news of a new league leader.
+- Competitions: the first company to a target value, or the best rated after
+  a number of years, wins.
+
 ## [0.1.0] - 2026-10-20
 
 The first release: a low poly transport game in the spirit of OpenTTD and

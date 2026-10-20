@@ -372,6 +372,7 @@ void App::drawMainMenu() {
             colourPicker("##newcolour", companyColour_, CompanyId{});
             ImGui::SliderInt("Starting year", &preferences_.startYear, 1900, 2100);
             ImGui::SliderInt("Loan interest", &preferences_.interestPercent, 0, 20, "%d%%");
+            competitionPicker();
             terrainOptions(preferences_, terrainPreview_, std::strtoull(seedBuf_, nullptr, 10), s);
             ImGui::Dummy(ImVec2(0, 6.0f * s));
             if (ui::button("Start", ui::Icon::Play, ui::Btn::Primary, ImVec2(-1.0f, 40.0f))) {
@@ -383,6 +384,7 @@ void App::drawMainMenu() {
                 ws.inflation = preferences_.inflation;
                 ws.recessions = preferences_.recessions;
                 ws.aiCompetitors = preferences_.aiCompetitors;
+                applyCompetition(ws);
                 startSession(std::make_unique<LocalSession>(ws, companyName_, companyColour_ < 0 ? 0xFF : static_cast<u8>(companyColour_)));
             }
             break;
@@ -422,6 +424,7 @@ void App::drawMainMenu() {
             colourPicker("##hostcolour", companyColour_, CompanyId{});
             portField(port_);
             field("Server password", "##hostpw", serverPassword_, sizeof(serverPassword_), "Optional: players must give it to join");
+            competitionPicker();
             terrainOptions(preferences_, terrainPreview_, std::strtoull(seedBuf_, nullptr, 10), s);
             ImGui::Dummy(ImVec2(0, 6.0f * s));
             if (ui::button("Host new world", ui::Icon::Server, ui::Btn::Primary, ImVec2(-1.0f, 40.0f))) {
@@ -433,6 +436,7 @@ void App::drawMainMenu() {
                 ws.inflation = preferences_.inflation;
                 ws.recessions = preferences_.recessions;
                 ws.aiCompetitors = preferences_.aiCompetitors;
+                applyCompetition(ws);
                 auto hosted = std::make_unique<World>(ws);
                 Command create;
                 create.client = kLocalClientId;

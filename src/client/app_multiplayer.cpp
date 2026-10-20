@@ -289,7 +289,9 @@ void App::drawPlayersWindow() {
             }
         }
         ImGui::Dummy(ImVec2(0, 4.0f * s));
-        if (ui::button("Change company", ui::Icon::People, ui::Btn::Secondary, ImVec2(-1.0f, 0))) showLobby_ = true;
+        if (ui::button("Change company", ui::Icon::People, ui::Btn::Secondary, ImVec2(ui::columnWidth(2), 0))) showLobby_ = true;
+        ImGui::SameLine();
+        if (ui::button("League and graphs", ui::Icon::Star, ui::Btn::Secondary, ImVec2(-1.0f, 0))) showCompanies_ = true;
     }
     ui::endPanel();
 }

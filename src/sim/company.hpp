@@ -69,6 +69,11 @@ struct Company {
     std::vector<MonthLedger> monthlyHistory;
     bool bankrupt = false;
     bool aiControlled = false;
+    // The league (see league.hpp): this month's performance rating, and the rating and company
+    // value at the start of each month, most recent last.
+    i32 rating = 0;
+    std::vector<i16> ratingHistory;
+    std::vector<Money> valueHistory;
 
     void spend(Expense category, Money amount); // amount > 0 is subtracted from money
     void earn(Expense category, Money amount);  // amount > 0 is added to money
@@ -79,6 +84,7 @@ struct Company {
            passengersLastYear);
         if (ar.version == 0 || ar.version >= 8) ar(thisMonth, monthlyHistory, bankrupt);
         if (ar.version == 0 || ar.version >= 17) ar(aiControlled);
+        if (ar.version == 0 || ar.version >= 26) ar(rating, ratingHistory, valueHistory);
     }
 };
 

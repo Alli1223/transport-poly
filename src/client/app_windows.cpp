@@ -245,6 +245,7 @@ void App::drawWindows() {
     drawPersonWindow();
     drawPersonLabels();
     drawLinesWindow();
+    drawCompaniesWindow();
     drawFinanceWindow();
     drawVehicleList();
     drawNewsWindow();

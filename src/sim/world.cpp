@@ -8,6 +8,7 @@
 #include "sim/prices.hpp"
 #include "sim/ai.hpp"
 #include "sim/industries.hpp"
+#include "sim/league.hpp"
 
 namespace tp {
 
@@ -93,6 +94,7 @@ void World::onNewMonth() {
         }
     }
     for (auto [id, c] : companies) if (c.money >= 0 && !c.bankrupt) c.quartersInDebt = 0;
+    league::monthly(*this);
 }
 
 void World::onNewYear() {

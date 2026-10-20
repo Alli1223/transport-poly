@@ -53,6 +53,11 @@ int main(int argc, char** argv) {
         else if (arg == "--load") loadPath = next();
         else if (arg == "--name") options.name = next();
         else if (arg == "--password") options.password = next();
+        else if (arg == "--goal-value") settings.goalValue = std::max<Money>(0, std::atoll(next().c_str()));
+        else if (arg == "--goal-years") {
+            const int years = std::atoi(next().c_str());
+            settings.goalYear = years > 0 ? settings.startYear + years : 0;
+        }
         else if (arg == "--autosave") autosaveMonths = std::atoi(next().c_str());
         else if (arg == "--ai") settings.aiCompetitors = std::clamp(std::atoi(next().c_str()), 0, 3);
         else if (arg == "--inflation") settings.inflation = true;
@@ -79,7 +84,7 @@ int main(int argc, char** argv) {
         else if (arg == "--lakes") settings.terrain.lakes = static_cast<u8>(std::clamp(std::atoi(next().c_str()), 0, kTerrainAmountMax));
         else if (arg == "--rivers") settings.terrain.rivers = static_cast<u8>(std::clamp(std::atoi(next().c_str()), 0, kRiverAmountMax));
         else {
-            std::cerr << "usage: transport-poly-server [--port N] [--seed N] [--load file] [--name text] [--password text] "
+            std::cerr << "usage: transport-poly-server [--port N] [--seed N] [--load file] [--name text] [--password text] [--goal-value money] [--goal-years N] "
                          "[--autosave months] [--ai 0-3] [--inflation] [--no-recessions]\n"
                          "       [--land continents|mainland|islands|archipelago|island] [--climate temperate|arid|arctic|tropical|varied]\n"
                          "       [--mountains 0-4] [--lakes 0-4] [--rivers 0-3]\n";

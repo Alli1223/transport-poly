@@ -121,6 +121,11 @@ private:
     void drawPlayerCursors(std::vector<gfx::OverlayQuad>& overlays);
     void updateBots(double dt);
 
+    // app_companies.cpp
+    void drawCompaniesWindow();
+    void applyCompetition(WorldSettings& ws) const;
+    void competitionPicker();
+
     // app_lines.cpp
     void drawLinesWindow();
     void drawLineRoutes(std::vector<gfx::OverlayQuad>& overlays, bool all);
@@ -244,6 +249,14 @@ private:
     bool showLines_ = false;
     // Multiplayer: the company lobby, chat to a company or a player, other players' pointers.
     bool showLobby_ = false;
+    // Companies window: league, graphs and ratings; the competition chosen for a new game.
+    bool showCompanies_ = false;
+    int companiesTab_ = 0;
+    int graphMetric_ = 0;
+    int graphSpan_ = 1;
+    CompanyId ratingCompany_;
+    int competition_ = 0;
+    int fastForwardDays_ = 0; // automation: run a hosted demo game this many days before showing it
     std::string lobbyNotice_;
     int joinTarget_ = -1; // company whose password is being asked for
     char joinPassword_[64] = "";
