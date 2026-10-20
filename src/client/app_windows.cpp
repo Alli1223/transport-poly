@@ -244,6 +244,7 @@ void App::drawWindows() {
     drawIndustryWindow();
     drawPersonWindow();
     drawPersonLabels();
+    drawLinesWindow();
     drawFinanceWindow();
     drawVehicleList();
     drawNewsWindow();
@@ -430,9 +431,10 @@ void App::drawMinimap(double now) {
             minimapUpdated_ = -1.0;
         }
         ImGui::SetCursorScreenPos(back);
-        const char* modes[] = {"None", "Station catchments", "Passenger flow", "Town zones"};
+        const char* modes[] = {"None", "Station catchments", "Passenger flow", "Town zones", "Lines"};
         ImGui::SetNextItemWidth(-1.0f);
-        ImGui::Combo("##overlay", &overlayMode_, modes, 4);
+        ImGui::Combo("##overlay", &overlayMode_, modes, 5);
+        if (overlayMode_ == 4) ImGui::TextWrapped("Every line along its route, in its colour. Open Lines (L) for details.");
         if (overlayMode_ == 2) ImGui::TextWrapped("Waiting and riding passengers. Wider arrows show more demand.");
         if (overlayMode_ == 3) {
             ui::legendItem(ui::col::kPurple, "Core"); ImGui::SameLine();

@@ -104,6 +104,10 @@ private:
     void drawPersonWindow();
     void drawVehiclePassengers(const Vehicle& v);
 
+    // app_lines.cpp
+    void drawLinesWindow();
+    void drawLineRoutes(std::vector<gfx::OverlayQuad>& overlays, bool all);
+
     // app_track.cpp
     void handleTrackTool(std::vector<gfx::OverlayQuad>& overlays);
     void handleRemoveTrackTool(std::vector<gfx::OverlayQuad>& overlays);
@@ -214,6 +218,9 @@ private:
     bool showPersonCard_ = false; // the clicked person's card and route
     VehicleId hoverVehicle_;      // under the cursor
     PersonId hoverPerson_;
+    bool showLines_ = false;
+    u32 selLine_ = 0;                         // key of the line shown in the lines window
+    std::shared_ptr<struct LineCache> lineCache_; // routes of the lines drawn on the map
     int fleetCompany_ = -2;
     std::deque<std::pair<i64, std::string>> citizenDiary_;
 

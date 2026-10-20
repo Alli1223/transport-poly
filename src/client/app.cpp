@@ -1064,6 +1064,7 @@ void App::handleHotkeys() {
     if (ImGui::IsKeyPressed(ImGuiKey_4, false)) toggleGroup(ToolGroup::Rail);
     if (ImGui::IsKeyPressed(ImGuiKey_5, false)) toggleGroup(ToolGroup::Water);
     if (ImGui::IsKeyPressed(ImGuiKey_V, false)) showVehicleList_ = !showVehicleList_;
+    if (ImGui::IsKeyPressed(ImGuiKey_L, false)) showLines_ = !showLines_;
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) showFinances_ = !showFinances_;
     if (ImGui::IsKeyPressed(ImGuiKey_T, false)) showTownList_ = !showTownList_;
     if (ImGui::IsKeyPressed(ImGuiKey_N, false)) showNews_ = !showNews_;
@@ -1382,6 +1383,8 @@ int App::run(int argc, char** argv) {
                 World& w = world();
                 if (wants("finances")) showFinances_ = true;
                 if (wants("vehicles")) showVehicleList_ = true;
+                if (wants("lines")) showLines_ = true;
+                if (wants("linelayer")) overlayMode_ = 4;
                 if (wants("orders"))
                     for (const auto [id, v] : w.vehicles) { selVehicle_ = id; break; }
                 if (wants("towns")) showTownList_ = true;

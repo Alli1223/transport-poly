@@ -468,6 +468,7 @@ void App::drawToolbar() {
     };
     const WindowButton windows[] = {
         {"##vehicles", ui::Icon::Bus, &showVehicleList_, {"Vehicles", "All of your buses, trams, trains and ships", "V"}},
+        {"##lines", ui::Icon::Link, &showLines_, {"Lines", "Your lines: their stops, vehicles, passengers and profit", "L"}},
         {"##finances", ui::Icon::Coins, &showFinances_, {"Finances", "Income, expenses and your loan", "F"}},
         {"##towns", ui::Icon::Town, &showTownList_, {"Towns", "Every town you have discovered", "T"}},
         {"##citizens", ui::Icon::People, &showCitizens_, {"Citizens", "Inspect a resident's schedule and follow their journey", "C"}},

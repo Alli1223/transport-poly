@@ -8,6 +8,7 @@
 namespace tp {
 void App::drawWorldOverlays(std::vector<gfx::OverlayQuad>& overlays) {
     drawInspectOverlays(overlays);
+    if (overlayMode_ == 4 || showLines_) drawLineRoutes(overlays, overlayMode_ == 4);
     if (!overlayMode_) return;
     const World& w = world();
     const glm::dvec2 camera(camera_.target.x, camera_.target.z);
