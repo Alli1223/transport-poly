@@ -28,7 +28,7 @@ jobs:
       - name: Configure
         run: cmake --preset windows-msvc
       - name: Build
-        run: cmake --build --preset windows-msvc-release
+        run: cmake --build --preset windows-msvc-release -- -k 0
       - name: Test
         run: ctest --preset windows-msvc-release
       - name: Package
@@ -58,7 +58,7 @@ jobs:
           cmake --preset linux-gcc -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14
           "-DCMAKE_EXE_LINKER_FLAGS=-static-libstdc++ -static-libgcc"
       - name: Build
-        run: cmake --build --preset linux-gcc-release
+        run: cmake --build --preset linux-gcc-release -- -k 0
       - name: Test
         run: ctest --preset linux-gcc-release
       - name: Package
@@ -79,7 +79,7 @@ jobs:
       - name: Configure without graphics or audio dependencies
         run: cmake --preset linux-headless -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 -DTP_WARNINGS_AS_ERRORS=ON
       - name: Build
-        run: cmake --build --preset linux-headless-release
+        run: cmake --build --preset linux-headless-release -- -k 0
       - name: Test
         run: ctest --preset linux-headless-release
 

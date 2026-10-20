@@ -13,7 +13,7 @@ std::vector<PlatformEnd> platformEnds(const World& w, TrackEdgeId platform) {
     std::vector<PlatformEnd> ends;
     for (const auto id : chain) {
         const auto& e = w.trackEdges[id];
-        for (const auto [node, side] : {std::pair{e.a, e.sideA}, std::pair{e.b, e.sideB}}) {
+        for (const auto& [node, side] : {std::pair{e.a, e.sideA}, std::pair{e.b, e.sideB}}) {
             const auto& n = w.trackNodes[node];
             bool interior = false;
             for (const auto other : n.edges)

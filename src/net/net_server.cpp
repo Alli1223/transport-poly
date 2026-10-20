@@ -9,6 +9,8 @@
 
 namespace tp::net {
 
+NetServer::NetServer(std::unique_ptr<World> world) : NetServer(std::move(world), Options{}) {}
+
 NetServer::NetServer(std::unique_ptr<World> world, Options options)
     : server_(std::move(world)), options_(std::move(options)) {
     server_.onTick = [this](i64 tick, const std::vector<Command>& commands) {

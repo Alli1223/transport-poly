@@ -23,7 +23,8 @@ public:
         i32 maxClients = 16;
     };
 
-    explicit NetServer(std::unique_ptr<World> world, Options options = {});
+    explicit NetServer(std::unique_ptr<World> world);
+    NetServer(std::unique_ptr<World> world, Options options);
     ~NetServer();
 
     bool start(std::string& error);

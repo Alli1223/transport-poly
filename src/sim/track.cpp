@@ -719,6 +719,7 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
         case TileType::Building: return fail("Building in the way");
         case TileType::Station: return fail("Station in the way");
         case TileType::Depot: return fail("Depot in the way");
+        case TileType::Footpath: return fail("Station footpath in the way");
         }
     }
 
@@ -863,7 +864,7 @@ std::vector<TrackEdgeId> build(World& w, CompanyId company, const TrackPlan& pl)
     std::vector<TrackEdgeId> edges;
     if (!pl.ok || pl.pieces.empty()) return edges;
     // Level the end of the track a platform joins: its edges ease out flat into the node.
-    for (const auto [level, nid] : {std::pair{pl.levelStart, pl.startNode}, std::pair{pl.levelEnd, pl.endNode}}) {
+    for (const auto& [level, nid] : {std::pair{pl.levelStart, pl.startNode}, std::pair{pl.levelEnd, pl.endNode}}) {
         if (!level || !w.trackNodes.contains(nid)) continue;
         w.trackNodes[nid].grade = 0;
         for (const TrackEdgeId e : w.trackNodes[nid].edges)
@@ -1101,7 +1102,7 @@ std::vector<TrackEdgeId> platformChain(const World& w, TrackEdgeId start) {
     for (usize i = 0; i < chain.size(); ++i) {
         const TrackEdge& e = w.trackEdges[chain[i]];
         // Straight on through each end node: the edges on that node's other side.
-        for (const auto [nid, side] : {std::pair{e.a, e.sideA}, std::pair{e.b, e.sideB}}) {
+        for (const auto& [nid, side] : {std::pair{e.a, e.sideA}, std::pair{e.b, e.sideB}}) {
             const TrackNode& n = w.trackNodes[nid];
             for (u8 slot = 0; slot < 2; ++slot) {
                 const TrackEdgeId other = n.edges[(1u - side) * 2u + slot];
