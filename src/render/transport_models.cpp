@@ -162,6 +162,56 @@ void discZ(MeshBuilder& mb, float x, float y, float z, float radius, float thick
     mb.transform = saved;
 }
 
+constexpr u32 kWheelSteel = rgba(58, 58, 62);
+constexpr u32 kBogieGrey = rgba(46, 48, 52);
+
+// A bogie at x: wheels inside the side frames, axle boxes and a spring nest on each side, and a
+// bolster across.
+void railBogie(MeshBuilder& mb, float x, float hw, int axles = 2, float r = 0.032f, float pitch = 0.075f) {
+    const float span = pitch * static_cast<float>(axles - 1);
+    for (const float side : {-1.0f, 1.0f}) {
+        const float frame = side * (hw - 0.006f);
+        mb.box({x - span * 0.5f - r - 0.012f, r * 0.55f, frame - 0.005f}, {x + span * 0.5f + r + 0.012f, r * 1.75f, frame + 0.005f},
+               kBogieGrey);
+        for (int a = 0; a < axles; ++a) {
+            const float ax = x - span * 0.5f + pitch * static_cast<float>(a);
+            discZ(mb, ax, r, side > 0 ? hw - 0.03f : -hw + 0.016f, r, 0.014f, 10, kWheelSteel);
+            mb.box({ax - 0.012f, r - 0.011f, frame - 0.008f}, {ax + 0.012f, r + 0.011f, frame + 0.008f}, kEngineBlack);
+        }
+        mb.box({x - 0.018f, r, frame - 0.0075f}, {x + 0.018f, r * 1.75f, frame + 0.0075f}, kSteel);
+    }
+    mb.box({x - 0.022f, r * 1.4f, -hw + 0.012f}, {x + 0.022f, r * 2.05f, hw - 0.012f}, kBogieGrey);
+}
+
+// Two axles under a short wagon, each with its axle guards, axle boxes and a leaf spring.
+void wagonAxles(MeshBuilder& mb, float x0, float x1, float hw, float r = 0.034f) {
+    for (const float ax : {x0, x1})
+        for (const float side : {-1.0f, 1.0f}) {
+            discZ(mb, ax, r, side > 0 ? hw - 0.03f : -hw + 0.016f, r, 0.014f, 10, kWheelSteel);
+            const float frame = side * (hw - 0.006f);
+            for (const float dx : {-0.024f, 0.024f})
+                mb.box({ax + dx - 0.005f, r * 0.6f, frame - 0.004f}, {ax + dx + 0.005f, r * 2.0f, frame + 0.004f}, kBogieGrey);
+            mb.box({ax - 0.05f, r * 2.0f - 0.005f, frame - 0.005f}, {ax + 0.05f, r * 2.0f + 0.004f, frame + 0.005f}, kSteel);
+            mb.box({ax - 0.011f, r - 0.011f, frame - 0.008f}, {ax + 0.011f, r + 0.011f, frame + 0.008f}, kEngineBlack);
+        }
+}
+
+// Buffers and a coupling at both ends of a car at height y, and the gangway bellows joining
+// passenger coaches.
+void railEnds(MeshBuilder& mb, float hl, float y, bool gangway, float top = 0.27f) {
+    for (const float end : {-1.0f, 1.0f}) {
+        const float x = end * hl;
+        for (const float z : {-0.068f, 0.068f}) {
+            cylinderX(mb, end > 0 ? x : x - 0.02f, y, z, 0.007f, 0.02f, 6, kSteel);
+            cylinderX(mb, end > 0 ? x + 0.02f : x - 0.025f, y, z, 0.014f, 0.005f, 8, kEngineBlack);
+        }
+        mb.box({std::min(x, x + end * 0.02f), y - 0.006f, -0.005f}, {std::max(x, x + end * 0.02f), y + 0.006f, 0.005f}, kSteel);
+        if (gangway)
+            mb.box({std::min(x, x + end * 0.016f), y + 0.03f, -0.05f}, {std::max(x, x + end * 0.016f), top - 0.025f, 0.05f},
+                   rgba(34, 34, 36));
+    }
+}
+
 // Tank engine (0-6-0T): boiler with brass bands and dome, smokebox and chimney, side tanks, cab and
 // coal bunker, cylinders and slide bars. Its driving wheels and rods are separate models
 // (kSteamWheelset, kSideRod, kMainRod) that the renderer turns as the engine runs.
@@ -289,25 +339,93 @@ void steamMainRod(MeshBuilder& mb) {
 
 void dieselEngine(MeshBuilder& mb, bool express) {
     constexpr u32 kGrey = rgba(70, 74, 80);
-    const float hl = express ? 0.4f : 0.37f, hw = 0.105f, base = 0.05f, top = 0.28f;
-    mb.box({-hl, base, -hw}, {hl, base + 0.03f, hw}, kGrey);
-    mb.box({-hl + 0.02f, base + 0.03f, -hw}, {hl - 0.06f, top, hw}, kLivery);
-    // Sloped cab front.
-    mb.quadFacing({hl - 0.06f, base + 0.03f, -hw}, {hl, base + 0.03f, -hw}, {hl, top - 0.07f, -hw}, {hl - 0.06f, top, -hw},
-                  kLivery, {0, 0, -1});
-    mb.quadFacing({hl - 0.06f, base + 0.03f, hw}, {hl - 0.06f, top, hw}, {hl, top - 0.07f, hw}, {hl, base + 0.03f, hw},
-                  kLivery, {0, 0, 1});
-    mb.quadFacing({hl, base + 0.03f, -hw}, {hl, base + 0.03f, hw}, {hl, top - 0.07f, hw}, {hl, top - 0.07f, -hw}, kLiveryDark,
-                  {1, 0, 0});
-    mb.quadFacing({hl - 0.06f, top, -hw}, {hl, top - 0.07f, -hw}, {hl, top - 0.07f, hw}, {hl - 0.06f, top, hw}, kGlass,
-                  {1, 1, 0});
-    mb.box({-hl + 0.04f, top, -hw + 0.02f}, {hl - 0.1f, top + 0.015f, hw - 0.02f}, kRoofGrey);
-    mb.box({-hl + 0.02f, base + 0.04f, -hw - kInset}, {hl - 0.06f, base + 0.07f, hw + kInset}, kWhite); // stripe
-    windowBand(mb, hl - 0.16f, hl - 0.08f, base + 0.13f, top - 0.04f, hw);
-    lamps(mb, hl, base + 0.06f, 0.065f, true);
-    lamps(mb, -hl + 0.02f, base + 0.06f, 0.065f, false);
-    wheels(mb, -hl + 0.12f, hl - 0.14f, hw, 0.045f);
-    if (express) wheels(mb, -0.04f, 0.04f, hw, 0.045f);
+    constexpr u32 kGrille = rgba(36, 38, 42);
+    constexpr u32 kWarning = rgba(240, 196, 52);
+    const float hl = express ? 0.4f : 0.37f, hw = 0.105f;
+    if (!express) {
+        // Road switcher: a long hood and a short hood either side of the cab, walkways with
+        // handrails along the sides, and a fuel tank slung between the bogies.
+        const float deck = 0.1f;
+        mb.box({-hl, 0.074f, -hw}, {hl, deck, hw}, kGrey);
+        mb.box({-hl, 0.079f, -hw - 0.003f}, {hl, 0.088f, hw + 0.003f}, kWarning);
+        mb.box({-0.12f, 0.035f, -0.07f}, {0.12f, 0.074f, 0.07f}, kGrille);
+        railBogie(mb, -0.25f, hw, 2, 0.036f, 0.08f);
+        railBogie(mb, 0.25f, hw, 2, 0.036f, 0.08f);
+        mb.box({-0.34f, deck, -0.068f}, {0.12f, 0.265f, 0.068f}, kLivery);
+        for (int i = 0; i < 5; ++i) {
+            const float x = -0.31f + static_cast<float>(i) * 0.075f;
+            for (const float side : {-1.0f, 1.0f})
+                mb.box({x, 0.16f, side * 0.0685f - 0.0015f}, {x + 0.045f, 0.24f, side * 0.0685f + 0.0015f}, kGrille);
+        }
+        for (const float x : {-0.27f, -0.17f}) {
+            mb.prism({x, 0.265f, 0.0f}, 0.034f, 0.006f, 12, kGrille, true);
+            mb.prism({x, 0.271f, 0.0f}, 0.012f, 0.003f, 6, kSteel, true);
+        }
+        mb.box({0.02f, 0.265f, -0.014f}, {0.05f, 0.29f, 0.014f}, kGrille);
+        // Cab with windows all round, a horn on the roof, and the short hood in front.
+        mb.box({0.12f, deck, -0.096f}, {0.27f, 0.3f, 0.096f}, kLivery);
+        mb.box({0.115f, 0.3f, -0.102f}, {0.275f, 0.314f, 0.102f}, kRoofGrey);
+        windowBand(mb, 0.14f, 0.25f, 0.2f, 0.275f, 0.096f);
+        for (const float z : {-0.062f, 0.027f}) {
+            mb.quadFacing({0.27f + kInset, 0.21f, z}, {0.27f + kInset, 0.21f, z + 0.035f}, {0.27f + kInset, 0.28f, z + 0.035f},
+                          {0.27f + kInset, 0.28f, z}, kGlass, {1, 0, 0});
+            mb.quadFacing({0.12f - kInset, 0.21f, z}, {0.12f - kInset, 0.28f, z}, {0.12f - kInset, 0.28f, z + 0.035f},
+                          {0.12f - kInset, 0.21f, z + 0.035f}, kGlass, {-1, 0, 0});
+        }
+        mb.prism({0.2f, 0.314f, 0.0f}, 0.006f, 0.022f, 6, kSteel, true);
+        mb.box({0.27f, deck, -0.068f}, {0.35f, 0.21f, 0.068f}, kLivery);
+        lamps(mb, 0.35f, 0.19f, 0.025f, true);
+        for (const float side : {-1.0f, 1.0f}) {
+            const float z = side * (hw - 0.006f);
+            for (const auto& [x0, x1] : {std::pair{-hl + 0.02f, 0.11f}, std::pair{0.28f, hl - 0.02f}}) {
+                mb.box({x0, 0.152f, z - 0.002f}, {x1, 0.157f, z + 0.002f}, kWhite);
+                for (float x = x0; x <= x1 + 0.001f; x += 0.09f)
+                    mb.box({x - 0.002f, deck, z - 0.002f}, {x + 0.002f, 0.157f, z + 0.002f}, kWhite);
+            }
+        }
+        lamps(mb, hl, 0.115f, 0.065f, true);
+        lamps(mb, -hl, 0.115f, 0.065f, false);
+        railEnds(mb, hl, 0.085f, false);
+        return;
+    }
+    // Express: a full width streamlined body with a sloping nose, its windscreen and a yellow
+    // warning panel, grilles and roof fans, on six-wheeled bogies.
+    const float base = 0.095f, top = 0.285f, x0 = hl - 0.09f, nose = 0.19f;
+    mb.box({-hl, 0.07f, -hw}, {hl, base, hw}, kGrey);
+    mb.box({-0.17f, 0.045f, -hw + 0.008f}, {0.17f, 0.07f, hw - 0.008f}, kGrey);
+    railBogie(mb, -0.27f, hw, 3, 0.034f, 0.068f);
+    railBogie(mb, 0.27f, hw, 3, 0.034f, 0.068f);
+    mb.box({-hl + 0.02f, base, -hw}, {x0, top, hw}, kLivery);
+    for (const float side : {-1.0f, 1.0f})
+        mb.quadFacing({x0, base, side * hw}, {hl, base, side * hw}, {hl, nose, side * hw}, {x0, top, side * hw}, kLivery,
+                      {0, 0, side});
+    mb.quadFacing({hl, base, -hw}, {hl, base, hw}, {hl, nose, hw}, {hl, nose, -hw}, kLivery, {1, 0, 0});
+    mb.quadFacing({hl + kInset, base + 0.005f, -hw + 0.008f}, {hl + kInset, base + 0.005f, hw - 0.008f},
+                  {hl + kInset, nose - 0.005f, hw - 0.008f}, {hl + kInset, nose - 0.005f, -hw + 0.008f}, kWarning, {1, 0, 0});
+    mb.quadFacing({x0, top, -hw}, {hl, nose, -hw}, {hl, nose, hw}, {x0, top, hw}, kLivery, {1, 1, 0});
+    const auto slope = [&](float t, float z) {
+        return glm::vec3(x0 + (hl - x0) * t + 0.002f, top + (nose - top) * t + 0.002f, z);
+    };
+    mb.quadFacing(slope(0.15f, -hw + 0.014f), slope(0.75f, -hw + 0.014f), slope(0.75f, hw - 0.014f), slope(0.15f, hw - 0.014f),
+                  kGlass, {1, 1, 0});
+    mb.box({-hl + 0.04f, top, -hw + 0.02f}, {x0 - 0.02f, top + 0.013f, hw - 0.02f}, kRoofGrey);
+    for (const float x : {-0.26f, -0.15f, -0.04f}) {
+        mb.prism({x, top + 0.013f, 0.0f}, 0.032f, 0.005f, 12, kGrille, true);
+        mb.prism({x, top + 0.018f, 0.0f}, 0.011f, 0.003f, 6, kSteel, true);
+    }
+    for (int i = 0; i < 6; ++i) {
+        const float x = -0.3f + static_cast<float>(i) * 0.05f;
+        for (const float side : {-1.0f, 1.0f})
+            mb.box({x, 0.17f, side * hw - 0.0015f}, {x + 0.035f, 0.255f, side * hw + 0.0015f}, kGrille);
+    }
+    mb.box({-hl + 0.02f, 0.11f, -hw - kInset}, {x0, 0.13f, hw + kInset}, kWhite);
+    windowBand(mb, hl - 0.17f, hl - 0.1f, 0.2f, 0.26f, hw);
+    windowBand(mb, 0.0f, 0.14f, 0.215f, 0.25f, hw);
+    mb.quadFacing({-hl + 0.02f - kInset, 0.13f, -0.025f}, {-hl + 0.02f - kInset, 0.25f, -0.025f}, {-hl + 0.02f - kInset, 0.25f, 0.025f},
+                  {-hl + 0.02f - kInset, 0.13f, 0.025f}, kGrey, {-1, 0, 0});
+    lamps(mb, hl, 0.12f, 0.065f, true);
+    lamps(mb, -hl + 0.02f, 0.12f, 0.065f, false);
+    railEnds(mb, hl, 0.085f, false);
 }
 
 void railcar(MeshBuilder& mb, float length, bool powered, bool wooden) {
@@ -327,7 +445,9 @@ void railcar(MeshBuilder& mb, float length, bool powered, bool wooden) {
         mb.box({hl - 0.004f, base + 0.04f, hw - 0.05f}, {hl + 0.004f, base + 0.06f, hw - 0.02f}, kLight);
         lamps(mb, -hl, base + 0.05f, 0.065f, false);
     }
-    wheels(mb, -hl + 0.1f, hl - 0.1f, hw, 0.04f);
+    railBogie(mb, -hl + 0.11f, hw);
+    railBogie(mb, hl - 0.11f, hw);
+    railEnds(mb, hl, base + 0.015f, !powered, top);
 }
 
 void railDepotBuilding(MeshBuilder& mb) {
@@ -542,12 +662,39 @@ void buildTransportModels(MeshBuilder& out, ModelId id) {
         break;
     }
     case models::train(10): case models::train(11): case models::train(12): {
-        wheels(out, -0.21f, 0.21f, 0.11f);
+        wagonAxles(out, -0.2f, 0.2f, 0.11f);
         out.box({-0.30f, 0.07f, -0.11f}, {0.30f, 0.12f, 0.11f}, kLiveryDark);
-        if (id != models::train(10)) out.box({-0.29f, 0.12f, -0.11f}, {0.29f, 0.32f, 0.11f}, kWhite);
-        else {
+        railEnds(out, 0.3f, 0.09f, false);
+        if (id == models::train(10)) {
+            // Hopper: open sides braced by ribs, and discharge chutes underneath.
             for (const float z : {-0.11f, 0.10f}) out.box({-0.30f, 0.12f, z}, {0.30f, 0.22f, z+0.01f}, kLivery);
             for (const float x : {-0.30f, 0.29f}) out.box({x, 0.12f, -0.11f}, {x+0.01f, 0.22f, 0.11f}, kLivery);
+            for (const float x : {-0.2f, -0.1f, 0.0f, 0.1f, 0.2f})
+                for (const float side : {-1.0f, 1.0f})
+                    out.box({x - 0.008f, 0.12f, side * 0.112f - 0.003f}, {x + 0.008f, 0.222f, side * 0.112f + 0.003f}, kLiveryDark);
+            for (const float x : {-0.08f, 0.08f}) out.box({x - 0.05f, 0.04f, -0.07f}, {x + 0.05f, 0.07f, 0.07f}, kLiveryDark);
+        } else if (id == models::train(11)) {
+            // Refrigerated van: white ribbed body, roof with ice hatches.
+            out.box({-0.29f, 0.12f, -0.11f}, {0.29f, 0.32f, 0.11f}, kWhite);
+            for (float x = -0.25f; x <= 0.251f; x += 0.1f)
+                for (const float side : {-1.0f, 1.0f})
+                    out.box({x - 0.004f, 0.12f, side * 0.111f - 0.002f}, {x + 0.004f, 0.32f, side * 0.111f + 0.002f}, rgba(204, 210, 216));
+            out.box({-0.3f, 0.32f, -0.112f}, {0.3f, 0.332f, 0.112f}, kRoofGrey);
+            for (const float x : {-0.22f, 0.22f})
+                for (const float z : {-0.06f, 0.06f}) out.box({x - 0.025f, 0.332f, z - 0.025f}, {x + 0.025f, 0.34f, z + 0.025f}, kChrome);
+        } else {
+            // Box van: planked sides, a sliding door on its rail and an arched roof.
+            constexpr u32 kPlanks = rgba(128, 74, 52);
+            out.box({-0.29f, 0.12f, -0.11f}, {0.29f, 0.32f, 0.11f}, kPlanks);
+            for (float x = -0.27f; x <= 0.271f; x += 0.045f)
+                for (const float side : {-1.0f, 1.0f})
+                    out.box({x - 0.002f, 0.12f, side * 0.1105f - 0.0015f}, {x + 0.002f, 0.32f, side * 0.1105f + 0.0015f}, rgba(96, 54, 38));
+            for (const float side : {-1.0f, 1.0f}) {
+                out.box({-0.075f, 0.125f, side * 0.113f - 0.003f}, {0.075f, 0.31f, side * 0.113f + 0.003f}, rgba(110, 62, 44));
+                out.box({-0.14f, 0.305f, side * 0.115f - 0.002f}, {0.14f, 0.312f, side * 0.115f + 0.002f}, kChrome);
+            }
+            out.box({-0.3f, 0.32f, -0.114f}, {0.3f, 0.33f, 0.114f}, kRoofGrey);
+            out.box({-0.3f, 0.33f, -0.07f}, {0.3f, 0.338f, 0.07f}, kRoofGrey);
         }
         break;
     }
@@ -566,7 +713,8 @@ void buildTransportModels(MeshBuilder& out, ModelId id) {
             for (const float z : {-0.105f, 0.095f}) out.box({x, 0.1f, z}, {x + 0.015f, 0.22f, z + 0.01f}, kLiveryDark);
         break;
     case models::train(13): // flat wagon with stanchions
-        wheels(out, -0.21f, 0.21f, 0.11f);
+        wagonAxles(out, -0.2f, 0.2f, 0.11f);
+        railEnds(out, 0.3f, 0.09f, false);
         out.box({-0.30f, 0.07f, -0.11f}, {0.30f, 0.12f, 0.11f}, kLiveryDark);
         for (const float x : {-0.29f, -0.1f, 0.1f, 0.28f})
             for (const float z : {-0.105f, 0.095f}) out.box({x, 0.12f, z}, {x + 0.015f, 0.24f, z + 0.01f}, kLivery);

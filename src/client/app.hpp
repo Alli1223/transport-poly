@@ -282,6 +282,7 @@ private:
     std::optional<glm::dvec3> previewHover_; // automation: scripted cursor position on the ground
     bool followFirst_ = false;      // automation: follow the first vehicle
     bool inspectFirst_ = false;     // automation: open the card of someone travelling by public transport
+    std::string demoCars_;          // automation: cars (comma separated names) for the first train
     bool directStart_ = false;      // skip the main menu (command line options given)
     std::string joinAddress_;       // --join host[:port]
     std::string openWindows_;       // automation: --open depot,station,town,finances,vehicles,towns,news

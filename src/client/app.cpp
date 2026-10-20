@@ -515,6 +515,8 @@ bool App::parseArgs(int argc, char** argv) {
             followFirst_ = true;
         } else if (arg == "--inspect-person") {
             inspectFirst_ = true;
+        } else if (arg == "--demo-cars") {
+            if (const char* v = next()) demoCars_ = v;
         } else if (arg == "--demo-network") {
             demoNetwork_ = true;
         } else if (arg == "--demo-rail") {
@@ -1411,6 +1413,31 @@ int App::run(int argc, char** argv) {
                 if (wants("catchments")) overlayMode_ = 1;
                 if (wants("gamemenu")) showGameMenu_ = true;
                 openWindows_.clear();
+            }
+            if (!demoCars_.empty() && frameCount >= 200 && !demoTrack_ && !demoRail_) {
+                // Automation: give the first train the named cars, matched by part of their names.
+                if (auto* local = dynamic_cast<LocalSession*>(session_.get())) {
+                    std::vector<u16> cars;
+                    for (usize at = 0; at <= demoCars_.size();) {
+                        const usize end = std::min(demoCars_.find(',', at), demoCars_.size());
+                        const std::string name = demoCars_.substr(at, end - at);
+                        const auto models = vehicleModels();
+                        for (usize m = 0; m < models.size(); ++m)
+                            if (models[m].type == VehicleType::Rail && !name.empty() && models[m].name.find(name) != std::string_view::npos) {
+                                cars.push_back(static_cast<u16>(m));
+                                break;
+                            }
+                        at = end + 1;
+                    }
+                    for (const auto [id, v] : local->world().vehicles)
+                        if (v.info().type == VehicleType::Rail && !cars.empty()) {
+                            Vehicle& train = local->world().vehicles[id];
+                            train.cars = cars;
+                            train.model = cars.front();
+                            break;
+                        }
+                }
+                demoCars_.clear();
             }
             if (inspectFirst_ && frameCount >= (autoScreenshot_ ? std::max(200, autoFrames_ - 300) : 200) && frameCount % 20 == 0) {
                 // Someone riding or waiting, failing that walking, nearest the camera.
