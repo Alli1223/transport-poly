@@ -6,6 +6,7 @@
 #include "sim/world.hpp"
 
 #include <cstdlib>
+#include <unordered_set>
 
 namespace tp::cmd {
 
@@ -29,6 +30,42 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveTrack& x, bool e
     if (e->kind == TrackKind::Depot) return CommandResult::failure("Demolish the depot to remove its track");
     const Money cost = static_cast<Money>(e->length) * prices::kTrackPerTile / kTrackUnits / 5;
     if (exec) track::remove(w, x.edge);
+    return CommandResult::success(cost, Expense::Construction);
+}
+
+CommandResult handle(World& w, const Command& c, const CmdElectrifyTrack& x, bool exec) {
+    const TrackEdge* first = w.trackEdges.tryGet(x.edge);
+    if (!first) return CommandResult::failure("No track there");
+    if (first->owner != c.company) return CommandResult::failure("Owned by another company");
+    // The edge alone, or every edge of the company's joined to it.
+    std::vector<TrackEdgeId> edges{x.edge};
+    if (x.connected) {
+        std::unordered_set<u32> seen{x.edge.value};
+        for (usize i = 0; i < edges.size(); ++i) {
+            const TrackEdge& e = w.trackEdges[edges[i]];
+            for (const TrackNodeId nid : {e.a, e.b})
+                if (const TrackNode* n = w.trackNodes.tryGet(nid))
+                    for (const TrackEdgeId next : n->edges)
+                        if (next.valid() && w.trackEdges.contains(next) && w.trackEdges[next].owner == c.company &&
+                            seen.insert(next.value).second)
+                            edges.push_back(next);
+        }
+    }
+    Money cost = 0;
+    usize changed = 0;
+    for (const TrackEdgeId id : edges) {
+        const TrackEdge& e = w.trackEdges[id];
+        if (e.electrified != x.remove) continue;
+        if (x.remove && e.reservedBy.valid() && w.vehicles.contains(e.reservedBy) && w.vehicles[e.reservedBy].needsWires())
+            return CommandResult::failure("An electric train is using this track");
+        cost += static_cast<Money>(e.length) * prices::kCatenaryPerTile / kTrackUnits / (x.remove ? 4 : 1);
+        ++changed;
+    }
+    if (changed == 0) return CommandResult::failure(x.remove ? "No overhead wires there" : "Already electrified");
+    if (exec) {
+        for (const TrackEdgeId id : edges) w.trackEdges[id].electrified = !x.remove;
+        ++w.trackRevision;
+    }
     return CommandResult::success(cost, Expense::Construction);
 }
 

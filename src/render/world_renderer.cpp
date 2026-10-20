@@ -8,6 +8,7 @@
 #include <chrono>
 #include <set>
 #include "render/vehicle_pose.hpp"
+#include "render/catenary.hpp"
 #include "render/person_pose.hpp"
 #include "sim/rail.hpp"
 #include "sim/road.hpp"
@@ -498,6 +499,7 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
     lamps_.clear();
     glows_.clear();
     fx_.beginFrame(lastSeconds_);
+    addCatenary(dynamic_, world, origin, focus, radius);
     const float night = sky_.night;
     const glm::vec3 headlight(1.0f, 0.93f, 0.8f), tailLamp(1.0f, 0.12f, 0.08f), interior(1.0f, 0.75f, 0.45f);
     const auto local = [](const glm::mat4& m, glm::vec3 p) { return glm::vec3(m * glm::vec4(p, 1.0f)); };

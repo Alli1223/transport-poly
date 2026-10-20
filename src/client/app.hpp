@@ -53,6 +53,8 @@ enum class Tool {
     RoadTunnel,
     RemoveSpan,
     StationEntrance,
+    Electrify,   // put up overhead wires over track
+    RemoveWires, // take them down
     PickOrder, // click a station to append it to the selected vehicle's orders
 };
 
@@ -114,6 +116,7 @@ private:
     void handleStationTool(std::vector<gfx::OverlayQuad>& overlays);
     void handleDepotTool(std::vector<gfx::OverlayQuad>& overlays);
     void handleSignalTool(std::vector<gfx::OverlayQuad>& overlays);
+    void handleElectrifyTool(std::vector<gfx::OverlayQuad>& overlays);
     bool pickTrackOrder(std::vector<gfx::OverlayQuad>& overlays);
 
     // app_menu.cpp
@@ -219,6 +222,7 @@ private:
     VehicleId hoverVehicle_;      // under the cursor
     PersonId hoverPerson_;
     bool showLines_ = false;
+    std::vector<u32> wiredThisDrag_; // edges already sent while dragging the electrify tool
     u32 selLine_ = 0;                         // key of the line shown in the lines window
     std::shared_ptr<struct LineCache> lineCache_; // routes of the lines drawn on the map
     int fleetCompany_ = -2;
@@ -290,6 +294,7 @@ private:
     bool followFirst_ = false;      // automation: follow the first vehicle
     bool inspectFirst_ = false;     // automation: open the card of someone travelling by public transport
     std::string demoCars_;          // automation: cars (comma separated names) for the first train
+    bool demoElectric_ = false;     // automation: electrify the demo railway
     bool directStart_ = false;      // skip the main menu (command line options given)
     std::string joinAddress_;       // --join host[:port]
     std::string openWindows_;       // automation: --open depot,station,town,finances,vehicles,towns,news

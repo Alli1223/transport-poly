@@ -120,8 +120,11 @@ std::optional<std::vector<EdgeRun>> findPath(const World& w, EdgeRun from, GoalF
     std::priority_queue<Item> open;
     std::unordered_map<u64, std::pair<u64, i64>> parent; // run -> (parent run key, cost); root parent ~0
     u32 order = 0;
+    // Electric trains keep to track with overhead wires.
+    const bool wires = w.vehicles.contains(train) && w.vehicles[train].needsWires();
     const auto push = [&](EdgeRun r, u64 from, i64 cost) {
         const TrackEdge& e = w.trackEdges[r.edge];
+        if (wires && !e.electrified) return;
         // Never route through a depot other than the one we are heading for.
         if (e.kind == TrackKind::Depot && !(e.depot == allowDepot && r.forward)) return;
         // Track another train holds counts as longer, so a free platform wins over a busy one.

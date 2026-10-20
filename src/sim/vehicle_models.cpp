@@ -35,9 +35,9 @@ constexpr std::array<VehicleModel, 32> kModels = {{
     {"Bulk Coaster", V::Ship, 0, 30, 22, 280'000, 30'000, 1920, 30, 3, false, CargoType::Grain, 250, true},
     {"Refrigerated Coaster", V::Ship, 0, 32, 22, 300'000, 32'000, 1920, 30, 4, false, CargoType::Food, 200},
     {"Container Coaster", V::Ship, 0, 36, 24, 360'000, 36'000, 1940, 30, 5, false, CargoType::Goods, 240},
-    {"Continental Electric", V::Rail, 0, 200, 13, 620'000, 80'000, 1985, 35, 2, true},
+    {"Continental Electric", V::Rail, 0, 200, 13, 620'000, 80'000, 1985, 35, 2, true, CargoType::None, 0, false, true},
     {"Intercity Coach", V::Rail, 64, 200, 13, 110'000, 10'000, 1985, 35, 9},
-    {"Regional EMU", V::Rail, 100, 160, 13, 380'000, 48'000, 1990, 30, 3, true},
+    {"Regional EMU", V::Rail, 100, 160, 13, 380'000, 48'000, 1990, 30, 3, true, CargoType::None, 0, false, true},
     {"Heavy Freight Diesel", V::Rail, 0, 120, 14, 420'000, 62'000, 1960, 35, 1, true},
     // Flatbeds for logs, planks, bricks and steel.
     {"Timber Lorry", V::Road, 0, 64, 12, 95'000, 22'000, 1930, 15, 7, false, CargoType::Logs, 28, true},

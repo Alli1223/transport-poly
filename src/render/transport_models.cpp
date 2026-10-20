@@ -337,6 +337,53 @@ void steamMainRod(MeshBuilder& mb) {
     mb.box({0.94f, -0.013f, -0.006f}, {1.06f, 0.013f, 0.006f}, kSteel);
 }
 
+// A thin bar in the XY plane from a to b, `t` thick, centred on z.
+void barXY(MeshBuilder& mb, glm::vec2 a, glm::vec2 b, float z, float t, u32 colour) {
+    const glm::vec2 d = b - a;
+    const glm::mat4 saved = mb.transform;
+    mb.transform = saved * glm::translate(glm::mat4(1.0f), glm::vec3(a, z)) *
+                   glm::rotate(glm::mat4(1.0f), std::atan2(d.y, d.x), glm::vec3(0, 0, 1));
+    mb.box({0.0f, -t * 0.5f, -t * 0.5f}, {glm::length(d), t * 0.5f, t * 0.5f}, colour);
+    mb.transform = saved;
+}
+
+// Overhead line mast (origin on the track centre line at rail height, the track along X): a
+// lattice-like pole on the +Z side, an arm out over the track and the register arm holding the
+// contact wire. Heights match catenary.hpp.
+void catenaryMast(MeshBuilder& mb) {
+    constexpr u32 kMast = rgba(92, 104, 96);
+    constexpr u32 kInsulator = rgba(150, 96, 70);
+    constexpr float z = 0.36f, top = 0.6f;
+    mb.box({-0.016f, -0.1f, z - 0.016f}, {0.016f, top, z + 0.016f}, kMast);
+    mb.box({-0.024f, -0.1f, z - 0.024f}, {0.024f, -0.02f, z + 0.024f}, rgba(150, 150, 146)); // footing
+    for (const float y : {0.12f, 0.27f, 0.42f})
+        mb.box({-0.019f, y, z - 0.019f}, {0.019f, y + 0.012f, z + 0.019f}, kMast);
+    mb.box({-0.007f, 0.565f, -0.06f}, {0.007f, 0.578f, z}, kMast);
+    const glm::mat4 saved = mb.transform;
+    mb.transform = saved * glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0, 1, 0));
+    barXY(mb, {z, 0.45f}, {0.05f, 0.565f}, 0.0f, 0.01f, kMast);
+    mb.transform = saved;
+    mb.prism({0.0f, 0.54f, 0.0f}, 0.008f, 0.03f, 6, kInsulator, true);
+    mb.box({-0.004f, 0.47f, -0.004f}, {0.004f, 0.54f, 0.004f}, kMast);
+    mb.box({-0.003f, 0.468f, -0.04f}, {0.003f, 0.476f, 0.0f}, kMast);
+}
+
+// A wire of unit length along +X.
+void catenaryWire(MeshBuilder& mb) { mb.box({0.0f, -0.003f, -0.003f}, {1.0f, 0.003f, 0.003f}, rgba(46, 44, 42)); }
+
+// A single-arm pantograph raised to the contact wire 0.17 above the roof (origin on the roof).
+void pantograph(MeshBuilder& mb) {
+    constexpr u32 kFrame = rgba(60, 62, 66);
+    for (const float z : {-0.035f, 0.035f}) mb.prism({0.0f, 0.0f, z}, 0.008f, 0.014f, 6, rgba(150, 96, 70), true);
+    mb.box({-0.05f, 0.014f, -0.045f}, {0.05f, 0.024f, 0.045f}, kFrame);
+    for (const float z : {-0.02f, 0.02f}) {
+        barXY(mb, {-0.04f, 0.024f}, {0.035f, 0.095f}, z, 0.008f, kSteel);
+        barXY(mb, {0.035f, 0.095f}, {-0.005f, 0.165f}, z, 0.007f, kSteel);
+    }
+    mb.box({-0.012f, 0.163f, -0.075f}, {0.012f, 0.172f, 0.075f}, kFrame);
+    mb.box({-0.006f, 0.172f, -0.068f}, {0.006f, 0.176f, 0.068f}, rgba(40, 40, 42));
+}
+
 void dieselEngine(MeshBuilder& mb, bool express) {
     constexpr u32 kGrey = rgba(70, 74, 80);
     constexpr u32 kGrille = rgba(36, 38, 42);
@@ -741,6 +788,9 @@ void buildTransportModels(MeshBuilder& out, ModelId id) {
     case models::kSteamWheelset: steamWheelset(out); break;
     case models::kSideRod: steamSideRod(out); break;
     case models::kMainRod: steamMainRod(out); break;
+    case models::kCatenaryMast: catenaryMast(out); break;
+    case models::kCatenaryWire: catenaryWire(out); break;
+    case models::kPantograph: pantograph(out); break;
     case models::bus(0): busBody(out, 0.58f, 0.2f, true, false); break;
     case models::bus(1): busBody(out, 0.62f, 0.21f, false, false); break;
     case models::bus(2): busBody(out, 0.66f, 0.24f, false, false); break;

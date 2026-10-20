@@ -515,6 +515,8 @@ bool App::parseArgs(int argc, char** argv) {
             followFirst_ = true;
         } else if (arg == "--inspect-person") {
             inspectFirst_ = true;
+        } else if (arg == "--demo-electric") {
+            demoElectric_ = true;
         } else if (arg == "--demo-cars") {
             if (const char* v = next()) demoCars_ = v;
         } else if (arg == "--demo-network") {
@@ -1416,6 +1418,18 @@ int App::run(int argc, char** argv) {
                 if (wants("catchments")) overlayMode_ = 1;
                 if (wants("gamemenu")) showGameMenu_ = true;
                 openWindows_.clear();
+            }
+            if (demoElectric_ && frameCount >= 200 && !demoTrack_ && !demoRail_) {
+                // Automation: overhead wires over all the local company's track.
+                demoElectric_ = false;
+                if (auto* local = dynamic_cast<LocalSession*>(session_.get()))
+                    for (const auto [id, e] : local->world().trackEdges)
+                        if (e.owner == local->localCompany()) {
+                            Command c;
+                            c.company = local->localCompany();
+                            c.payload = CmdElectrifyTrack{id, true, false};
+                            executeCommand(local->world(), c);
+                        }
             }
             if (!demoCars_.empty() && frameCount >= 200 && !demoTrack_ && !demoRail_) {
                 // Automation: give the first train the named cars, matched by part of their names.

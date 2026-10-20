@@ -24,9 +24,6 @@ const glm::vec3 kWind(0.16f, 0.0f, 0.07f); // tiles per second
 
 bool isSteam(const VehicleModel& m) { return m.type == VehicleType::Rail && m.powered && m.visual == 0; }
 
-bool isElectric(const VehicleModel& m) {
-    return m.name.find("Electric") != std::string_view::npos || m.name.find("EMU") != std::string_view::npos;
-}
 
 glm::mat4 carMatrix(const VehiclePose& pose, const glm::dvec3& origin) {
     glm::mat4 m = glm::translate(glm::mat4(1.0f), glm::vec3(pose.pos - origin));
@@ -170,7 +167,12 @@ void VehicleFx::addTrain(InstanceBatch& batch, VehicleId id, const std::vector<C
                     emit({worldPoint(cm, origin, {-0.035f, 0.26f, 0.0f}), glm::vec3(0.0f, 1.1f, 0.0f), 0.0f, 1.2f, 0.02f, 0.12f,
                           0.55f, glm::vec3(0.97f)});
             }
-        } else if (!isElectric(model) && m.speed > 0.05 && (idleWisp || (working && beats > 0 && random() < 0.3f))) {
+        } else if (model.electric) {
+            // Pantographs up against the wire: one towards each end of the roof.
+            const float hl = model.length / 32.0f;
+            for (const float x : {hl * 0.5f, -hl * 0.5f})
+                batch.add(models::kPantograph, makeInstance(glm::translate(cm, glm::vec3(x, 0.3f, 0.0f))));
+        } else if (m.speed > 0.05 && (idleWisp || (working && beats > 0 && random() < 0.3f))) {
             // Diesel exhaust: a thin grey haze from the roof while running, thicker pulling away.
             const float hl = model.length / 32.0f;
             const glm::dvec3 exhaust = worldPoint(cm, origin, {hl * 0.25f * facing, 0.31f, 0.0f});

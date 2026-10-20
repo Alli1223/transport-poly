@@ -158,6 +158,10 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
         handleSignalTool(overlays);
         return;
     }
+    if (tool_ == Tool::Electrify || tool_ == Tool::RemoveWires) {
+        handleElectrifyTool(overlays);
+        return;
+    }
     World& w = world();
     const CompanyId company = session_->localCompany();
     const auto test = [&](const CommandPayload& p) {
@@ -417,6 +421,11 @@ constexpr ToolInfo kTools[] = {
      false},
     {Tool::RailDepot, ToolGroup::Rail, ui::Icon::Depot, "Depot", "Click the open end of a track to put a train depot there",
      false},
+    {Tool::Electrify, ToolGroup::Rail, ui::Icon::Spark, "Electrify",
+     "Click or drag along track to put up overhead wires for electric trains. Shift-click to wire all the track joined to it",
+     false},
+    {Tool::RemoveWires, ToolGroup::Rail, ui::Icon::Spark, "Remove wires",
+     "Click or drag along track to take its overhead wires down. Shift-click for all the track joined to it", true},
     {Tool::Dock, ToolGroup::Water, ui::Icon::Anchor, "Dock",
      "Build a dock on the shore; ships moor at the water tile in front of it", false},
     {Tool::ShipDepot, ToolGroup::Water, ui::Icon::Shipyard, "Shipyard",

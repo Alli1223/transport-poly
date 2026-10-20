@@ -457,4 +457,66 @@ bool App::pickTrackOrder(std::vector<gfx::OverlayQuad>& overlays) {
     return true;
 }
 
+void App::handleElectrifyTool(std::vector<gfx::OverlayQuad>& overlays) {
+    World& w = world();
+    const bool remove = tool_ == Tool::RemoveWires;
+    // The wires already up nearby, so gaps are easy to spot.
+    for (const auto [id, e] : w.trackEdges) {
+        if (!e.electrified || e.samples.empty()) continue;
+        const TrackSample& mid = e.samples[e.samples.size() / 2];
+        const double dx = mid.p.x / double(kTrackUnits) - camera_.target.x, dz = mid.p.z / double(kTrackUnits) - camera_.target.z;
+        if (dx * dx + dz * dz > 150.0 * 150.0) continue;
+        addRibbon(overlays, e.samples, 0.1, gfx::rgba(255, 214, 90, 120));
+    }
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) wiredThisDrag_.clear();
+    if (!hover_.hit || mouseOverUi_) return;
+    const TrackEdgeId e = track::edgeNear(w, toTrack(hover_.point), 140);
+    if (!e.valid()) {
+        ImGui::SetTooltip(remove ? "Point at electrified track to take its wires down" : "Point at track to electrify it");
+        return;
+    }
+    const bool connected = ImGui::GetIO().KeyShift;
+    // Highlight what the click would change: the edge, or all the company's track joined to it.
+    std::vector<TrackEdgeId> edges{e};
+    if (connected) {
+        std::unordered_set<u32> seen{e.value};
+        for (usize i = 0; i < edges.size() && edges.size() < 4000; ++i) {
+            const TrackEdge& edge = w.trackEdges[edges[i]];
+            for (const TrackNodeId nid : {edge.a, edge.b})
+                if (const TrackNode* n = w.trackNodes.tryGet(nid))
+                    for (const TrackEdgeId next : n->edges)
+                        if (next.valid() && w.trackEdges.contains(next) && w.trackEdges[next].owner == edge.owner &&
+                            seen.insert(next.value).second)
+                            edges.push_back(next);
+        }
+    }
+    const u32 colour = remove ? gfx::rgba(250, 90, 80, 150) : gfx::rgba(120, 220, 255, 160);
+    for (const TrackEdgeId id : edges) addRibbon(overlays, w.trackEdges[id].samples, 0.3, colour);
+    Command c;
+    c.company = session_->localCompany();
+    c.payload = CmdElectrifyTrack{e, connected, remove};
+    const CommandResult r = testCommand(w, c);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * uiScale_, 7.0f * uiScale_));
+    if (ImGui::BeginTooltip()) {
+        if (r.ok)
+            ui::iconText(ui::Icon::Spark, remove ? ui::col::kRed : ui::col::kAccent,
+                         std::format("{} ({})", remove ? "Take down the wires" : connected ? "Electrify the whole line" : "Electrify",
+                                     formatMoney(r.cost))
+                             .c_str());
+        else
+            ui::iconText(ui::Icon::Warning, ui::col::kRed, r.error.c_str(), ui::col::kRed);
+        if (!connected) {
+            ui::FontScope f(ui::fonts().small);
+            ui::mutedText("Shift: all the track joined to it");
+        }
+        ImGui::EndTooltip();
+    }
+    ImGui::PopStyleVar();
+    // Dragging electrifies each piece of track the cursor passes over, once.
+    if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && r.ok && std::ranges::find(wiredThisDrag_, e.value) == wiredThisDrag_.end()) {
+        wiredThisDrag_.push_back(e.value);
+        session_->submit(CmdElectrifyTrack{e, connected, remove});
+    }
+}
+
 } // namespace tp

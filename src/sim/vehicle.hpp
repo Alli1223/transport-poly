@@ -37,6 +37,7 @@ struct VehicleModel {
     CargoType cargoType = CargoType::None;
     u16 cargoCapacity = 0;
     bool openCargo = false;
+    bool electric = false; // trains: an engine that runs only under overhead wires
 };
 
 std::span<const VehicleModel> vehicleModels();
@@ -209,6 +210,17 @@ struct Vehicle {
         }
         const u32 total = seats ? static_cast<u32>(passengers.size()) : cargo::classQuantity(cargo, k);
         return std::min<u32>(total > before ? total - before : 0, seats ? m.capacity : m.cargoCapacity);
+    }
+    // An electric train needs overhead wires all the way: every engine in it is electric.
+    bool needsWires() const {
+        if (cars.empty()) return info().electric;
+        bool any = false;
+        for (const u16 m : cars) {
+            const VehicleModel& car = vehicleModel(m);
+            if (car.powered && !car.electric) return false;
+            any = any || car.powered;
+        }
+        return any;
     }
     bool full() const {
         if (passengers.size() < capacity()) return false;

@@ -55,7 +55,10 @@ inline constexpr ModelId kCloud0 = kEffectBase + 16; // three variants, unit siz
 inline constexpr ModelId kSteamWheelset = kEffectBase + 31; // a driving axle, turned about +Z
 inline constexpr ModelId kSideRod = kEffectBase + 32;       // coupling rod of one side
 inline constexpr ModelId kMainRod = kEffectBase + 33;       // connecting rod, one tile long along +X
-inline constexpr ModelId kCount = kEffectBase + 34;
+inline constexpr ModelId kCatenaryMast = kEffectBase + 34; // mast beside the track with its arm over it
+inline constexpr ModelId kCatenaryWire = kEffectBase + 35; // a wire one tile long along +X
+inline constexpr ModelId kPantograph = kEffectBase + 36;   // raised pantograph on an electric engine's roof
+inline constexpr ModelId kCount = kEffectBase + 37;
 
 constexpr ModelId building(u16 type, u8 variant) {
     return static_cast<ModelId>(kBuildingBase + type * kBuildingVariants + variant % kBuildingVariants);

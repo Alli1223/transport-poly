@@ -11,6 +11,7 @@ inline constexpr Money kClearRough = 60;
 inline constexpr Money kClearRock = 150;
 inline constexpr Money kRemoveTree = 50;
 inline constexpr Money kTrackPerTile = 450;     // free-form track, per tile of length
+inline constexpr Money kCatenaryPerTile = 240;  // overhead wires over free-form track, per tile of length
 inline constexpr Money kEarthworkPerUnit = 14;   // moving one corner by one fine height unit
 inline constexpr Money kTrackBridgePerTile = 2200; // free-form track on a bridge, per tile of length
 inline constexpr Money kTrackTunnelPerTile = 3000; // free-form track in a tunnel, per tile of length

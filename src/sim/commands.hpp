@@ -119,6 +119,18 @@ struct CmdRemoveTrack {
     }
 };
 
+// Puts up (or takes down) the overhead wires over a track edge, or over all the company's track
+// connected to it.
+struct CmdElectrifyTrack {
+    TrackEdgeId edge;
+    bool connected = false;
+    bool remove = false;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(edge, connected, remove);
+    }
+};
+
 // Bulldoze a rectangular area (inclusive corners).
 struct CmdClearArea {
     TilePos a;
@@ -390,7 +402,8 @@ using CommandPayload =
                  CmdBuildRailStation, CmdBuildRailDepot, CmdAddCarriage, CmdRemoveCarriage, CmdBuildDock,
                  CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater, CmdBuildSpan, CmdRemoveSpan,
                  CmdUpdateCompany, CmdTerraformBrush, CmdBuildTrack, CmdRemoveTrack, CmdBuildTrackStation,
-                 CmdBuildTrackDepot, CmdTrackSignal, CmdReorderConsist, CmdStationEntrance, CmdAddPlatform, CmdExtendPlatform>;
+                 CmdBuildTrackDepot, CmdTrackSignal, CmdReorderConsist, CmdStationEntrance, CmdAddPlatform, CmdExtendPlatform,
+                 CmdElectrifyTrack>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

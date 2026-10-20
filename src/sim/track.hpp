@@ -136,6 +136,7 @@ struct TrackEdge {
     u32 serial = 0;
     VehicleId reservedBy; // the train holding this edge (trains only drive on track they hold)
     std::vector<TrackSpan> spans; // bridges and tunnels, in order along the edge
+    bool electrified = false;     // overhead wires: electric trains may run here
 
     // Derived from the nodes when built or loaded (not saved).
     std::vector<TrackSample> samples;
@@ -148,6 +149,7 @@ struct TrackEdge {
         ar(a, b, sideA, sideB, handleA, handleB, owner, kind, station, depot, serial);
         if (ar.version == 0 || ar.version >= 14) ar(reservedBy);
         if (ar.version == 0 || ar.version >= 15) ar(spans);
+        if (ar.version == 0 || ar.version >= 25) ar(electrified);
     }
 };
 

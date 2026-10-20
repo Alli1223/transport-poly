@@ -15,6 +15,7 @@ CommandResult handle(World& w, const Command& c, const CmdTerraform& x, bool exe
 CommandResult handle(World& w, const Command& c, const CmdTerraformBrush& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdBuildTrack& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdRemoveTrack& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdElectrifyTrack& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdBuildTrackStation& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdBuildTrackDepot& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdTrackSignal& x, bool exec);

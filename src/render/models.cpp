@@ -171,7 +171,8 @@ void ModelLibrary::build() {
             if (!mb.vertices.empty()) add(id, mb);
         }
     }
-    for (const ModelId id : {models::kSteamWheelset, models::kSideRod, models::kMainRod}) {
+    for (const ModelId id : {models::kSteamWheelset, models::kSideRod, models::kMainRod, models::kCatenaryMast,
+                             models::kCatenaryWire, models::kPantograph}) {
         MeshBuilder mb;
         buildTransportModels(mb, id);
         add(id, mb);

@@ -58,6 +58,7 @@ std::string_view commandName(const CommandPayload& payload) {
                           [](const CmdTerraformBrush&) { return std::string_view("Terraform"); },
                           [](const CmdBuildTrack&) { return std::string_view("Build track"); },
                           [](const CmdRemoveTrack&) { return std::string_view("Remove track"); },
+                          [](const CmdElectrifyTrack& c) { return std::string_view(c.remove ? "Remove overhead wires" : "Electrify track"); },
                           [](const CmdBuildTrackStation&) { return std::string_view("Build station"); },
                           [](const CmdBuildTrackDepot&) { return std::string_view("Build train depot"); },
                           [](const CmdTrackSignal&) { return std::string_view("Signal"); },
