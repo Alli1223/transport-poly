@@ -69,7 +69,7 @@ endif()
 if(TP_BUILD_SERVER)
     install(TARGETS transport-poly-server RUNTIME DESTINATION ${TP_INSTALL_BINDIR})
 endif()
-install(FILES ${PROJECT_SOURCE_DIR}/README.md DESTINATION .)
+install(FILES ${PROJECT_SOURCE_DIR}/README.md ${PROJECT_SOURCE_DIR}/CHANGELOG.md DESTINATION .)
 if(WIN32)
     # Ship the MSVC runtime so the zip runs without the redistributable installed.
     set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION ${TP_INSTALL_BINDIR})

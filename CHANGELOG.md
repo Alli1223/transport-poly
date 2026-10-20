@@ -1,0 +1,59 @@
+# Changelog
+
+All notable changes to transport-poly. Each release's section here becomes its
+release notes on GitHub (see [RELEASING.md](RELEASING.md)).
+
+## [Unreleased]
+
+## [0.1.0] - 2026-10-20
+
+The first release: a low poly transport game in the spirit of OpenTTD and
+Transport Fever, with deterministic lockstep multiplayer.
+
+### World
+- Endless chunked terrain with smooth hills and mountains; new worlds choose
+  their land (continents, mainland, islands, archipelago or a single island),
+  the amount of mountains, lakes and rivers, and the climate (temperate, arid,
+  arctic, tropical or varied biomes, each with its own ground and trees).
+- Weather that changes day to day: drifting clouds with moving shadows,
+  overcast light and valley mist; a day and night cycle with lit windows,
+  street lamps, stars and the moon; trees sway in the wind.
+- Towns of individually simulated citizens who live, work, shop and visit
+  other towns, walking along pavements and riding your services. Towns grow
+  with good service and ask for goods as they grow.
+- Countryside industries with production chains: farms, logging camps,
+  quarries and mines feed sawmills, dairies, textile mills, brickworks, steel
+  mills and factories.
+
+### Transport
+- Buses, articulated trams, trains and ships, with stops, stations, depots,
+  docks and shipyards.
+- Free-form curved railways in the style of Transport Fever that shape the
+  ground into embankments and cuttings, with automatic bridges, tunnels and
+  level crossings, path signals, and stations of straight platforms at any
+  angle that can be upgraded and joined to roads by entrances.
+- Overhead electrification for electric trains.
+- Train consists of engines, coaches and freight wagons, built in the depot;
+  freight (bulk, refrigerated, piece goods and timber classes) carried
+  between industries and towns.
+- Orders with full load, unload, no loading and pass-through stops,
+  waypoints, depot visits and shared order lists; vehicle reliability,
+  breakdowns and servicing.
+
+### Seeing what happens
+- Click a person to see where they are going and why, their journey step by
+  step and their route on the map; hover or click any vehicle or carriage.
+- A lines window and lines map layer for every route you run, plus station
+  catchment, passenger flow and town zone layers, a minimap and news.
+- Detailed vehicles: a steam tank engine with turning wheels and rods that
+  chuffs steam, diesels, electric engines with pantographs, coaches with
+  bogies and gangways, and passengers visible through the windows.
+
+### Economy and play
+- Companies with loans, ledgers, inflation, recessions and bankruptcy,
+  optional computer competitors, town ratings and station ratings.
+- Multiplayer through a dedicated server or a hosted game, with chat, a
+  player list and host-controlled pause and speed; save, load and autosave.
+
+[Unreleased]: https://github.com/Alli1223/transport-poly/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Alli1223/transport-poly/releases/tag/v0.1.0

@@ -1,14 +1,27 @@
 name: CI
 
+# Every push and pull request is built and tested on Windows and Linux, and packaged.
+# Pushing a version tag (v1.2.3, or v1.2.3-rc1 for a pre-release) also publishes a GitHub
+# release with the Windows and Linux packages attached. See RELEASING.md.
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Newer pushes to a branch replace its older runs; release runs always finish.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: ilammy/msvc-dev-cmd@v1
@@ -24,10 +37,11 @@ jobs:
         with:
           name: transport-poly-windows
           path: build/windows-msvc/packages/*.zip
+          if-no-files-found: error
 
   linux:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       CC: gcc-14
       CXX: g++-14
@@ -37,8 +51,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y g++-14 ninja-build libgl1-mesa-dev xorg-dev
+      # The C++ runtime is linked in statically so the package runs on distributions with an
+      # older libstdc++ than GCC 14's.
       - name: Configure
-        run: cmake --preset linux-gcc -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14
+        run: >
+          cmake --preset linux-gcc -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14
+          "-DCMAKE_EXE_LINKER_FLAGS=-static-libstdc++ -static-libgcc"
       - name: Build
         run: cmake --build --preset linux-gcc-release
       - name: Test
@@ -49,10 +67,11 @@ jobs:
         with:
           name: transport-poly-linux
           path: build/linux-gcc/packages/*.tar.gz
+          if-no-files-found: error
 
   headless:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Install compiler
@@ -63,3 +82,34 @@ jobs:
         run: cmake --build --preset linux-headless-release
       - name: Test
         run: ctest --preset linux-headless-release
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux, headless]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the tag matches the version in the code and the changelog
+        run: bash scripts/check-version.sh "${GITHUB_REF_NAME#v}"
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * | tee SHA256SUMS.txt
+      - name: Release notes
+        run: bash scripts/release-notes.sh "${GITHUB_REF_NAME#v}" > notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          prerelease=()
+          if [[ "$version" == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag "${prerelease[@]}" \
+            --title "transport-poly $version" --notes-file notes.md

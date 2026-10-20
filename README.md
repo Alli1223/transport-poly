@@ -72,6 +72,14 @@ To build only the dedicated server and tests (no X11/OpenGL needed) use the
 build writes a self-contained zip / tar.gz with the game, the dedicated server and
 the font to `build/<preset>/packages/`.
 
+### Releases
+
+Windows and Linux builds of each release are on the
+[Releases page](https://github.com/Alli1223/transport-poly/releases). CI builds,
+tests and packages every push on both platforms; pushing a version tag publishes
+a release. See [RELEASING.md](RELEASING.md) for the steps and
+[CHANGELOG.md](CHANGELOG.md) for what changed.
+
 ## Running a multiplayer game
 
 ```bash
