@@ -58,6 +58,8 @@ public:
     bool kick(u16 client, const std::string& reason);
     // Moves the host player to another company (or makes them a spectator).
     void setLocalCompany(CompanyId company);
+    // Changes the password new players must give (empty: none); players already in stay.
+    void setPassword(const std::string& password) { options_.password = password; }
 
 private:
     struct Client {

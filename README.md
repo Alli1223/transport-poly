@@ -113,7 +113,12 @@ hosted game can be played as a competition: the first company to a company value
 of $1,000,000, $5,000,000 or $20,000,000 wins, or the best rated company after
 5, 10 or 20 years (`--goal-value` and `--goal-years` for the dedicated server).
 Clients see changes immediately while paused; commands submitted during pause
-wait until the host resumes. The dedicated server uses its console controls.
+wait until the host resumes. **Find** in the players window looks where another
+player is pointing. The dedicated server is run from its console: `status`,
+`companies` (the league with each company's players), `say <text>`, `pause`,
+`unpause`, `speed <0-16>`, `kick <id or name> [reason]`, `password [text]` (set or
+clear the server password), `unlock <company id>` (clear a company password),
+`save <file>` and `quit`.
 
 Press **F5** in a game to write `saves/quicksave.tpsave`; load it through the
 normal load menu. In multiplayer the host saves the game. Monthly autosaves

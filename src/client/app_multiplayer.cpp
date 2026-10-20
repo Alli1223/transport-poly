@@ -248,9 +248,20 @@ void App::drawPlayersWindow() {
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted(label.c_str());
                 if (p->id != me) {
-                    // Message (and, for the host, Kick) at the right of the row.
-                    const float message = 104.0f * s, kick = 76.0f * s, gap = ImGui::GetStyle().ItemSpacing.x;
-                    ImGui::SameLine(right - message - (host ? gap + kick : 0.0f));
+                    // Find (their pointer), Message and, for the host, Kick at the right of the row.
+                    const float find = 34.0f * s, message = 104.0f * s, kick = 76.0f * s, gap = ImGui::GetStyle().ItemSpacing.x;
+                    ImGui::SameLine(right - find - gap - message - (host ? gap + kick : 0.0f));
+                    const auto pointer = cursorDisplay_.find(p->id);
+                    ImGui::BeginDisabled(pointer == cursorDisplay_.end());
+                    if (ui::button("##find", ui::Icon::Target, ui::Btn::Ghost, ImVec2(find, 0)) && pointer != cursorDisplay_.end()) {
+                        followVehicle_ = {};
+                        followPerson_ = false;
+                        camera_.targetGoal = pointer->second;
+                    }
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                        ui::tooltip({"Find", pointer == cursorDisplay_.end() ? "Not pointing at the map" : "Look where they are pointing"});
+                    ImGui::SameLine();
                     if (ui::button("Message", ui::Icon::Chat, ui::Btn::Ghost, ImVec2(message, 0))) {
                         chatScope_ = static_cast<int>(net::ChatScope::Private);
                         chatTarget_ = p->id;

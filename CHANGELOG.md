@@ -17,6 +17,9 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
   rating broken down; news of a new league leader.
 - Competitions: the first company to a target value, or the best rated after
   a number of years, wins.
+- Find another player's pointer from the players window; dedicated server
+  console commands to list companies, kick players, pause, and set or clear
+  the server and company passwords.
 
 ## [0.1.0] - 2026-10-20
 
