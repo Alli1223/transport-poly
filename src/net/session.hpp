@@ -42,7 +42,7 @@ public:
 class LocalSession final : public GameSession {
 public:
     // Starts a new game and founds the player's company.
-    explicit LocalSession(const WorldSettings& settings, const std::string& companyName = {});
+    explicit LocalSession(const WorldSettings& settings, const std::string& companyName = {}, u8 colour = 0xFF);
     // Continues a loaded game as the given company.
     LocalSession(std::unique_ptr<World> world, CompanyId company);
 

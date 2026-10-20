@@ -67,9 +67,122 @@ void NetServer::setLocalHost(CompanyId company, const std::string& name) {
 }
 
 void NetServer::broadcastChat(const std::string& from, const std::string& text) {
-    ChatBroadcastMsg msg{from, text};
-    chat_.push_back(msg);
-    broadcastRaw(PacketType::ChatBroadcast, toBytes(msg));
+    ChatBroadcastMsg msg;
+    msg.from = from;
+    msg.text = text;
+    deliverChat(msg, 0);
+}
+
+void NetServer::localChat(const std::string& text, ChatScope scope, u16 target) {
+    if (text.empty()) return;
+    ChatBroadcastMsg msg;
+    msg.from = localHost_ ? localHost_->name : std::string("Host");
+    msg.text = text.substr(0, 400);
+    msg.scope = scope;
+    msg.fromClient = kLocalClientId;
+    msg.fromCompany = localHost_ ? localHost_->company : CompanyId{};
+    deliverChat(msg, target);
+}
+
+// Sends a chat message to the players it is for: everyone, the sender's company (never spectators
+// as a group) or one player; the sender always sees their own message.
+void NetServer::deliverChat(const ChatBroadcastMsg& msg, u16 target) {
+    const auto wants = [&](u16 client, CompanyId company) {
+        if (client == msg.fromClient) return true;
+        switch (msg.scope) {
+        case ChatScope::All: return true;
+        case ChatScope::Company: return msg.fromCompany.valid() && company == msg.fromCompany;
+        case ChatScope::Private: return client == target;
+        }
+        return false;
+    };
+    const std::vector<u8> bytes = toBytes(msg);
+    for (auto& c : clients_)
+        if (c->welcomed && wants(c->id, c->company)) c->conn.sendRaw(PacketType::ChatBroadcast, bytes);
+    if (localHost_ ? wants(kLocalClientId, localHost_->company) : msg.scope == ChatScope::All) chat_.push_back(msg);
+}
+
+void NetServer::setCompanyPassword(CompanyId company, const std::string& password) {
+    if (password.empty()) companyPasswords_.erase(company.value);
+    else companyPasswords_[company.value] = password.substr(0, 64);
+    broadcastClientList();
+}
+
+bool NetServer::companyLocked(CompanyId company) const { return companyPasswords_.contains(company.value); }
+
+std::vector<CompanyId> NetServer::lockedCompanies() const {
+    std::vector<CompanyId> out;
+    for (const auto& [company, password] : companyPasswords_)
+        if (server_.world().companies.contains(CompanyId(company))) out.push_back(CompanyId(company));
+    return out;
+}
+
+void NetServer::setLocalCursor(const std::optional<CursorInfo>& cursor) {
+    localCursor_ = cursor;
+    if (localCursor_) localCursor_->client = kLocalClientId;
+}
+
+std::vector<CursorInfo> NetServer::cursors() const {
+    std::vector<CursorInfo> out;
+    if (localHost_ && localCursor_) out.push_back(*localCursor_);
+    for (const auto& c : clients_)
+        if (c->welcomed && c->cursor) out.push_back(*c->cursor);
+    return out;
+}
+
+bool NetServer::kick(u16 client, const std::string& reason) {
+    for (auto& c : clients_)
+        if (c->id == client) {
+            c->conn.send(PacketType::Reject, RejectMsg{reason.empty() ? std::string("Removed by the host") : reason});
+            c->conn.pump();
+            c->conn.close("removed by the host");
+            return true;
+        }
+    return false;
+}
+
+void NetServer::setLocalCompany(CompanyId company) {
+    if (!localHost_) return;
+    localHost_->company = company;
+    broadcastClientList();
+}
+
+void NetServer::assign(Client& c, CompanyId company) {
+    c.company = company;
+    c.conn.send(PacketType::CompanyAssigned, CompanyAssignedMsg{c.company});
+    broadcastClientList();
+}
+
+void NetServer::joinCompany(Client& c, const JoinCompanyMsg& msg) {
+    const World& w = server_.world();
+    if (msg.company == kJoinNewCompany) {
+        std::string name = msg.name.substr(0, 64);
+        if (name.empty()) name = std::format("{} Transport", c.name);
+        for (const auto [id, co] : w.companies)
+            if (co.name == name) {
+                c.conn.send(PacketType::JoinRefused, JoinRefusedMsg{"A company already has that name"});
+                return;
+            }
+        Command cmd;
+        cmd.client = c.id;
+        cmd.seq = 0;
+        cmd.payload = CmdCreateCompany{name, msg.colour};
+        server_.queueCommand(std::move(cmd));
+    } else if (msg.company == kJoinSpectator) {
+        assign(c, CompanyId{});
+    } else if (const CompanyId id(msg.company);
+               w.companies.contains(id) && !w.companies[id].aiControlled && !w.companies[id].bankrupt) {
+        // Co-op: join a company others already play, giving its password if it has one.
+        if (const auto it = companyPasswords_.find(id.value); it != companyPasswords_.end() && it->second != msg.password) {
+            c.conn.send(PacketType::JoinRefused,
+                        JoinRefusedMsg{msg.password.empty() ? "That company needs a password" : "Wrong company password"});
+            return;
+        }
+        assign(c, id);
+        events_.push_back(std::format("{} joined {}", c.name, w.companies[id].name));
+    } else {
+        c.conn.send(PacketType::JoinRefused, JoinRefusedMsg{"That company can't be joined"});
+    }
 }
 
 std::vector<std::string> NetServer::takeEvents() { return std::exchange(events_, {}); }
@@ -83,6 +196,7 @@ void NetServer::broadcastRaw(PacketType type, const std::vector<u8>& payload) {
 void NetServer::broadcastClientList() {
     ClientListMsg msg;
     msg.clients = clients();
+    msg.locked = lockedCompanies();
     broadcastRaw(PacketType::ClientList, toBytes(msg));
 }
 
@@ -126,7 +240,21 @@ void NetServer::handle(Client& c, const Packet& p) {
             c.conn.close("version mismatch");
             return;
         }
-        c.name = hello.name.empty() ? std::format("Player {}", c.id) : hello.name.substr(0, 32);
+        if (!options_.password.empty() && hello.password != options_.password) {
+            c.conn.send(PacketType::Reject,
+                        RejectMsg{hello.password.empty() ? "This server needs a password" : "Wrong server password"});
+            c.conn.pump();
+            c.conn.close("wrong password");
+            return;
+        }
+        // Names are unique among the players, so chat and the player list are unambiguous.
+        const std::string wanted = hello.name.empty() ? std::format("Player {}", c.id) : hello.name.substr(0, 28);
+        const auto taken = [&](const std::string& n) {
+            if (localHost_ && localHost_->name == n) return true;
+            return std::ranges::any_of(clients_, [&](const auto& o) { return o.get() != &c && o->welcomed && o->name == n; });
+        };
+        c.name = wanted;
+        for (int k = 2; taken(c.name) && k < 100; ++k) c.name = std::format("{} ({})", wanted, k);
         c.conn.send(PacketType::Welcome, WelcomeMsg{c.id, options_.name});
         sendMap(c);
         events_.push_back(std::format("{} joined", c.name));
@@ -135,23 +263,19 @@ void NetServer::handle(Client& c, const Packet& p) {
     }
     case PacketType::JoinCompany: {
         if (!c.welcomed) return;
-        const auto msg = p.decode<JoinCompanyMsg>();
-        if (msg.company == kJoinNewCompany) {
-            Command cmd;
-            cmd.client = c.id;
-            cmd.seq = 0;
-            cmd.payload = CmdCreateCompany{std::format("{} Transport", c.name), 0xFF};
-            server_.queueCommand(std::move(cmd));
-        } else if (msg.company == kJoinSpectator) {
-            c.company = CompanyId{};
-            c.conn.send(PacketType::CompanyAssigned, CompanyAssignedMsg{c.company});
-            broadcastClientList();
-        } else if (server_.world().companies.contains(CompanyId(msg.company)) &&
-                   !server_.world().companies[CompanyId(msg.company)].aiControlled) {
-            c.company = CompanyId(msg.company);
-            c.conn.send(PacketType::CompanyAssigned, CompanyAssignedMsg{c.company});
-            broadcastClientList();
-        }
+        joinCompany(c, p.decode<JoinCompanyMsg>());
+        break;
+    }
+    case PacketType::SetCompanyPassword: {
+        if (!c.welcomed || !c.company.valid()) return;
+        setCompanyPassword(c.company, p.decode<SetCompanyPasswordMsg>().password);
+        break;
+    }
+    case PacketType::Cursor: {
+        if (!c.welcomed) return;
+        const auto msg = p.decode<CursorMsg>();
+        if (msg.visible) c.cursor = CursorInfo{c.id, msg.x, msg.y, msg.z};
+        else c.cursor.reset();
         break;
     }
     case PacketType::CommandRequest: {
@@ -172,8 +296,16 @@ void NetServer::handle(Client& c, const Packet& p) {
         break;
     }
     case PacketType::Chat: {
-        const auto msg = p.decode<ChatMsg>();
-        if (!msg.text.empty()) broadcastChat(c.name, msg.text.substr(0, 400));
+        if (!c.welcomed) return;
+        const auto in = p.decode<ChatMsg>();
+        if (in.text.empty()) return;
+        ChatBroadcastMsg msg;
+        msg.from = c.name;
+        msg.text = in.text.substr(0, 400);
+        msg.scope = in.scope;
+        msg.fromClient = c.id;
+        msg.fromCompany = c.company;
+        deliverChat(msg, in.target);
         break;
     }
     default:
@@ -185,11 +317,13 @@ void NetServer::handle(Client& c, const Packet& p) {
 void NetServer::collectResults() {
     for (auto& c : clients_) {
         for (const CommandRecord& r : server_.takeResults(c->id)) {
-            if (std::holds_alternative<CmdCreateCompany>(r.command.payload) && r.result.ok) {
-                c->company = CompanyId(static_cast<u8>(r.result.createdId));
-                c->conn.send(PacketType::CompanyAssigned, CompanyAssignedMsg{c->company});
-                events_.push_back(std::format("{} founded a company", c->name));
-                broadcastClientList();
+            if (std::holds_alternative<CmdCreateCompany>(r.command.payload)) {
+                if (!r.result.ok) {
+                    c->conn.send(PacketType::JoinRefused, JoinRefusedMsg{r.result.error});
+                    continue;
+                }
+                assign(*c, CompanyId(static_cast<u8>(r.result.createdId)));
+                events_.push_back(std::format("{} founded {}", c->name, server_.world().companies[c->company].name));
             }
         }
     }
@@ -215,6 +349,19 @@ void NetServer::update(double dtSeconds) {
     }
     server_.update(dtSeconds);
     collectResults();
+    // Pointers: ten times a second, and only when one has moved.
+    cursorTimer_ += dtSeconds;
+    if (cursorTimer_ >= 0.1) {
+        cursorTimer_ = 0.0;
+        std::vector<CursorInfo> now = cursors();
+        const auto same = [](const CursorInfo& a, const CursorInfo& b) {
+            return a.client == b.client && a.x == b.x && a.y == b.y && a.z == b.z;
+        };
+        if (!std::ranges::equal(now, lastCursors_, same)) {
+            lastCursors_ = now;
+            broadcastRaw(PacketType::Cursors, toBytes(CursorsMsg{std::move(now)}));
+        }
+    }
     bool removed = false;
     for (auto it = clients_.begin(); it != clients_.end();) {
         Client& c = **it;

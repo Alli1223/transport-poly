@@ -368,6 +368,8 @@ void App::drawMainMenu() {
             if (ui::miniButton("##random", ui::Icon::Spark, ui::col::kAccent, "Random seed"))
                 std::snprintf(seedBuf_, sizeof(seedBuf_), "%llu", static_cast<unsigned long long>(randomSeed()));
             field("Company name", "##company", companyName_, sizeof(companyName_), "Leave empty for a generated name");
+            ui::fieldLabel("Company colour");
+            colourPicker("##newcolour", companyColour_, CompanyId{});
             ImGui::SliderInt("Starting year", &preferences_.startYear, 1900, 2100);
             ImGui::SliderInt("Loan interest", &preferences_.interestPercent, 0, 20, "%d%%");
             terrainOptions(preferences_, terrainPreview_, std::strtoull(seedBuf_, nullptr, 10), s);
@@ -381,7 +383,7 @@ void App::drawMainMenu() {
                 ws.inflation = preferences_.inflation;
                 ws.recessions = preferences_.recessions;
                 ws.aiCompetitors = preferences_.aiCompetitors;
-                startSession(std::make_unique<LocalSession>(ws, companyName_));
+                startSession(std::make_unique<LocalSession>(ws, companyName_, companyColour_ < 0 ? 0xFF : static_cast<u8>(companyColour_)));
             }
             break;
         case MenuPage::Load:
@@ -414,8 +416,12 @@ void App::drawMainMenu() {
             break;
         case MenuPage::Host:
             field("World seed", "##seed", seedBuf_, sizeof(seedBuf_));
+            field("Your name", "##hostname", playerName_, sizeof(playerName_));
             field("Company name", "##company", companyName_, sizeof(companyName_), "Leave empty for a generated name");
+            ui::fieldLabel("Company colour");
+            colourPicker("##hostcolour", companyColour_, CompanyId{});
             portField(port_);
+            field("Server password", "##hostpw", serverPassword_, sizeof(serverPassword_), "Optional: players must give it to join");
             terrainOptions(preferences_, terrainPreview_, std::strtoull(seedBuf_, nullptr, 10), s);
             ImGui::Dummy(ImVec2(0, 6.0f * s));
             if (ui::button("Host new world", ui::Icon::Server, ui::Btn::Primary, ImVec2(-1.0f, 40.0f))) {
@@ -430,11 +436,13 @@ void App::drawMainMenu() {
                 auto hosted = std::make_unique<World>(ws);
                 Command create;
                 create.client = kLocalClientId;
-                create.payload = CmdCreateCompany{companyName_, 0xFF};
+                create.payload = CmdCreateCompany{companyName_, companyColour_ < 0 ? u8{0xFF} : static_cast<u8>(companyColour_)};
                 const CommandResult r = executeCommand(*hosted, create);
                 net::NetServer::Options opt;
                 opt.port = static_cast<u16>(port_);
+                opt.password = serverPassword_;
                 auto host = std::make_unique<net::HostSession>(std::move(hosted), CompanyId(static_cast<u8>(r.createdId)), opt);
+                host->net().setLocalHost(CompanyId(static_cast<u8>(r.createdId)), playerName_[0] ? playerName_ : "Host");
                 std::string err;
                 if (host->start(err)) startSession(std::move(host));
                 else menuError_ = err;
@@ -444,10 +452,17 @@ void App::drawMainMenu() {
             field("Server address", "##address", address_, sizeof(address_));
             portField(port_);
             field("Your name", "##name", playerName_, sizeof(playerName_));
+            field("Server password", "##joinpw", serverPassword_, sizeof(serverPassword_), "Only if the server has one");
+            {
+                ui::FontScope f(ui::fonts().small);
+                ui::mutedText("Once the world has loaded you choose a company: start your own,");
+                ui::mutedText("join a friend's to play together, or watch.");
+            }
             ImGui::Dummy(ImVec2(0, 6.0f * s));
             if (ui::button("Join", ui::Icon::Globe, ui::Btn::Primary, ImVec2(-1.0f, 40.0f))) {
                 menuError_.clear();
-                startSession(std::make_unique<net::NetClientSession>(address_, static_cast<u16>(port_), playerName_));
+                startSession(std::make_unique<net::NetClientSession>(address_, static_cast<u16>(port_), playerName_, net::kJoinAsk,
+                                                                     serverPassword_));
             }
             break;
         case MenuPage::Main: break;
@@ -549,30 +564,26 @@ void App::drawChat() {
     auto* client = dynamic_cast<net::NetClientSession*>(session_.get());
     auto* host = dynamic_cast<net::HostSession*>(session_.get());
     if (!ImGui::GetIO().WantCaptureKeyboard && ImGui::IsKeyPressed(ImGuiKey_Tab)) showClients_ = !showClients_;
-    if (showClients_) {
-        ui::PanelSpec spec;
-        spec.width = 440.0f;
-        spec.subtitle = "Only the host controls pause and speed";
-        if (ui::beginPanel("##clients", "Players", ui::Icon::People, &showClients_, spec)) {
-            const auto players = client ? client->clients() : host->net().clients();
-            ImGui::Text("%zu connected player%s", players.size(), players.size() == 1 ? "" : "s");
-            ImGui::Separator();
-            for (const auto& player : players) {
-                const auto* company = world().companies.tryGet(player.company);
-                const bool local = client ? player.id == client->clientId() : player.id == kLocalClientId;
-                ImGui::Text("%s%s%s", player.name.c_str(), local ? " (you)" : "", player.id == kLocalClientId ? " [host]" : "");
-                ImGui::TextDisabled("  %s", company ? company->name.c_str() : "Spectator");
-            }
-        }
-        ui::endPanel();
-    }
+    drawPlayersWindow();
+    drawCompanyLobby();
     std::vector<net::ChatBroadcastMsg> incoming;
     if (client) incoming = client->takeChat();
     if (host) {
         incoming = host->net().takeChat();
         for (const std::string& e : host->net().takeEvents()) chatLines_.push_back("* " + e);
     }
-    for (const auto& m : incoming) chatLines_.push_back(std::format("<{}> {}", m.from, m.text));
+    const std::vector<net::ClientInfo> everyone = players();
+    const auto nameOf = [&](u16 id) {
+        const auto it = std::ranges::find_if(everyone, [&](const net::ClientInfo& p) { return p.id == id; });
+        return it == everyone.end() ? std::string("?") : it->name;
+    };
+    for (const auto& m : incoming) {
+        if (m.scope == net::ChatScope::Company) chatLines_.push_back(std::format("[Company] <{}> {}", m.from, m.text));
+        else if (m.scope == net::ChatScope::Private)
+            chatLines_.push_back(m.fromClient == localClientId() ? std::format("[To {}] {}", nameOf(chatTarget_), m.text)
+                                                                 : std::format("[From {}] {}", m.from, m.text));
+        else chatLines_.push_back(std::format("<{}> {}", m.from, m.text));
+    }
     while (chatLines_.size() > 50) chatLines_.pop_front();
     if (!ImGui::GetIO().WantCaptureKeyboard && ImGui::IsKeyPressed(ImGuiKey_Enter)) showChat_ = true;
 
@@ -597,12 +608,31 @@ void App::drawChat() {
         ImGui::TextDisabled("Press Enter to chat");
     }
     if (showChat_) {
+        // Who to: everyone, your company (co-op partners), or the player picked in the players window.
+        const bool inCompany = world().companies.contains(session_->localCompany());
+        if (chatScope_ == static_cast<int>(net::ChatScope::Company) && !inCompany) chatScope_ = 0;
+        if (chatScope_ == static_cast<int>(net::ChatScope::Private) &&
+            std::ranges::none_of(everyone, [&](const net::ClientInfo& p) { return p.id == chatTarget_; }))
+            chatScope_ = 0;
+        {
+            ui::FontScope f(ui::fonts().small);
+            if (ImGui::RadioButton("Everyone", chatScope_ == 0)) chatScope_ = 0;
+            if (inCompany) {
+                ImGui::SameLine();
+                if (ImGui::RadioButton("Company", chatScope_ == 1)) chatScope_ = 1;
+            }
+            if (chatScope_ == 2) {
+                ImGui::SameLine();
+                ImGui::RadioButton(std::format("To {}", nameOf(chatTarget_)).c_str(), true);
+            }
+        }
         ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(-1.0f);
         if (ImGui::InputTextWithHint("##say", "Say something...", chatBuf_, sizeof(chatBuf_), ImGuiInputTextFlags_EnterReturnsTrue)) {
             if (chatBuf_[0]) {
-                if (client) client->sendChat(chatBuf_);
-                if (host) host->net().broadcastChat("Host", chatBuf_);
+                const auto scope = static_cast<net::ChatScope>(chatScope_);
+                if (client) client->sendChat(chatBuf_, scope, chatTarget_);
+                if (host) host->net().localChat(chatBuf_, scope, chatTarget_);
             }
             chatBuf_[0] = 0;
             showChat_ = false;

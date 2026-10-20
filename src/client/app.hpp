@@ -1,6 +1,8 @@
 #pragma once
 
 #include "net/session.hpp"
+#include "net/host_session.hpp"
+#include "net/net_client.hpp"
 #include "core/preferences.hpp"
 #include "audio/audio.hpp"
 #include "render/camera.hpp"
@@ -106,6 +108,18 @@ private:
     void drawPersonLabels();
     void drawPersonWindow();
     void drawVehiclePassengers(const Vehicle& v);
+
+    // app_multiplayer.cpp
+    net::NetClientSession* netClient();
+    net::HostSession* netHost();
+    std::vector<net::ClientInfo> players();
+    u16 localClientId();
+    bool companyLocked(CompanyId company);
+    bool colourPicker(const char* id, int& colour, CompanyId own);
+    void drawCompanyLobby();
+    void drawPlayersWindow();
+    void drawPlayerCursors(std::vector<gfx::OverlayQuad>& overlays);
+    void updateBots(double dt);
 
     // app_lines.cpp
     void drawLinesWindow();
@@ -228,6 +242,21 @@ private:
     VehicleId hoverVehicle_;      // under the cursor
     PersonId hoverPerson_;
     bool showLines_ = false;
+    // Multiplayer: the company lobby, chat to a company or a player, other players' pointers.
+    bool showLobby_ = false;
+    std::string lobbyNotice_;
+    int joinTarget_ = -1; // company whose password is being asked for
+    char joinPassword_[64] = "";
+    char lobbyCompanyName_[64] = "";
+    int companyColour_ = -1; // chosen livery for a new company (-1: the first free one)
+    char companyPassword_[64] = "";
+    char serverPassword_[64] = "";
+    int chatScope_ = 0; // net::ChatScope
+    u16 chatTarget_ = 0;
+    std::unordered_map<u16, glm::dvec3> cursorDisplay_;
+    std::vector<std::unique_ptr<net::NetClientSession>> bots_; // automation: --host-demo
+    bool botsGreeted_ = false;
+    int hostDemoBots_ = 0;
     std::vector<u32> wiredThisDrag_; // edges already sent while dragging the electrify tool
     u32 selLine_ = 0;                         // key of the line shown in the lines window
     std::shared_ptr<struct LineCache> lineCache_; // routes of the lines drawn on the map

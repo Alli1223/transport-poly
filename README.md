@@ -83,13 +83,23 @@ a release. See [RELEASING.md](RELEASING.md) for the steps and
 ## Running a multiplayer game
 
 ```bash
-transport-poly-server --port 3979 --seed 12345
+transport-poly-server --port 3979 --seed 12345 --password secret
 ```
 
-Clients connect through *Multiplayer → Join* in the main menu.
+Clients connect through *Multiplayer → Join* in the main menu (with the server
+password, if it has one). Once the world has loaded, choose a company: found your
+own with a name and a colour (colours other companies use are struck out), join a
+friend's company to play it together, or watch as a spectator. *Host* asks for
+your name, your company's name and colour, and an optional server password.
 
-Press **Tab** or click **Players** in multiplayer chat to see connected players,
-companies and spectators. The host controls pause and speed (including **Space**).
+Press **Tab** or click **Players** in multiplayer chat to see who is playing,
+grouped by company; companies with more than one player are marked co-op. Lock
+your company with a password so only friends who know it can join, or **Change
+company** to move to another one or to watching. Everyone sees the other players'
+pointers in the world in their company's colour, with their names. Chat goes to
+everyone, to your company only, or privately to one player (**Message** in the
+players window); the host can remove a player with **Kick**. The host controls
+pause and speed (including **Space**).
 Clients see changes immediately while paused; commands submitted during pause
 wait until the host resumes. The dedicated server uses its console controls.
 

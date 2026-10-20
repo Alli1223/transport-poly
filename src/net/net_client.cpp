@@ -10,8 +10,10 @@
 
 namespace tp::net {
 
-NetClientSession::NetClientSession(std::string host, u16 port, std::string playerName, u8 joinCompany)
-    : host_(std::move(host)), port_(port), name_(std::move(playerName)), joinCompany_(joinCompany) {
+NetClientSession::NetClientSession(std::string host, u16 port, std::string playerName, u8 joinCompany,
+                                   std::string serverPassword)
+    : host_(std::move(host)), port_(port), name_(std::move(playerName)), joinCompany_(joinCompany),
+      password_(std::move(serverPassword)) {
     std::string err;
     connecting_ = Socket::beginConnect(host_, port_, err);
     if (!connecting_) fail(err);
@@ -47,9 +49,26 @@ u32 NetClientSession::submit(CommandPayload payload) {
     return seq;
 }
 
-void NetClientSession::sendChat(const std::string& text) {
-    if (phase_ == Phase::Playing) conn_.send(PacketType::Chat, ChatMsg{text});
+void NetClientSession::sendChat(const std::string& text, ChatScope scope, u16 target) {
+    if (phase_ == Phase::Playing) conn_.send(PacketType::Chat, ChatMsg{text, scope, target});
 }
+
+void NetClientSession::joinCompany(u8 company, const std::string& name, u8 colour, const std::string& password) {
+    if (phase_ != Phase::Playing) return;
+    JoinCompanyMsg msg;
+    msg.company = company;
+    msg.name = name;
+    msg.colour = colour;
+    msg.password = password;
+    conn_.send(PacketType::JoinCompany, msg);
+    joinPending_ = true;
+}
+
+void NetClientSession::setCompanyPassword(const std::string& password) {
+    if (phase_ == Phase::Playing) conn_.send(PacketType::SetCompanyPassword, SetCompanyPasswordMsg{password});
+}
+
+void NetClientSession::setCursor(const std::optional<CursorInfo>& cursor) { cursor_ = cursor; }
 
 void NetClientSession::handle(const Packet& p) {
     switch (p.type) {
@@ -76,7 +95,13 @@ void NetClientSession::handle(const Packet& p) {
         mapData_.shrink_to_fit();
         frameMax_ = world_->clock.tick;
         phase_ = Phase::Playing;
-        conn_.send(PacketType::JoinCompany, JoinCompanyMsg{joinCompany_});
+        if (joinCompany_ == kJoinAsk) {
+            choosing_ = true;
+        } else {
+            JoinCompanyMsg join;
+            join.company = joinCompany_;
+            conn_.send(PacketType::JoinCompany, join);
+        }
         log::info("Joined {} at tick {}", serverName_, world_->clock.tick);
         break;
     }
@@ -95,8 +120,22 @@ void NetClientSession::handle(const Packet& p) {
     }
     case PacketType::ChatBroadcast: chat_.push_back(p.decode<ChatBroadcastMsg>()); break;
     case PacketType::Speed: speed_ = p.decode<SpeedMsg>().speed; break;
-    case PacketType::ClientList: clients_ = p.decode<ClientListMsg>().clients; break;
-    case PacketType::CompanyAssigned: company_ = p.decode<CompanyAssignedMsg>().company; break;
+    case PacketType::ClientList: {
+        auto msg = p.decode<ClientListMsg>();
+        clients_ = std::move(msg.clients);
+        locked_ = std::move(msg.locked);
+        break;
+    }
+    case PacketType::CompanyAssigned:
+        company_ = p.decode<CompanyAssignedMsg>().company;
+        choosing_ = false;
+        joinPending_ = false;
+        break;
+    case PacketType::JoinRefused:
+        notices_.push_back(p.decode<JoinRefusedMsg>().reason);
+        joinPending_ = false;
+        break;
+    case PacketType::Cursors: cursors_ = p.decode<CursorsMsg>().cursors; break;
     default: fail("unexpected packet from server"); break;
     }
 }
@@ -139,13 +178,12 @@ void NetClientSession::update(double dtSeconds) {
         }
         conn_ = Connection(std::move(*connecting_));
         connecting_.reset();
-        conn_.send(PacketType::Hello, HelloMsg{kProtocolVersion, name_});
+        conn_.send(PacketType::Hello, HelloMsg{kProtocolVersion, name_, password_});
         phase_ = Phase::Handshake;
     }
-    if (!conn_.pump()) {
-        fail(conn_.error());
-        return;
-    }
+    // Read everything that arrived before acting on a closed connection: a server that refuses or
+    // removes a player says why just before it hangs up.
+    const bool alive = conn_.pump();
     try {
         while (auto p = conn_.next()) {
             handle(*p);
@@ -153,6 +191,10 @@ void NetClientSession::update(double dtSeconds) {
         }
     } catch (const SerializeError& e) {
         fail(std::string("malformed data from server: ") + e.what());
+        return;
+    }
+    if (!alive) {
+        fail(conn_.error());
         return;
     }
     if (phase_ != Phase::Playing) return;
@@ -170,6 +212,23 @@ void NetClientSession::update(double dtSeconds) {
         sinceTick_ = 0.0;
     else
         sinceTick_ += dtSeconds;
+    // The pointer, at most ten times a second and only when it has moved.
+    cursorTimer_ += dtSeconds;
+    const auto same = [](const std::optional<CursorInfo>& a, const std::optional<CursorInfo>& b) {
+        return a.has_value() == b.has_value() && (!a || (a->x == b->x && a->y == b->y && a->z == b->z));
+    };
+    if (cursorTimer_ >= 0.1 && !same(cursor_, sentCursor_)) {
+        cursorTimer_ = 0.0;
+        sentCursor_ = cursor_;
+        CursorMsg msg;
+        msg.visible = cursor_.has_value();
+        if (cursor_) {
+            msg.x = cursor_->x;
+            msg.y = cursor_->y;
+            msg.z = cursor_->z;
+        }
+        conn_.send(PacketType::Cursor, msg);
+    }
     conn_.pump();
 }
 

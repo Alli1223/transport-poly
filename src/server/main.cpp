@@ -1,6 +1,6 @@
 // Headless dedicated server.
 //
-//   transport-poly-server [--port N] [--seed N] [--load file] [--name text] [--autosave months]
+//   transport-poly-server [--port N] [--seed N] [--load file] [--name text] [--password text] [--autosave months]
 //
 // Console commands (stdin): status, save <file>, speed <0-16>, say <text>, quit
 
@@ -52,6 +52,7 @@ int main(int argc, char** argv) {
         else if (arg == "--seed") settings.seed = std::strtoull(next().c_str(), nullptr, 10);
         else if (arg == "--load") loadPath = next();
         else if (arg == "--name") options.name = next();
+        else if (arg == "--password") options.password = next();
         else if (arg == "--autosave") autosaveMonths = std::atoi(next().c_str());
         else if (arg == "--ai") settings.aiCompetitors = std::clamp(std::atoi(next().c_str()), 0, 3);
         else if (arg == "--inflation") settings.inflation = true;
@@ -78,7 +79,7 @@ int main(int argc, char** argv) {
         else if (arg == "--lakes") settings.terrain.lakes = static_cast<u8>(std::clamp(std::atoi(next().c_str()), 0, kTerrainAmountMax));
         else if (arg == "--rivers") settings.terrain.rivers = static_cast<u8>(std::clamp(std::atoi(next().c_str()), 0, kRiverAmountMax));
         else {
-            std::cerr << "usage: transport-poly-server [--port N] [--seed N] [--load file] [--name text] "
+            std::cerr << "usage: transport-poly-server [--port N] [--seed N] [--load file] [--name text] [--password text] "
                          "[--autosave months] [--ai 0-3] [--inflation] [--no-recessions]\n"
                          "       [--land continents|mainland|islands|archipelago|island] [--climate temperate|arid|arctic|tropical|varied]\n"
                          "       [--mountains 0-4] [--lakes 0-4] [--rivers 0-3]\n";

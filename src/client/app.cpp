@@ -557,6 +557,13 @@ bool App::parseArgs(int argc, char** argv) {
             demoShips_ = true;
         } else if (arg == "--join") {
             if (const char* v = next()) joinAddress_ = v;
+        } else if (arg == "--name") {
+            if (const char* v = next()) std::snprintf(playerName_, sizeof(playerName_), "%s", v);
+        } else if (arg == "--password") {
+            if (const char* v = next()) std::snprintf(serverPassword_, sizeof(serverPassword_), "%s", v);
+        } else if (arg == "--host-demo") {
+            // Automation: host a game on a free port with this many bot players.
+            if (const char* v = next()) hostDemoBots_ = std::clamp(std::atoi(v), 0, 3);
         } else if (arg == "--no-debug") {
             showDebug_ = false;
         } else {
@@ -655,7 +662,31 @@ bool App::init() {
             port = static_cast<u16>(std::atoi(host.substr(colon + 1).c_str()));
             host = host.substr(0, colon);
         }
-        startSession(std::make_unique<net::NetClientSession>(host, port, "Player"));
+        startSession(std::make_unique<net::NetClientSession>(host, port, playerName_, net::kJoinAsk, serverPassword_));
+    } else if (hostDemoBots_ > 0) {
+        WorldSettings ws;
+        ws.seed = seed_;
+        ws.terrain = terrainSettings(preferences_);
+        ws.startYear = preferences_.startYear;
+        auto hosted = std::make_unique<World>(ws);
+        Command create;
+        create.client = kLocalClientId;
+        create.payload = CmdCreateCompany{"Kestrel Lines", 9};
+        const CompanyId company(static_cast<u8>(executeCommand(*hosted, create).createdId));
+        net::NetServer::Options opt;
+        opt.port = 0;
+        auto host = std::make_unique<net::HostSession>(std::move(hosted), company, opt);
+        std::string err;
+        if (!host->start(err)) {
+            log::error("Could not host the demo game: {}", err);
+            return false;
+        }
+        const u16 port = host->net().options().port;
+        host->net().setLocalHost(company, playerName_);
+        startSession(std::move(host));
+        static constexpr const char* kBotNames[] = {"Ada", "Brunel", "Stephenson"};
+        for (int i = 0; i < hostDemoBots_; ++i)
+            bots_.push_back(std::make_unique<net::NetClientSession>("127.0.0.1", port, kBotNames[i], net::kJoinAsk));
     } else if (directStart_) {
         newGame(seed_);
     }
@@ -1217,6 +1248,7 @@ int App::run(int argc, char** argv) {
         double simulationMs = 0;
         if (session_) {
             session_->update(dt);
+            updateBots(dt);
             simulationMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-cpuStart).count();
             if (session_->ready()) processFeedback(now);
         }
@@ -1428,6 +1460,8 @@ int App::run(int argc, char** argv) {
                     for (const auto [id, v] : w.vehicles) { selVehicle_ = id; break; }
                 if (wants("towns")) showTownList_ = true;
                 if (wants("news")) showNews_ = true;
+                if (wants("players")) showClients_ = true;
+                if (wants("lobby")) showLobby_ = true;
                 if (wants("depot"))
                     for (const auto [id, d] : w.depots) {
                         selDepot_ = id;
