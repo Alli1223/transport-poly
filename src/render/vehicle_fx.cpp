@@ -183,6 +183,17 @@ void VehicleFx::addTrain(InstanceBatch& batch, VehicleId id, const std::vector<C
     }
 }
 
+void VehicleFx::addStack(const glm::dvec3& top, u32 key) {
+    // A slow, steady column of grey smoke that leans away with the wind as it rises and spreads.
+    float& owed = stacks_[key];
+    owed += dt_ * 1.4f;
+    for (; owed >= 1.0f; owed -= 1.0f) {
+        const float shade = 0.5f + random() * 0.18f;
+        emit({top, glm::vec3((random() - 0.5f) * 0.05f, 0.4f + random() * 0.15f, (random() - 0.5f) * 0.05f), 0.0f,
+              4.0f + random() * 1.5f, 0.08f, 0.55f + random() * 0.2f, 0.55f, glm::vec3(shade, shade, shade * 1.02f)});
+    }
+}
+
 void VehicleFx::draw(const glm::mat4& view, const glm::dvec3& origin) {
     if (puffs_.empty() || !shader_) return;
     // Back to front, so the soft edges blend over the puffs behind.

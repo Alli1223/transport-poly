@@ -25,6 +25,8 @@ public:
     // A train's cars have been placed: turns the steam engines' wheels and rods, and puffs steam
     // and smoke from the engines' chimneys and exhausts.
     void addTrain(InstanceBatch& batch, VehicleId id, const std::vector<CarPose>& cars, const glm::dvec3& origin);
+    // A chimney smoking at `top` (world position); `key` tells chimneys apart between frames.
+    void addStack(const glm::dvec3& top, u32 key);
     // Soft billboards, back to front, after the opaque scene (depth tested, not written).
     void draw(const glm::mat4& view, const glm::dvec3& origin);
 
@@ -55,6 +57,7 @@ private:
 
     std::vector<Puff> puffs_;
     std::unordered_map<u32, Motion> motion_;
+    std::unordered_map<u32, float> stacks_; // chimney key -> puffs owed
     double now_ = 0.0;
     float dt_ = 0.0f;
     u32 seed_ = 0x9E3779B9u;

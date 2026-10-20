@@ -210,6 +210,15 @@ flat out float vCutaway;
 void main() {
     vec4 p = vec4(aPos, 1.0);
     vec3 wp = vec3(dot(iRow0, p), dot(iRow1, p), dot(iRow2, p)) + uOffset;
+    // Trees (vertex alpha 250) sway in the wind, more towards their tops, in gusts, and harder
+    // under cloud.
+    if (abs(aColor.a * 255.0 - 250.0) < 0.25) {
+        vec2 at = wp.xz + uOrigin.xz;
+        float t = uCameraPos.w;
+        float gust = 0.55 + 0.45 * sin(t * 0.4 + at.x * 0.045 + at.y * 0.031);
+        float sway = sin(t * 1.6 + at.x * 0.8 + at.y * 0.6) + 0.5 * sin(t * 2.7 + at.x * 1.9 - at.y * 0.4);
+        wp.xz += vec2(0.85, 0.5) * (sway * gust * aPos.y * 0.03 * (1.0 + uWeather.x));
+    }
     vec3 n = vec3(dot(iRow0.xyz, aNormal.xyz), dot(iRow1.xyz, aNormal.xyz), dot(iRow2.xyz, aNormal.xyz));
     vNormal = normalize(n);
     vLocalHeight = aPos.y;
@@ -287,6 +296,21 @@ void main() {
     if (dir.y < 0.0) c = uHorizonColor.rgb;
     float sd = dot(dir, uSunDir.xyz);
     c += uSunColor.rgb * (smoothstep(0.9988, 0.9995, sd) * 1.5 + pow(max(sd, 0.0), 24.0) * 0.2) * uSunDir.w;
+    // At night: stars, twinkling and thinning towards the horizon, and the moon opposite the sun.
+    float night = uSunColor.w * (1.0 - uWeather.x * 0.9);
+    if (night > 0.01 && dir.y > 0.0) {
+        vec3 q = dir * 150.0;
+        vec3 cell = floor(q);
+        float h = hash12(cell.xy + cell.z * 17.31);
+        float star = step(0.986, h) * smoothstep(0.35, 0.05, length(fract(q) - 0.5));
+        float twinkle = 0.7 + 0.3 * sin(uCameraPos.w * 2.3 + h * 61.0);
+        c += vec3(0.85, 0.9, 1.0) * star * twinkle * (0.4 + 0.6 * fract(h * 37.0)) * night * smoothstep(0.0, 0.25, dir.y);
+        float md = dot(dir, -uSunDir.xyz);
+        float disc = smoothstep(0.99955, 0.99975, md);
+        float shade = 0.82 + 0.18 * hash12(floor(dir.xz * 2400.0));
+        c = mix(c, vec3(0.92, 0.93, 0.98) * shade, disc * night);
+        c += vec3(0.5, 0.55, 0.7) * pow(max(md, 0.0), 300.0) * 0.35 * night;
+    }
     if (dir.y > 0.02 && uWeather.x > 0.001) {
         // The cloud layer seen from below, fading towards the horizon.
         vec2 at = uOrigin.xz + uCameraPos.xz + dir.xz / dir.y * max(uOrigin.y - uCameraPos.y, 20.0) * 2.0;
@@ -422,6 +446,7 @@ void main() { gl_Position = uLightViewProj * vec4(aPos + uOffset, 1.0); }
 std::string shadowModelVS() {
     return join({kHeader, R"(
 layout(location = 0) in vec3 aPos;
+layout(location = 2) in vec4 aColor;
 layout(location = 3) in vec4 iRow0;
 layout(location = 4) in vec4 iRow1;
 layout(location = 5) in vec4 iRow2;
@@ -429,6 +454,15 @@ uniform vec3 uOffset;
 void main() {
     vec4 p = vec4(aPos, 1.0);
     vec3 wp = vec3(dot(iRow0, p), dot(iRow1, p), dot(iRow2, p)) + uOffset;
+    // Trees (vertex alpha 250) sway in the wind, more towards their tops, in gusts, and harder
+    // under cloud.
+    if (abs(aColor.a * 255.0 - 250.0) < 0.25) {
+        vec2 at = wp.xz + uOrigin.xz;
+        float t = uCameraPos.w;
+        float gust = 0.55 + 0.45 * sin(t * 0.4 + at.x * 0.045 + at.y * 0.031);
+        float sway = sin(t * 1.6 + at.x * 0.8 + at.y * 0.6) + 0.5 * sin(t * 2.7 + at.x * 1.9 - at.y * 0.4);
+        wp.xz += vec2(0.85, 0.5) * (sway * gust * aPos.y * 0.03 * (1.0 + uWeather.x));
+    }
     gl_Position = uLightViewProj * vec4(wp, 1.0);
 }
 )"});

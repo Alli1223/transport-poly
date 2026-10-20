@@ -123,26 +123,32 @@ void ModelLibrary::build() {
         ranges_[id] = {static_cast<GLint>(all.size()), static_cast<GLsizei>(mb.vertices.size())};
         all.insert(all.end(), mb.vertices.begin(), mb.vertices.end());
     };
+    // Opaque vertices of trees take alpha 250, so the shaders sway them in the wind.
+    const auto swaying = [](MeshBuilder& mb) {
+        for (Vertex& vertex : mb.vertices)
+            if ((vertex.color >> 24) == 255) vertex.color = (vertex.color & 0x00FFFFFFu) | (250u << 24);
+        return mb;
+    };
     for (int v = 0; v < 3; ++v) {
         MeshBuilder mb;
         buildConifer(mb, v, false);
-        add(static_cast<ModelId>(models::kTreeConifer0 + v), mb);
+        add(static_cast<ModelId>(models::kTreeConifer0 + v), swaying(mb));
     }
     {
         MeshBuilder mb;
         buildConifer(mb, 1, true);
-        add(models::kTreeConiferSnow, mb);
+        add(models::kTreeConiferSnow, swaying(mb));
     }
     for (int v = 0; v < 3; ++v) {
         MeshBuilder mb;
         buildDeciduous(mb, v);
-        add(static_cast<ModelId>(models::kTreeDeciduous0 + v), mb);
+        add(static_cast<ModelId>(models::kTreeDeciduous0 + v), swaying(mb));
     }
     for (int v = 0; v < 2; ++v) {
         const auto make = [&](ModelId base, void (*fn)(MeshBuilder&, int)) {
             MeshBuilder mb;
             fn(mb, v);
-            add(static_cast<ModelId>(base + v), mb);
+            add(static_cast<ModelId>(base + v), base == models::kTreeCactus0 ? mb : swaying(mb));
         };
         make(models::kTreePalm0, buildPalm);
         make(models::kTreeCactus0, buildCactus);

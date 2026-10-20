@@ -618,7 +618,7 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
     for (const auto& industry : world.industries)
         if (const auto* b = world.buildings.tryGet(industry.building.id); b && b->serial == industry.building.serial)
             addStock({b->pos.x, b->pos.y + b->info().size}, industry.stock);
-    // Smoke rising from industry chimneys: puffs that drift up, grow and fade.
+    // Smoke rising from industry chimneys.
     {
         struct Stack {
             u16 type;
@@ -627,7 +627,6 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
         static constexpr Stack kStacks[] = {{11, 0.72f, -0.45f, 1.7f}, {20, 0.65f, -0.65f, 0.9f}, {23, 0.78f, -0.6f, 1.4f},
                                             {25, 0.65f, -0.45f, 1.5f}, {26, 0.6f, -0.9f, 1.8f},   {26, 1.0f, -0.9f, 1.8f},
                                             {27, 1.15f, -0.8f, 1.7f}};
-        const float now = static_cast<float>(std::max(0.0, lastSeconds_));
         for (const auto& industry : world.industries) {
             const Building* b = world.buildings.tryGet(industry.building.id);
             if (!b || b->serial != industry.building.serial) continue;
@@ -638,11 +637,7 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
                 const float size = b->info().size;
                 const glm::dvec3 base(b->pos.x + size * 0.5 + st.x, terrainHeightAt(world.map, b->pos.x + size * 0.5, b->pos.y + size * 0.5),
                                       b->pos.y + size * 0.5 + st.z);
-                for (int k = 0; k < 4; ++k) {
-                    const float phase = std::fmod(now * 0.35f + k * 0.25f + static_cast<float>(b->pos.x % 7) * 0.13f, 1.0f);
-                    const glm::vec3 p = glm::vec3(base - origin) + glm::vec3(phase * 0.25f, st.top + phase * 0.9f, phase * 0.12f);
-                    dynamic_.add(models::kSmoke, makeInstance(p, phase * 3.0f, 0.5f + phase * 1.1f));
-                }
+                fx_.addStack(base + glm::dvec3(0.0, st.top, 0.0), industry.building.id.value * 8u + static_cast<u32>(&st - kStacks));
             }
         }
     }
