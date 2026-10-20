@@ -66,6 +66,27 @@ struct SkyState {
 
 SkyState computeSky(double minuteOfDay);
 
+// A lamp lighting the scene at night: all round, or a spot (headlights). Positions are relative to
+// the render origin; colours already faded in by the night.
+struct Lamp {
+    glm::vec3 pos{0.0f};
+    float reach = 1.0f;
+    glm::vec3 colour{0.0f};
+    glm::vec3 dir{0.0f, -1.0f, 0.0f};
+    float cosCone = -2.0f; // below -1: all round
+    float priority = 0.0f; // in tiles: a lamp this much nearer counts the same
+};
+
+// A soft halo drawn around a lamp.
+struct Glow {
+    glm::vec3 pos{0.0f};
+    glm::vec3 colour{1.0f};
+    float size = 0.2f;
+    float strength = 1.0f;
+};
+
+inline constexpr int kMaxLamps = 24; // matches the shaders' light arrays
+
 // Translucent quad drawn over the terrain (selection, previews). Corners in world coordinates.
 struct OverlayQuad {
     glm::dvec3 corners[4];
@@ -117,6 +138,10 @@ private:
         glm::vec4 shadowParams;
         glm::vec4 weather;
         glm::vec4 origin;
+        glm::vec4 lightPos[kMaxLamps];
+        glm::vec4 lightColor[kMaxLamps];
+        glm::vec4 lightDir[kMaxLamps];
+        glm::vec4 lightCount;
     };
 
     struct DrawLists {
@@ -130,8 +155,15 @@ private:
     void drawChunks(const DrawLists& lists, const glm::dvec3& origin, bool shadowPass);
     void collectVehicles(const World& world, const glm::dvec3& origin, const glm::dvec3& focus, double radius,
                          double tickFraction);
+    // Station platform, street and stop lamps near the focus (at night).
+    void collectLamps(const World& world, const glm::dvec3& origin, const glm::dvec3& focus, double radius);
+    void drawGlows(const glm::mat4& view);
 
-    std::optional<Shader> terrainShader_, modelShader_, waterShader_, skyShader_, cloudShader_;
+    std::optional<Shader> terrainShader_, modelShader_, waterShader_, skyShader_, cloudShader_, glowShader_;
+    std::vector<Lamp> lamps_;
+    std::vector<Glow> glows_;
+    VertexArray glowVao_;
+    Buffer glowVbo_;
     InstanceBatch clouds_;
     glm::vec2 cloudDrift_{0.0f};
     float mistLevel_ = 0.0f; // mist settles below about this height (eases after the camera)

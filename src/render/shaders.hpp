@@ -15,6 +15,8 @@ std::string skyVS();
 std::string skyFS();
 std::string cloudVS();
 std::string cloudFS();
+std::string glowVS();
+std::string glowFS();
 std::string shadowStaticVS();
 std::string shadowModelVS();
 std::string shadowFS();

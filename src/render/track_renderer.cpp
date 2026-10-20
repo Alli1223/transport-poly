@@ -19,6 +19,7 @@ constexpr u32 kPlatformSide = rgba(150, 144, 134);
 constexpr u32 kPlatformEdge = rgba(232, 206, 90);
 constexpr u32 kCanopy = rgba(150, 156, 166);
 constexpr u32 kPost = rgba(96, 100, 108);
+constexpr u32 kPlatformLamp = rgba(255, 244, 214, 252); // self-lit (see the shaders' emission codes)
 constexpr u32 kConcrete = rgba(178, 172, 162);
 constexpr u32 kConcreteSide = rgba(150, 145, 136);
 constexpr u32 kConcreteUnder = rgba(104, 100, 94);
@@ -253,6 +254,9 @@ void buildTrackMesh(const World& world, const TrackEdge& edge, TilePos anchor, M
                 const glm::vec3 c = at(f, side * 0.65f, 0.0f);
                 MeshBuilder post;
                 post.box({c.x - 0.02f, c.y + kTop, c.z - 0.02f}, {c.x + 0.02f, c.y + kRoof, c.z + 0.02f}, kPost);
+                // A lamp hanging under the canopy beside the post.
+                const glm::vec3 l = at(f, side * 0.58f, 0.0f);
+                post.box({l.x - 0.05f, l.y + kRoof - 0.04f, l.z - 0.05f}, {l.x + 0.05f, l.y + kRoof - 0.012f, l.z + 0.05f}, kPlatformLamp);
                 out.append(post);
             }
         }

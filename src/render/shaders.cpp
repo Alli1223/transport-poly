@@ -19,8 +19,25 @@ layout(std140) uniform FrameData {
     vec4 uShadowParams;  // x: texel size, y: depth bias, z: enabled, w: normal offset
     vec4 uWeather;       // x: cloud cover (0-1), y: mist, zw: cloud drift (world units)
     vec4 uOrigin;        // xz: render origin in the world, y: height of the cloud layer, w: mist level
+    // Lamps lighting the scene at night: headlights, station and street lamps.
+    vec4 uLightPos[24];   // xyz: position (render origin relative), w: reach
+    vec4 uLightColor[24]; // rgb: colour and strength (already faded in by the night)
+    vec4 uLightDir[24];   // xyz: spot direction, w: cosine of the cone's edge (below -1: all round)
+    vec4 uLightCount;     // x: number of lights
 };
 vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
+// Self-lit vertices, marked by their colour's alpha: 254 warm windows (at night), 252 white
+// lamps and 251 red lamps (always a little, brightly at night).
+float emissionKind(float alpha) {
+    float a = alpha * 255.0;
+    return abs(a - 254.0) < 0.25 ? 1.0 : abs(a - 252.0) < 0.25 ? 2.0 : abs(a - 251.0) < 0.25 ? 3.0 : 0.0;
+}
+vec3 applyEmission(vec3 c, float kind) {
+    if (kind < 0.5) return c;
+    if (kind < 1.5) return mix(c, vec3(1.0, 0.62, 0.22), uSunColor.w);
+    vec3 lamp = kind < 2.5 ? vec3(1.6, 1.5, 1.3) : vec3(1.6, 0.12, 0.08);
+    return mix(c, lamp, max(uSunColor.w, 0.25));
+}
 vec3 toSrgb(vec3 c) { return pow(max(c, vec3(0.0)), vec3(1.0 / 2.2)); }
 
 // Weather noise; the renderer mirrors these functions to place the clouds that cast the shadows.
@@ -64,11 +81,31 @@ float cloudShadow(vec3 worldPos) {
     vec2 at = worldPos.xz + uOrigin.xz + uSunDir.xz / max(uSunDir.y, 0.25) * rise;
     return 1.0 - cloudField(at) * 0.6;
 }
+// Light from the lamps: falling off to nothing at each lamp's reach, spots within their cone.
+vec3 lampLight(vec3 n, vec3 worldPos) {
+    vec3 sum = vec3(0.0);
+    int count = int(uLightCount.x);
+    for (int i = 0; i < count; ++i) {
+        vec3 d = uLightPos[i].xyz - worldPos;
+        float dist = length(d);
+        float reach = uLightPos[i].w;
+        if (dist >= reach) continue;
+        vec3 l = d / max(dist, 0.0001);
+        float fall = 1.0 - dist / reach;
+        fall *= fall;
+        float spot = 1.0;
+        if (uLightDir[i].w > -1.5) spot = smoothstep(uLightDir[i].w, uLightDir[i].w + 0.12, dot(-l, uLightDir[i].xyz));
+        float facing = max(dot(n, l), 0.0) * 0.75 + 0.25;
+        sum += uLightColor[i].rgb * (fall * spot * facing);
+    }
+    return sum;
+}
 vec3 litColor(vec3 albedo, vec3 n, vec3 worldPos) {
     float ndl = max(dot(n, uSunDir.xyz), 0.0);
     float sh = ndl > 0.0 ? shadowFactor(worldPos, n) * cloudShadow(worldPos) : 0.0;
     vec3 ambient = mix(uAmbientGround.rgb, uAmbientSky.rgb, n.y * 0.5 + 0.5);
-    return albedo * (ambient + uSunColor.rgb * (ndl * sh * uSunDir.w));
+    vec3 lamps = uLightCount.x > 0.5 ? lampLight(n, worldPos) : vec3(0.0);
+    return albedo * (ambient + uSunColor.rgb * (ndl * sh * uSunDir.w) + lamps);
 }
 vec3 applyFog(vec3 c, vec3 worldPos) {
     // Mist settles in low ground and in patches, thicker the further it is seen through.
@@ -103,11 +140,13 @@ uniform vec3 uOffset;
 out vec3 vWorldPos;
 out vec3 vNormal;
 out vec3 vColor;
+flat out float vEmission;
 void main() {
     vec3 wp = aPos + uOffset;
     vWorldPos = wp;
     vNormal = aNormal.xyz;
     vColor = toLinear(aColor.rgb);
+    vEmission = emissionKind(aColor.a);
     gl_Position = uViewProj * vec4(wp, 1.0);
 }
 )"});
@@ -118,6 +157,7 @@ std::string terrainFS() {
 in vec3 vWorldPos;
 in vec3 vNormal;
 in vec3 vColor;
+flat in float vEmission;
 uniform float uExplored;
 out vec4 fragColor;
 void main() {
@@ -126,7 +166,7 @@ void main() {
     // Unexplored land is shown desaturated and slightly darker.
     float grey = dot(albedo, vec3(0.3, 0.59, 0.11));
     albedo = mix(vec3(grey), albedo, mix(0.35, 1.0, uExplored)) * mix(0.8, 1.0, uExplored);
-    vec3 c = litColor(albedo, n, vWorldPos);
+    vec3 c = applyEmission(litColor(albedo, n, vWorldPos), vEmission);
     fragColor = vec4(toSrgb(applyFog(c, vWorldPos)), 1.0);
 }
 )"});
@@ -137,16 +177,15 @@ std::string modelFS() {
 in vec3 vWorldPos;
 in vec3 vNormal;
 in vec3 vColor;
-in float vNightEmission;
+flat in float vEmission;
 in float vLocalHeight;
 flat in float vCutaway;
 out vec4 fragColor;
 void main() {
     if (vCutaway > 0.5 && vLocalHeight > 0.12) discard;
     vec3 n = normalize(vNormal);
-    vec3 c = litColor(vColor, n, vWorldPos);
-    // Night emission bypasses sun/shadow lighting, while still receiving distance fog.
-    c = mix(c, vec3(1.0, 0.62, 0.22), vNightEmission * uSunColor.w);
+    // Self-lit windows and lamps bypass sun/shadow lighting, while still receiving distance fog.
+    vec3 c = applyEmission(litColor(vColor, n, vWorldPos), vEmission);
     fragColor = vec4(toSrgb(applyFog(c, vWorldPos)), 1.0);
 }
 )"});
@@ -165,7 +204,7 @@ uniform vec3 uOffset;
 out vec3 vWorldPos;
 out vec3 vNormal;
 out vec3 vColor;
-out float vNightEmission;
+flat out float vEmission;
 out float vLocalHeight;
 flat out float vCutaway;
 void main() {
@@ -178,7 +217,7 @@ void main() {
     // Vertices with alpha 0 are tintable: they take the instance colour scaled by their red channel.
     vec3 c = aColor.a < 0.5 ? iTint.rgb * (aColor.r * 2.0) : aColor.rgb;
     vColor = toLinear(c);
-    vNightEmission = abs(aColor.a * 255.0 - 254.0) < 0.25 ? 1.0 : 0.0;
+    vEmission = emissionKind(aColor.a);
     vWorldPos = wp;
     gl_Position = uViewProj * vec4(wp, 1.0);
 }
@@ -297,6 +336,38 @@ void main() {
              uSunColor.rgb * uSunDir.w * (0.35 + 0.65 * ndl);
     c = mix(c, uHorizonColor.rgb, 0.18);
     fragColor = vec4(toSrgb(c), vAlpha);
+}
+)"});
+}
+
+std::string glowVS() {
+    return join({kHeader, R"(
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec2 aUv;
+layout(location = 2) in vec4 aColor;
+out vec2 vUv;
+out vec4 vColor;
+void main() {
+    vUv = aUv;
+    // Halos fade out with the distance fog.
+    float d = length(aPos.xz - uFogParams.zw);
+    float fog = clamp((d - uFogParams.x) / max(uFogParams.y - uFogParams.x, 1.0), 0.0, 1.0);
+    vColor = vec4(aColor.rgb, aColor.a * (1.0 - fog));
+    gl_Position = uViewProj * vec4(aPos, 1.0);
+}
+)"});
+}
+
+std::string glowFS() {
+    return join({kHeader, R"(
+in vec2 vUv;
+in vec4 vColor;
+out vec4 fragColor;
+void main() {
+    float r2 = dot(vUv, vUv);
+    float a = (exp(-r2 * 6.0) + exp(-r2 * 40.0) * 0.8) * vColor.a;
+    if (a < 0.004) discard;
+    fragColor = vec4(vColor.rgb * a, 1.0);
 }
 )"});
 }

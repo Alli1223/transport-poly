@@ -191,11 +191,12 @@ bool WorldRenderer::init() {
     waterShader_ = Shader::create("water", shaders::waterVS(), shaders::waterFS());
     skyShader_ = Shader::create("sky", shaders::skyVS(), shaders::skyFS());
     cloudShader_ = Shader::create("cloud", shaders::cloudVS(), shaders::cloudFS());
+    glowShader_ = Shader::create("glow", shaders::glowVS(), shaders::glowFS());
     shadowStaticShader_ = Shader::create("shadow-static", shaders::shadowStaticVS(), shaders::shadowFS());
     shadowModelShader_ = Shader::create("shadow-model", shaders::shadowModelVS(), shaders::shadowFS());
     overlayShader_ = Shader::create("overlay", shaders::overlayVS(), shaders::overlayFS());
     if (!terrainShader_ || !modelShader_ || !waterShader_ || !skyShader_ || !shadowStaticShader_ ||
-        !shadowModelShader_ || !overlayShader_ || !cloudShader_)
+        !shadowModelShader_ || !overlayShader_ || !cloudShader_ || !glowShader_)
         return false;
 
     for (const Shader* s : {&*terrainShader_, &*modelShader_, &*waterShader_}) {
@@ -211,8 +212,107 @@ bool WorldRenderer::init() {
     glBindBufferBase(GL_UNIFORM_BUFFER, kFrameUniformBinding, frameUbo_.get());
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
     emptyVao_ = makeVertexArray();
+    // Glow quads: position, offset across the halo (-1..1) and colour with strength.
+    glowVao_ = makeVertexArray();
+    glowVbo_ = makeBuffer();
+    glBindVertexArray(glowVao_.get());
+    glBindBuffer(GL_ARRAY_BUFFER, glowVbo_.get());
+    constexpr GLsizei kGlowStride = 9 * sizeof(float);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, kGlowStride, reinterpret_cast<const void*>(0));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, kGlowStride, reinterpret_cast<const void*>(3 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, kGlowStride, reinterpret_cast<const void*>(5 * sizeof(float)));
+    glBindVertexArray(0);
     ensureShadowTarget();
     return true;
+}
+
+void WorldRenderer::collectLamps(const World& world, const glm::dvec3& origin, const glm::dvec3& focus, double radius) {
+    const float night = sky_.night;
+    if (night < 0.02f) return;
+    const glm::vec3 warm(1.0f, 0.78f, 0.48f), cool(0.92f, 0.95f, 1.0f);
+    const auto rel = [&](double x, double y, double z) {
+        return glm::vec3(static_cast<float>(x - origin.x), static_cast<float>(y), static_cast<float>(z - origin.z));
+    };
+    // Platform lamps hang under the canopies of free-form stations, at every canopy post.
+    const double reach = std::min(radius, 140.0);
+    for (const auto [id, e] : world.trackEdges) {
+        if (e.kind != TrackKind::Platform || e.samples.size() < 2) continue;
+        const TrackSample& mid = e.samples[e.samples.size() / 2];
+        const double mx = mid.p.x / double(kTrackUnits) - focus.x, mz = mid.p.z / double(kTrackUnits) - focus.z;
+        if (mx * mx + mz * mz > reach * reach) continue;
+        const float length = static_cast<float>(e.length) / kTrackUnits;
+        const int posts = std::max(2, static_cast<int>(length / 1.6f) + 1);
+        for (int k = 0; k < posts; ++k) {
+            const i32 at = static_cast<i32>(static_cast<i64>(e.length) * k / (posts - 1));
+            const TrackSample a = track::pointOn(e, true, std::max(0, at - 16));
+            const TrackSample b = track::pointOn(e, true, std::min(e.length, at + 16));
+            const TrackSample c = track::pointOn(e, true, at);
+            glm::vec2 t(static_cast<float>(b.p.x - a.p.x), static_cast<float>(b.p.z - a.p.z));
+            t = glm::length(t) > 0.0f ? glm::normalize(t) : glm::vec2(1, 0);
+            const glm::vec2 left(t.y, -t.x);
+            const double cx = c.p.x / double(kTrackUnits), cz = c.p.z / double(kTrackUnits);
+            const float y = trackRailY(c.h) + 0.017f + 0.42f;
+            for (const float side : {-1.0f, 1.0f})
+                glows_.push_back({rel(cx + left.x * side * 0.65, y, cz + left.y * side * 0.65), cool, 0.32f, night * 0.9f});
+            lamps_.push_back({rel(cx, y, cz), 2.6f, cool * 0.9f * night, {0, -1, 0}, -2.0f, 3.0f});
+        }
+    }
+    // Street lamps along town roads and lights in bus and tram shelters.
+    const i32 fx = static_cast<i32>(std::floor(focus.x)), fz = static_cast<i32>(std::floor(focus.z));
+    const i32 r = static_cast<i32>(std::min(radius, 40.0));
+    for (i32 y = fz - r; y <= fz + r; ++y)
+        for (i32 x = fx - r; x <= fx + r; ++x) {
+            const Tile* t = world.map.tile({x, y});
+            if (!t) continue;
+            const TilePos tp{x, y};
+            if (t->type == TileType::Road && t->roadOwner == kOwnerTown && !t->span && !t->rail &&
+                ((static_cast<u32>(x) + static_cast<u32>(y)) & 3u) == 0) {
+                const float ground = roadSurfaceY(world, tp, 0.08f, 0.08f) + 0.02f;
+                glows_.push_back({rel(x + 0.08, ground + 0.885f, y + 0.08), warm, 0.42f, night});
+                lamps_.push_back({rel(x + 0.08, ground + 0.85f, y + 0.08), 3.2f, warm * 0.85f * night, {0, -1, 0}, -2.0f, 0.0f});
+            } else if (t->type == TileType::Station &&
+                       (static_cast<StopKind>(t->extra) == StopKind::Bus || static_cast<StopKind>(t->extra) == StopKind::Tram)) {
+                const float ground = roadSurfaceY(world, tp, 0.5f, 0.5f) + 0.015f;
+                const bool northSouth = allRoadPieces(*t) & dirBit(Dir::N);
+                for (const float side : {0.08f, 0.92f}) {
+                    const glm::vec2 at = northSouth ? glm::vec2(side, 0.5f) : glm::vec2(0.5f, side);
+                    glows_.push_back({rel(x + at.x, ground + 0.2f, y + at.y), cool, 0.22f, night * 0.8f});
+                }
+                lamps_.push_back({rel(x + 0.5, ground + 0.3f, y + 0.5), 1.8f, cool * 0.6f * night, {0, -1, 0}, -2.0f, 1.0f});
+            }
+        }
+}
+
+void WorldRenderer::drawGlows(const glm::mat4& view) {
+    if (glows_.empty()) return;
+    // Billboards facing the camera.
+    const glm::vec3 right(view[0][0], view[1][0], view[2][0]), up(view[0][1], view[1][1], view[2][1]);
+    std::vector<float> v;
+    const usize count = std::min<usize>(glows_.size(), 1200);
+    v.reserve(count * 6 * 9);
+    static constexpr float kQuad[6][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, -1}, {1, 1}, {-1, 1}};
+    for (usize i = 0; i < count; ++i) {
+        const Glow& g = glows_[i];
+        for (const auto& c : kQuad) {
+            const glm::vec3 p = g.pos + (right * c[0] + up * c[1]) * g.size;
+            v.insert(v.end(), {p.x, p.y, p.z, c[0], c[1], g.colour.r, g.colour.g, g.colour.b, g.strength});
+        }
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, glowVbo_.get());
+    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(v.size() * sizeof(float)), v.data(), GL_STREAM_DRAW);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_CULL_FACE);
+    glowShader_->use();
+    glBindVertexArray(glowVao_.get());
+    glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(count * 6));
+    glBindVertexArray(0);
+    glDepthMask(GL_TRUE);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void WorldRenderer::ensureShadowTarget() {
@@ -394,6 +494,11 @@ void WorldRenderer::drawChunks(const DrawLists& lists, const glm::dvec3& origin,
 void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin, const glm::dvec3& focus,
                                     double radius, double tickFraction) {
     dynamic_.clear();
+    lamps_.clear();
+    glows_.clear();
+    const float night = sky_.night;
+    const glm::vec3 headlight(1.0f, 0.93f, 0.8f), tailLamp(1.0f, 0.12f, 0.08f), interior(1.0f, 0.75f, 0.45f);
+    const auto local = [](const glm::mat4& m, glm::vec3 p) { return glm::vec3(m * glm::vec4(p, 1.0f)); };
     const auto poseMatrix = [&](const VehiclePose& pose) {
         glm::mat4 m = glm::translate(glm::mat4(1.0f), glm::vec3(pose.pos - origin));
         m = glm::rotate(m, pose.yaw, glm::vec3(0, 1, 0));
@@ -595,6 +700,23 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
                     addSmoke(car.pose, v.breakdownTicks);
                     break;
                 }
+            if (night > 0.02f && !cars.empty()) {
+                // Headlights at the front of the train lighting the line ahead, red lamps at the
+                // back, and light spilling from the carriage windows.
+                const glm::mat4 front = poseMatrix(cars.front().pose), back = poseMatrix(cars.back().pose);
+                const float fl = vehicleModel(cars.front().model).length / 32.0f, bl = vehicleModel(cars.back().model).length / 32.0f;
+                const glm::vec3 ahead = glm::normalize(glm::vec3(front * glm::vec4(1, 0, 0, 0)));
+                for (const float side : {-0.065f, 0.065f}) {
+                    glows_.push_back({local(front, {fl + 0.015f, 0.085f, side}), headlight, 0.2f, night});
+                    glows_.push_back({local(back, {-bl - 0.015f, 0.085f, side}), tailLamp, 0.12f, night * 0.9f});
+                }
+                lamps_.push_back({local(front, {fl + 0.06f, 0.2f, 0.0f}), 7.5f, headlight * 1.5f * night,
+                                  glm::normalize(ahead + glm::vec3(0.0f, -0.16f, 0.0f)), 0.8f, 12.0f});
+                for (const CarPose& c : cars)
+                    if (vehicleModel(c.model).capacity > 0)
+                        lamps_.push_back({local(poseMatrix(c.pose), {0.0f, 0.2f, 0.0f}), 1.4f, interior * 0.45f * night,
+                                          {0, -1, 0}, -2.0f, -2.0f});
+            }
             ++stats_.vehiclesDrawn;
             continue;
         }
@@ -605,6 +727,18 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
         dynamic_.add(vehicleModelId(v.info()), makeInstance(poseMatrix(*pose), tint));
         addLoad(v, 0, *pose, v.model);
         if (v.breakdownTicks > 0) addSmoke(*pose, v.breakdownTicks);
+        if (night > 0.02f && v.info().type != VehicleType::Ship) {
+            // Buses, trams and lorries: headlights and tail lamps.
+            const glm::mat4 m = poseMatrix(*pose);
+            const float hl = v.info().length / 32.0f;
+            for (const float side : {-0.06f, 0.06f}) {
+                glows_.push_back({local(m, {hl + 0.01f, 0.08f, side}), headlight, 0.14f, night * 0.9f});
+                glows_.push_back({local(m, {-hl - 0.01f, 0.08f, side}), tailLamp, 0.09f, night * 0.8f});
+            }
+            const glm::vec3 ahead = glm::normalize(glm::vec3(m * glm::vec4(1, 0, 0, 0)));
+            lamps_.push_back({local(m, {hl + 0.04f, 0.16f, 0.0f}), 3.5f, headlight * 0.9f * night,
+                              glm::normalize(ahead + glm::vec3(0.0f, -0.25f, 0.0f)), 0.75f, 2.0f});
+        }
         ++stats_.vehiclesDrawn;
     }
 
@@ -860,6 +994,9 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     }
     stats_.chunksCached = static_cast<int>(meshes_.size());
 
+    collectVehicles(world, origin, cam.target, buildingRadius, tickFraction);
+    collectLamps(world, origin, cam.target, viewRadius);
+
     // --- Per frame uniforms ---------------------------------------------------------------
     const glm::vec3 focus(static_cast<float>(cam.target.x - origin.x), static_cast<float>(cam.target.y),
                           static_cast<float>(cam.target.z - origin.z));
@@ -896,11 +1033,22 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     fu.shadowParams = glm::vec4(shadowTexel, 0.0006f, shadows ? 1.0f : 0.0f, 0.04f);
     fu.weather = glm::vec4(weather_.cover, weather_.mist, cloudDrift_.x, cloudDrift_.y);
     fu.origin = glm::vec4(static_cast<float>(origin.x), kCloudHeight, static_cast<float>(origin.z), mistLevel_);
+    {
+        // The lamps nearest the view (headlights count as much nearer) light the scene.
+        const auto score = [&](const Lamp& l) { return glm::length(glm::vec2(l.pos.x - focus.x, l.pos.z - focus.z)) - l.priority; };
+        const usize n = std::min<usize>(lamps_.size(), kMaxLamps);
+        std::partial_sort(lamps_.begin(), lamps_.begin() + static_cast<std::ptrdiff_t>(n), lamps_.end(),
+                          [&](const Lamp& a, const Lamp& b) { return score(a) < score(b); });
+        for (usize i = 0; i < n; ++i) {
+            fu.lightPos[i] = glm::vec4(lamps_[i].pos, lamps_[i].reach);
+            fu.lightColor[i] = glm::vec4(lamps_[i].colour, 0.0f);
+            fu.lightDir[i] = glm::vec4(lamps_[i].dir, lamps_[i].cosCone);
+        }
+        fu.lightCount = glm::vec4(static_cast<float>(n), 0.0f, 0.0f, 0.0f);
+    }
     glBindBuffer(GL_UNIFORM_BUFFER, frameUbo_.get());
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(FrameUniforms), &fu);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
-
-    collectVehicles(world, origin, cam.target, buildingRadius, tickFraction);
 
     // --- Shadow pass ------------------------------------------------------------------------
     if (shadows) {
@@ -966,6 +1114,9 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
         c->water.draw();
     }
     glDepthMask(GL_TRUE);
+
+    // Halos around lamps at night.
+    drawGlows(view);
 
     // Clouds: low poly puffs where the cloud field is thick, drifting with the wind. They show
     // once the camera is well above the land, fading in as it rises, and are skipped above it.

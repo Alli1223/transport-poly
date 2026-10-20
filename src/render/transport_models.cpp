@@ -12,11 +12,12 @@ namespace {
 const u32 kLivery = tintable(1.0f);
 const u32 kLiveryDark = tintable(0.75f);
 constexpr u32 kWhite = rgba(236, 236, 230);
-constexpr u32 kGlass = rgba(58, 78, 100);
+constexpr u32 kGlass = rgba(58, 78, 100, 254); // lit from inside at night
 constexpr u32 kTyre = rgba(34, 34, 38);
 constexpr u32 kChrome = rgba(170, 172, 176);
 constexpr u32 kRoofGrey = rgba(120, 124, 130);
-constexpr u32 kLight = rgba(250, 236, 170);
+constexpr u32 kLight = rgba(250, 236, 170, 252);    // headlamp
+constexpr u32 kTailLamp = rgba(200, 40, 30, 251);
 constexpr float kInset = 0.004f;
 
 void wheels(MeshBuilder& mb, float x0, float x1, float halfW, float r = 0.045f) {
@@ -24,6 +25,13 @@ void wheels(MeshBuilder& mb, float x0, float x1, float halfW, float r = 0.045f) 
         mb.box({x - r, 0.0f, halfW - 0.035f}, {x + r, r * 2.0f, halfW + 0.005f}, kTyre);
         mb.box({x - r, 0.0f, -halfW - 0.005f}, {x + r, r * 2.0f, -halfW + 0.035f}, kTyre);
     }
+}
+
+// A pair of lamps on the end of a vehicle at x (facing +X when front, -X at the back).
+void lamps(MeshBuilder& mb, float x, float y, float spread, bool front) {
+    const float x0 = front ? x : x - 0.012f, x1 = front ? x + 0.012f : x;
+    for (const float z : {-spread, spread})
+        mb.box({x0, y - 0.012f, z - 0.014f}, {x1, y + 0.012f, z + 0.014f}, front ? kLight : kTailLamp);
 }
 
 // Side window band from x0 to x1 at heights y0..y1 on both sides.
@@ -140,6 +148,9 @@ void steamEngine(MeshBuilder& mb) {
     mb.box({-hl - 0.01f, 0.28f, -hw - 0.01f}, {-0.1f, 0.3f, hw + 0.01f}, kBlack);
     windowBand(mb, -0.28f, -0.15f, 0.18f, 0.25f, hw);
     mb.box({hl - 0.02f, 0.05f, -hw + 0.01f}, {hl + 0.02f, 0.08f, hw - 0.01f}, kRed); // buffer beam
+    lamps(mb, hl + 0.02f, 0.095f, 0.06f, true);
+    mb.box({0.27f, 0.21f, -0.012f}, {0.3f, 0.24f, 0.012f}, kLight); // lamp on the smokebox
+    lamps(mb, -hl, 0.1f, 0.06f, false);
     wheels(mb, -0.2f, 0.18f, hw, 0.05f);
 }
 
@@ -160,6 +171,8 @@ void dieselEngine(MeshBuilder& mb, bool express) {
     mb.box({-hl + 0.04f, top, -hw + 0.02f}, {hl - 0.1f, top + 0.015f, hw - 0.02f}, kRoofGrey);
     mb.box({-hl + 0.02f, base + 0.04f, -hw - kInset}, {hl - 0.06f, base + 0.07f, hw + kInset}, kWhite); // stripe
     windowBand(mb, hl - 0.16f, hl - 0.08f, base + 0.13f, top - 0.04f, hw);
+    lamps(mb, hl, base + 0.06f, 0.065f, true);
+    lamps(mb, -hl + 0.02f, base + 0.06f, 0.065f, false);
     wheels(mb, -hl + 0.12f, hl - 0.14f, hw, 0.045f);
     if (express) wheels(mb, -0.04f, 0.04f, hw, 0.045f);
 }
@@ -179,6 +192,7 @@ void railcar(MeshBuilder& mb, float length, bool powered, bool wooden) {
                       {hl + kInset, top - 0.03f, hw - 0.015f}, {hl + kInset, top - 0.03f, -hw + 0.015f}, kGlass, {1, 0, 0});
         mb.box({hl - 0.004f, base + 0.04f, -hw + 0.02f}, {hl + 0.004f, base + 0.06f, -hw + 0.05f}, kLight);
         mb.box({hl - 0.004f, base + 0.04f, hw - 0.05f}, {hl + 0.004f, base + 0.06f, hw - 0.02f}, kLight);
+        lamps(mb, -hl, base + 0.05f, 0.065f, false);
     }
     wheels(mb, -hl + 0.1f, hl - 0.1f, hw, 0.04f);
 }
