@@ -155,6 +155,19 @@ Clicking a platform sends the train to that platform; the platform list on each
 order switches between platforms or back to **Any free platform**, where the
 train picks a platform no other train is using.
 
+**Electrify** puts up overhead wires over the track you click or drag along;
+Shift-click wires all of your track joined to it, and **Remove wires** takes them
+down again. Electrified track has masts beside it with the wires strung over the
+line. The Continental Electric and the Regional EMU are electric: a train whose
+engines are all electric only runs on electrified track, so wire its whole route
+(including the depot track) before sending it out. A diesel or steam engine
+anywhere in the train frees it from the wires.
+
+Steam engines turn their driving wheels and rods as they run and chuff steam and
+smoke from the chimney, four beats to a turn of the wheels and darker when pulling
+hard; they shut off steam to coast into stations and simmer while they stand.
+Diesels leave a thin exhaust haze, and electric engines raise their pantographs.
+
 Track can cross a straight road on the level. The road traffic waits while a train
 holds the track over the crossing, and trains wait for road vehicles to clear it.
 Roads cannot branch off or be removed at a crossing; remove the track first.
@@ -191,6 +204,21 @@ Recessions last 6–12 months, reduce fares by 30% and halve town growth. Financ
 details show the price index and recession duration; news announces recovery.
 Dedicated servers accept `--inflation` and `--no-recessions` for new worlds.
 
+Hover over a vehicle or a person on the map to highlight it and see what it is
+doing; click to open it. Every carriage of a train can be clicked, zoomed in or
+out. A person's card says where they are going and why (work, shopping, home, a
+business trip or a day out in another town), lists their journey step by step
+(walk to the station, wait, ride, change, walk on) and draws their route on the
+map, with a ring around their destination. A vehicle's window lists who is
+aboard and the towns they are bound for.
+
+Press **L** or open **Lines** in the dock for your lines: vehicles that share
+orders, or call at the same stops in the same order, form a numbered, coloured
+line. The window shows each line's vehicles, passengers carried and profit, how
+full it is, a diagram of its stops with its vehicles between them, and the
+passengers waiting at each stop; the chosen line is drawn on the map along the
+track or roads it uses.
+
 Press **C** or open **Citizens** in the dock to inspect residents. Filter by town,
 search by name or ID, and follow a citizen between home, work, shopping and transit.
 The inspector shows upcoming activities and a live activity log. Walking citizens
@@ -204,7 +232,7 @@ only stopping stations appear in the passenger service graph. Orders also suppor
 depot visits, skipping and sharing through vehicle cloning.
 
 The map window's display selector shows station catchments, current passenger
-flows, or town zones. Town details include monthly station boardings and the
+flows, town zones, or every line in its colour. Town details include monthly station boardings and the
 share of residents covered by recently served stops. Stations have capacity
 based on their facilities and size; crowding and long waits reduce their rating.
 
