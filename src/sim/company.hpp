@@ -3,11 +3,13 @@
 
 #include "core/money.hpp"
 #include "core/types.hpp"
+#include "sim/feedback.hpp"
 #include "sim/ids.hpp"
 
 #include <array>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace tp {
@@ -74,6 +76,13 @@ struct Company {
     i32 rating = 0;
     std::vector<i16> ratingHistory;
     std::vector<Money> valueHistory;
+    // Vehicle replacement at depot visits: renew vehicles past their life span, and swap the
+    // first model of each pair for the second. The last "can't afford it" news, -1 none.
+    bool autorenew = false;
+    std::vector<std::pair<u16, u16>> replacements;
+    i64 replaceNewsTick = -1;
+    // When passengers last commented on the company (tick + 1, 0 never), by kind (see feedback.hpp).
+    std::array<i64, kFeedbackKinds> feedbackTicks{};
 
     void spend(Expense category, Money amount); // amount > 0 is subtracted from money
     void earn(Expense category, Money amount);  // amount > 0 is added to money
@@ -85,6 +94,7 @@ struct Company {
         if (ar.version == 0 || ar.version >= 8) ar(thisMonth, monthlyHistory, bankrupt);
         if (ar.version == 0 || ar.version >= 17) ar(aiControlled);
         if (ar.version == 0 || ar.version >= 26) ar(rating, ratingHistory, valueHistory);
+        if (ar.version == 0 || ar.version >= 29) ar(autorenew, replacements, replaceNewsTick, feedbackTicks);
     }
 };
 

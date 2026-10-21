@@ -73,21 +73,49 @@ TEST_CASE("private cars: follow connected town roads around a block and complete
     CHECK(f.w.people[id].carPath.empty());
     CHECK(f.w.privateCarTiles.empty());
 }
-TEST_CASE("private cars: restrict routes to one town and require a connected road") {
+TEST_CASE("private cars: require a connected road, which may leave the town") {
     Streets f;
     const auto from = f.w.buildings[f.home].centre2(), to = f.w.buildings[f.work].centre2();
-    REQUIRE(privatecars::route(f.w, f.town, from, to));
+    REQUIRE(privatecars::route(f.w, from, to));
     f.w.map.tile({18, 18})->road = 0;
-    CHECK(!privatecars::route(f.w, f.town, from, to));
-    f.w.map.tile({18, 18})->road = axisBits(Dir::E);
-    f.w.towns[f.town].centre = {18, 0}; f.w.towns[f.town].radius = 14; // endpoints inside, detour outside
-    CHECK(!privatecars::route(f.w, f.town, from, to));
-    f.w.towns[f.town].centre = {18, 15}; f.w.towns[f.town].radius = 23;
-    const auto other = f.w.towns.create(); f.w.towns[other].centre = {28, 10}; f.w.towns[other].radius = 3;
-    CHECK(!privatecars::route(f.w, f.town, from, to));
-    const auto id = f.person(); f.depart(id);
+    CHECK(!privatecars::route(f.w, from, to));
+    auto id = f.person(); f.depart(id);
     CHECK(f.w.people[id].state != PersonState::Driving);
     CHECK(f.w.people[id].carPath.empty());
+    f.w.map.tile({18, 18})->road = axisBits(Dir::E);
+    f.w.towns[f.town].centre = {18, 0}; f.w.towns[f.town].radius = 14; // endpoints inside, detour outside
+    CHECK(privatecars::route(f.w, from, to));
+    f.w.towns[f.town].centre = {18, 15}; f.w.towns[f.town].radius = 23;
+    const auto other = f.w.towns.create(); f.w.towns[other].centre = {28, 10}; f.w.towns[other].radius = 3;
+    CHECK(privatecars::route(f.w, from, to));
+    id = f.person(); f.depart(id);
+    CHECK(f.w.people[id].state == PersonState::Driving);
+}
+TEST_CASE("private cars: commuters drive to work in another town along a country road") {
+    Streets f;
+    // A second town at the far end; the street from home now runs out of town and into it.
+    const auto far = f.w.towns.create(); f.w.towns[far].centre = {56, 12}; f.w.towns[far].radius = 4;
+    f.w.towns[f.town].centre = {9, 13}; f.w.towns[f.town].radius = 5;
+    f.w.map.tile({28, 9})->type = TileType::Clear;
+    f.w.towns[f.town].buildings.clear(); f.w.towns[f.town].buildings.push_back(f.home);
+    auto& work = f.w.buildings[f.work]; work.pos = {56, 9}; work.town = far;
+    f.w.map.tile({56, 9})->type = TileType::Building; f.w.map.tile({56, 9})->index = f.work.value;
+    f.w.towns[far].buildings.push_back(f.work);
+    f.road({28, 18}, {56, 18}); f.road({56, 18}, {56, 10});
+    const auto id = f.person(); f.depart(id);
+    REQUIRE(f.w.people[id].state == PersonState::Driving);
+    bool country = false, arrived = false;
+    for (const auto tile : f.w.people[id].carPath) {
+        country = country || !towns::townAt(f.w, tile).valid();
+        arrived = arrived || towns::townAt(f.w, tile) == far;
+    }
+    CHECK(country);
+    CHECK(arrived);
+    for (int i = 0; i < 2000 && f.w.people[id].state == PersonState::Driving; ++i) f.w.tick();
+    CHECK(f.w.people[id].state == PersonState::AtWork);
+    // Cut the country road: they get a lift instead.
+    f.w.map.tile({44, 18})->road = 0;
+    CHECK(!privatecars::route(f.w, f.w.buildings[f.home].centre2(), f.w.buildings[f.work].centre2()));
 }
 TEST_CASE("private cars: saved traffic resumes identically and older saves have no visible cars") {
     Streets f; const auto id = f.person(); f.depart(id);

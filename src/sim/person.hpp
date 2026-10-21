@@ -70,6 +70,7 @@ struct Person {
     u32 carIndex = 0;
     i64 carStepStart = 0;
     bool carStarted = false;
+    u8 boardScore = 100; // how the wait and crowding of the current ride rated (out of 100)
 
     bool employed() const { return work.valid(); }
 
@@ -82,6 +83,7 @@ struct Person {
         if (ar.version == 0 || ar.version >= 11) ar(transitFrom2, transitTo2, transitBegin, transitEnd, transitMotion);
         if (ar.version == 0 || ar.version >= 22) ar(visit);
         if (ar.version == 0 || ar.version >= 28) ar(carPath, carIndex, carStepStart, carStarted);
+        if (ar.version == 0 || ar.version >= 29) ar(boardScore);
     }
 };
 

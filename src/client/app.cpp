@@ -1193,6 +1193,8 @@ void App::handleHotkeys() {
     if (ImGui::IsKeyPressed(ImGuiKey_N, false)) showNews_ = !showNews_;
     if (ImGui::IsKeyPressed(ImGuiKey_M, false)) showMinimap_ = !showMinimap_;
     if (ImGui::IsKeyPressed(ImGuiKey_C, false)) showCitizens_ = !showCitizens_;
+    if (ImGui::IsKeyPressed(ImGuiKey_P, false)) showFeedback_ = !showFeedback_;
+    if (ImGui::IsKeyPressed(ImGuiKey_U, false)) showSubsidies_ = !showSubsidies_;
     // Escape peels back one layer at a time: the active tool (handled by handleTools), the
     // tool flyout, open windows and finally the game menu.
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !escConsumed_) {
@@ -1510,6 +1512,9 @@ int App::run(int argc, char** argv) {
                 if (wants("finances")) showFinances_ = true;
                 if (wants("vehicles")) showVehicleList_ = true;
                 if (wants("lines")) showLines_ = true;
+                if (wants("feedback")) showFeedback_ = true;
+                if (wants("subsidies")) showSubsidies_ = true;
+                if (wants("replace")) showReplace_ = true;
                 if (wants("linelayer")) overlayMode_ = 4;
                 if (wants("orders"))
                     for (const auto [id, v] : w.vehicles) { selVehicle_ = id; break; }

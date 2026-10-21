@@ -3,7 +3,10 @@
 #include <optional>
 namespace tp::privatecars {
 bool ownsCar(u32 serial, i32 year);
-std::optional<std::vector<TilePos>> route(const World& w, TownId town, TilePos from2, TilePos to2);
+// Citizens drive on any connected road: around their town, and to work or visits in other towns
+// along roads through the countryside. Searches give up after this many tiles.
+inline constexpr i32 kMaxRouteTiles = 40'000;
+std::optional<std::vector<TilePos>> route(const World& w, TilePos from2, TilePos to2);
 bool begin(World& w, PersonId id, TilePos from2, TilePos to2);
 // Returns true while travelling (including queues); false once the road journey ends.
 bool advance(World& w, PersonId id);

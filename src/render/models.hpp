@@ -63,12 +63,15 @@ inline constexpr ModelId kCatenaryMast = kEffectBase + 34; // mast beside the tr
 inline constexpr ModelId kCatenaryWire = kEffectBase + 35; // a wire one tile long along +X
 inline constexpr ModelId kPantograph = kEffectBase + 36;   // raised pantograph on an electric engine's roof
 inline constexpr ModelId kPrivateCarBase = kEffectBase + 37; // saloon, hatchback, estate
-inline constexpr ModelId kCount = kEffectBase + 40;
+inline constexpr ModelId kCoachBase = kEffectBase + 40;      // road visuals 8 and up: intercity coaches
+inline constexpr ModelId kCount = kEffectBase + 42;
 
 constexpr ModelId building(u16 type, u8 variant) {
     return static_cast<ModelId>(kBuildingBase + type * kBuildingVariants + variant % kBuildingVariants);
 }
-constexpr ModelId bus(int visual) { return static_cast<ModelId>(kVehicleBase + visual); }
+constexpr ModelId bus(int visual) {
+    return static_cast<ModelId>(visual < 8 ? kVehicleBase + visual : kCoachBase + visual - 8);
+}
 constexpr ModelId tram(int visual) { return static_cast<ModelId>(kVehicleBase + 8 + visual); }
 constexpr ModelId tramSection(int visual, int section) {
     return static_cast<ModelId>(kTramSectionBase + visual * 3 + section);

@@ -9,7 +9,7 @@ namespace {
 using V = VehicleType;
 
 // name                  type     cap  km/h len  price    running intro life visual powered
-constexpr std::array<VehicleModel, 38> kModels = {{
+constexpr std::array<VehicleModel, 40> kModels = {{
     {"Albatross Bus",     V::Road, 31,  56,  10, 95'000,  28'000, 1930, 15,  0},
     {"Comet Bus",         V::Road, 35,  72,  10, 110'000, 30'000, 1962, 15,  1},
     {"Leopard Bus",       V::Road, 37,  90,  11, 135'000, 34'000, 1978, 15,  2},
@@ -50,6 +50,9 @@ constexpr std::array<VehicleModel, 38> kModels = {{
     {"Dining Car", V::Rail, 32, 140, 12, 85'000, 12'000, 1950, 35, 7},
     {"Sleeper Coach", V::Rail, 36, 160, 13, 105'000, 11'000, 1965, 35, 14},
     {"Double-deck Coach", V::Rail, 96, 160, 13, 140'000, 14'000, 1980, 35, 15},
+    // Long distance road coaches: fast and roomy, but dearer to run than town buses.
+    {"Roadliner Coach", V::Road, 44, 100, 13, 165'000, 40'000, 1955, 15, 8, false, CargoType::None, 0, false, false, true},
+    {"Skyway Express Coach", V::Road, 56, 120, 14, 240'000, 48'000, 1987, 15, 9, false, CargoType::None, 0, false, false, true},
 }};
 
 } // namespace
@@ -57,6 +60,12 @@ constexpr std::array<VehicleModel, 38> kModels = {{
 std::span<const VehicleModel> vehicleModels() { return kModels; }
 
 const VehicleModel& vehicleModel(u16 index) { return kModels[index < kModels.size() ? index : 0]; }
+
+bool canReplace(const VehicleModel& from, const VehicleModel& to) {
+    const bool fromCargo = from.cargoType != CargoType::None, toCargo = to.cargoType != CargoType::None;
+    return from.type == to.type && from.powered == to.powered && fromCargo == toCargo &&
+           (!fromCargo || cargoClass(from.cargoType) == cargoClass(to.cargoType));
+}
 
 std::string_view vehicleTypeName(VehicleType t) {
     switch (t) {

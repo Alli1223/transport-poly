@@ -174,6 +174,40 @@ void arriveAtStop(World& w, VehicleId id) {
     stations::recordVisit(w, sid, id);
 }
 
+// The earliest departure from a timing point: an interval after the service last left it.
+i64 timingRelease(const World& w, VehicleId id, usize index) {
+    const ServiceSpacing s = spacing(w, id, index);
+    return s.interval > 0 && s.lastDeparture >= 0 ? s.lastDeparture + s.interval : w.clock.tick;
+}
+
+bool replacementAffordable(const World& w, const Vehicle& v) {
+    const auto r = plannedReplacement(w, v);
+    const Company* c = w.companies.tryGet(v.owner);
+    return r && c && c->money >= r->price - v.value;
+}
+
+usize firstTimingPoint(const Vehicle& v) {
+    for (usize i = 0; i < v.orders.size(); ++i)
+        if (v.orders[i].flags & kOrderTimingPoint) return i;
+    return v.orders.size();
+}
+
+// Leaving a timing point: remember when, for the vehicles behind, and measure the round trip
+// (without the holds) each time the vehicle leaves its first timing point.
+void recordDeparture(World& w, Vehicle& v, usize index) {
+    const i64 now = w.clock.tick;
+    if (v.departures.size() != v.orders.size()) v.departures.assign(v.orders.size(), -1);
+    if (v.holdingSince >= 0) v.heldTicks += now - v.holdingSince;
+    if (index == firstTimingPoint(v)) {
+        if (const i64 previous = v.departures[index]; previous >= 0) {
+            const i64 trip = std::max<i64>(1, now - previous - v.heldTicks);
+            v.cycleTicks = v.cycleTicks > 0 ? (v.cycleTicks * 3 + trip) / 4 : trip;
+        }
+        v.heldTicks = 0;
+    }
+    v.departures[index] = now;
+}
+
 void finishLoading(World& w, VehicleId id) {
     Vehicle& v = w.vehicles[id];
     const auto o = targetOrder(v);
@@ -182,6 +216,24 @@ void finishLoading(World& w, VehicleId id) {
         // Loading is polled every tick, independently of other people entering the station.
         return;
     }
+    if (o && o->kind == OrderKind::Station) {
+        // Timetable: the timetabled stop, then the hold at a timing point. Passengers keep boarding.
+        const i64 now = w.clock.tick;
+        if (const i64 dwell = v.loadingStartTick + o->waitMinutes * kTicksPerMinute; dwell > now) {
+            v.loadingUntil = dwell;
+            return;
+        }
+        if (o->flags & kOrderTimingPoint) {
+            const usize index = v.orderIndex % v.orders.size();
+            if (const i64 release = timingRelease(w, id, index); release > now) {
+                if (v.holdingSince < 0) v.holdingSince = now;
+                v.loadingUntil = release;
+                return;
+            }
+            recordDeparture(w, v, index);
+        }
+    }
+    v.holdingSince = -1;
     v.state = VehicleState::Driving;
     v.stopAtMiddle = false;
     advanceOrder(v);
@@ -439,6 +491,7 @@ void arriveInDepot(World& w, VehicleId id) {
     v.lastServiceTick = w.clock.tick;
     v.breakdownsSinceService = 0;
     v.breakdownTicks = 0;
+    autoreplace(w, id);
     if (v.sendToDepot) {
         v.sendToDepot = false;
         v.goingForService = false;
@@ -466,7 +519,8 @@ void daily(World& w) {
         const i32 age = ageDays(w, v);
         const bool old = age > m.lifeYears * 365;
         v.reliability = static_cast<u16>(std::max(0, v.reliability - (old ? 36 : 18)));
-        if (age == m.lifeYears * 365)
+        const Company* owner = w.companies.tryGet(v.owner);
+        if (age == m.lifeYears * 365 && !(owner && owner->autorenew))
             w.addNews(NewsKind::Vehicle,
                       std::format("{} {} is getting old and should be replaced", vehicleTypeName(m.type), v.unitNumber),
                       v.tile);
@@ -490,8 +544,8 @@ void daily(World& w) {
         const i64 sinceService = (w.clock.tick - v.lastServiceTick) / kTicksPerDay;
         const Order* cur = v.currentOrder();
         if (!v.goingForService && !v.sendToDepot && v.state == VehicleState::Driving &&
-            sinceService >= serviceIntervalDays(m.type) && w.depots.contains(v.depot) &&
-            !(cur && cur->kind == OrderKind::Depot)) {
+            w.depots.contains(v.depot) && !(cur && cur->kind == OrderKind::Depot) &&
+            (sinceService >= serviceIntervalDays(m.type) || replacementAffordable(w, v))) {
             v.goingForService = true;
             v.path.clear();
             v.pathIndex = 0;
@@ -507,6 +561,95 @@ void yearly(World& w) {
         const VehicleModel& m = v.info();
         v.value = std::max<Money>(0, v.value - m.price / std::max(1, m.lifeYears));
     }
+}
+
+ServiceSpacing spacing(const World& w, VehicleId id, usize orderIndex) {
+    const Vehicle& v = w.vehicles[id];
+    ServiceSpacing s;
+    i64 trips = 0, measured = 0;
+    for (const auto [oid, o] : w.vehicles) {
+        if (o.owner != v.owner || o.info().type != v.info().type || o.orders != v.orders) continue;
+        if (orderIndex < o.departures.size()) s.lastDeparture = std::max(s.lastDeparture, o.departures[orderIndex]);
+        if (oid != id && (o.stopped || o.state == VehicleState::InDepot)) continue;
+        ++s.vehicles;
+        if (o.cycleTicks > 0) {
+            trips += o.cycleTicks;
+            ++measured;
+        }
+    }
+    if (measured) s.roundTrip = trips / measured;
+    const u16 minutes = orderIndex < v.orders.size() ? v.orders[orderIndex].intervalMinutes : 0;
+    if (minutes) s.interval = minutes * kTicksPerMinute;
+    else if (s.vehicles > 1) s.interval = s.roundTrip / s.vehicles;
+    return s;
+}
+
+i64 timetableRelease(const World& w, VehicleId id) {
+    const Vehicle& v = w.vehicles[id];
+    const Order* o = v.currentOrder();
+    if (!o || o->kind != OrderKind::Station) return w.clock.tick;
+    i64 release = v.loadingStartTick + o->waitMinutes * kTicksPerMinute;
+    if (o->flags & kOrderTimingPoint) release = std::max(release, timingRelease(w, id, v.orderIndex % v.orders.size()));
+    return release;
+}
+
+std::optional<Replacement> plannedReplacement(const World& w, const Vehicle& v) {
+    const Company* c = w.companies.tryGet(v.owner);
+    if (!c) return std::nullopt;
+    const i32 year = w.clock.date().year;
+    const auto swap = [&](u16 model) {
+        for (const auto& [from, to] : c->replacements)
+            if (from == model && to < vehicleModels().size() && vehicleModel(to).introYear <= year &&
+                canReplace(vehicleModel(from), vehicleModel(to)))
+                return to;
+        return model;
+    };
+    Replacement r;
+    r.model = swap(v.model);
+    bool changed = r.model != v.model;
+    for (const u16 car : v.cars) {
+        r.cars.push_back(swap(car));
+        changed = changed || r.cars.back() != car;
+    }
+    const bool renew = c->autorenew && ageDays(w, v) > v.info().lifeYears * 365;
+    if (!changed && !renew) return std::nullopt;
+    if (r.cars.empty()) r.price = w.inflated(vehicleModel(r.model).price);
+    for (const u16 car : r.cars) r.price += w.inflated(vehicleModel(car).price);
+    return r;
+}
+
+void autoreplace(World& w, VehicleId id) {
+    Vehicle& v = w.vehicles[id];
+    const auto r = plannedReplacement(w, v);
+    Company* c = w.companies.tryGet(v.owner);
+    if (!r || !c) return;
+    // The new vehicle must hold what this one carries; otherwise wait for a visit with less aboard.
+    Vehicle replaced;
+    replaced.model = r->model;
+    replaced.cars = r->cars;
+    for (const CargoBatch& b : v.cargo)
+        if (cargo::classQuantity(v.cargo, cargoClass(b.type)) > replaced.cargoCapacity(b.type)) return;
+    const Money cost = r->price - v.value; // the old vehicle is traded in at its value
+    if (cost > 0 && c->money < cost) {
+        if (c->replaceNewsTick < 0 || w.clock.tick - c->replaceNewsTick >= 30 * kTicksPerDay) {
+            c->replaceNewsTick = w.clock.tick;
+            w.addNews(NewsKind::Vehicle,
+                      std::format("{} can't afford to replace {} {} ({} needed)", c->name, vehicleTypeName(v.info().type),
+                                  v.unitNumber, formatMoney(cost)),
+                      v.tile);
+        }
+        return;
+    }
+    if (cost > 0) c->spend(Expense::NewVehicles, cost);
+    else if (cost < 0) c->earn(Expense::NewVehicles, -cost);
+    v.model = r->model;
+    if (!v.cars.empty()) v.cars = r->cars;
+    v.value = r->price;
+    v.builtTick = w.clock.tick;
+    v.reliability = maxReliability(v.info());
+    v.lastServiceTick = w.clock.tick;
+    v.breakdownsSinceService = 0;
+    passengers::markDirty(w); // capacities and speeds may have changed
 }
 
 } // namespace tp::vehicles
