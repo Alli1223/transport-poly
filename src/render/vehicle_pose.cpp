@@ -1,4 +1,5 @@
 #include "render/vehicle_pose.hpp"
+#include "sim/private_cars.hpp"
 
 #include "render/terrain_mesher.hpp"
 #include "render/track_renderer.hpp"
@@ -263,6 +264,17 @@ std::optional<VehiclePose> vehiclePose(const World& w, const Vehicle& v, double 
                                       std::clamp(p.y - d.y * 0.15f, 0.0f, 1.0f));
     pose.pitch = std::atan2(ahead - behind, 0.3f);
     return pose;
+}
+
+std::optional<VehiclePose> privateCarPose(const World& w, const Person& p, double fraction) {
+    if (p.state != PersonState::Driving || !p.carStarted || p.carIndex >= p.carPath.size()) return std::nullopt;
+    Vehicle car;
+    car.model = 0; car.tile = p.carPath[p.carIndex];
+    car.entry = privatecars::entry(p); car.exit = privatecars::exit(p);
+    car.state = VehicleState::Driving;
+    const double along = std::clamp((w.clock.tick + fraction - p.carStepStart) / kDriveTicksPerTile, 0.0, 1.0);
+    car.progress = static_cast<i32>(along * pathLength(car.entry, car.exit));
+    return vehiclePose(w, car, 0);
 }
 
 int tramSectionCount(const Vehicle& v) {

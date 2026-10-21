@@ -195,6 +195,11 @@ void ModelLibrary::build() {
         buildTransportModels(mb, id);
         add(id, mb);
     }
+    for (ModelId id = models::kPrivateCarBase; id < models::kPrivateCarBase + 3; ++id) {
+        MeshBuilder mb;
+        buildTransportModels(mb, id);
+        add(id, mb);
+    }
     const auto types = buildingTypes();
     for (u16 t = 0; t < types.size() && t < models::kMaxBuildingTypes; ++t) {
         for (u8 v = 0; v < models::kBuildingVariants; ++v) {

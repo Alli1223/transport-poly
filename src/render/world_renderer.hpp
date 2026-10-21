@@ -30,6 +30,17 @@ struct RenderSettings {
     bool weather = true;        // clouds, cloud shadows and mist
     float forceCloudCover = -1; // automation: fixed weather instead of the world's (when >= 0)
     float forceMist = -1;
+    bool clouds = true;
+    bool cloudShadows = true;
+    float fogStrength = 1.0f;
+    float nightFogStrength = 0.25f;
+    float brightness = 1.0f;
+    float treeDistance = 200.0f;
+    float detailScale = 1.0f;
+    bool particles = true;
+    bool lightHalos = true;
+    bool treeSway = true;
+    bool waterAnimation = true;
 };
 
 // The sky's weather: it changes slowly from day to day, the same for every player of a world.
@@ -139,6 +150,7 @@ private:
         glm::vec4 shadowParams;
         glm::vec4 weather;
         glm::vec4 origin;
+        glm::vec4 visualOptions;
         glm::vec4 lightPos[kMaxLamps];
         glm::vec4 lightColor[kMaxLamps];
         glm::vec4 lightDir[kMaxLamps];

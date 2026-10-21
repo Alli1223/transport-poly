@@ -154,11 +154,13 @@ private:
     void drawChat();
     void startSession(std::unique_ptr<GameSession> session);
     void returnToMainMenu();
+    void applyScreenTransition();
     void updatePreview(double dt);
     void autosave();
     void quicksave();
     void drawSettings();
     void applyPreferences();
+    void updateAudio(double now);
     void placeCameraAtStart();
 
     // app_windows.cpp
@@ -184,6 +186,10 @@ private:
     void focusOn(TilePos t);
 
     GLFWwindow* window_ = nullptr;
+    int windowedX_ = 100, windowedY_ = 100, windowedWidth_ = 1600, windowedHeight_ = 900;
+    int startupAntiAliasing_ = 2;
+    bool wasMaximized_ = false;
+    void applyDisplayMode();
     Screen screen_ = Screen::MainMenu;
     MenuPage menuPage_ = MenuPage::Main;
     std::unique_ptr<GameSession> preview_; // background world on the main menu
@@ -202,8 +208,12 @@ private:
     u16 consistCar_ = 0;
     bool showGameMenu_ = false;
     bool showSettings_ = false;
+    bool openAudioSettings_ = false;
     ClientPreferences preferences_;
     Audio audio_;
+    double nextAudioUpdate_ = 0;
+    bool returnToMenuRequested_ = false;
+    int menuReturnFrame_ = -1; // automation: exercise leaving a live session mid-frame
     std::string settingsError_;
     bool showChat_ = false;
     bool showClients_ = false;

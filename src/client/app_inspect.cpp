@@ -202,9 +202,9 @@ PersonId App::pickPerson(float* screenDistance) const {
     float bestD = FLT_MAX;
     for (const auto [id, p] : w.people) {
         if (p.state != PersonState::Walking && p.state != PersonState::ToStop && p.state != PersonState::FromStop &&
-            p.state != PersonState::Waiting)
+            p.state != PersonState::Waiting && p.state != PersonState::Driving)
             continue;
-        if (p.walkPath.empty() || (!nearView(p.walkPath.front().p) && !nearView(p.walkPath.back().p))) continue;
+        if (p.state != PersonState::Driving && (p.walkPath.empty() || (!nearView(p.walkPath.front().p) && !nearView(p.walkPath.back().p)))) continue;
         const auto pose = gfx::personPose(w, p, fraction);
         if (!pose || !pose->visible) continue;
         const auto feet = worldToScreen(pose->pos), head = worldToScreen(pose->pos + glm::dvec3(0.0, 0.1, 0.0));
@@ -343,6 +343,20 @@ void App::drawPersonRoute(std::vector<gfx::OverlayQuad>& overlays) {
         if (last && last != alight) ride(last);
         break;
     case PersonState::Driving:
+        if (!p->carPath.empty() && p->carIndex < p->carPath.size()) {
+            std::vector<glm::dvec3> rest;
+            if (here) rest.push_back(*here);
+            for (usize i = p->carIndex + (here ? 1 : 0); i < p->carPath.size(); ++i) {
+                const auto tile = p->carPath[i];
+                rest.push_back(groundPoint(w, tile.x + .5, tile.y + .5, kLift));
+            }
+            if (!rest.empty()) {
+                addRibbon(overlays, rest, .05, abstractColour);
+                from = rest.back();
+            }
+            break;
+        }
+        [[fallthrough]];
     case PersonState::Lift:
         // Off the map: a straight line from where the trip began.
         from = groundPoint(w, p->tripFrom2.x * 0.5, p->tripFrom2.y * 0.5, kLift);

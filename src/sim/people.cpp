@@ -4,6 +4,7 @@
 #include "core/math.hpp"
 #include "sim/passengers.hpp"
 #include "sim/world.hpp"
+#include "sim/private_cars.hpp"
 
 #include <algorithm>
 #include <map>
@@ -11,8 +12,6 @@
 namespace tp::people {
 
 namespace {
-
-i32 carOwnershipPercent(i32 year) { return iclamp(12 + (year - 1950) * 6 / 5, 12, 75); }
 
 Building* resolve(World& w, const BuildingRef& r) {
     Building* b = w.buildings.tryGet(r.id);
@@ -229,6 +228,10 @@ void handleEvent(World& w, PersonId id);
 
 void travelAbstract(World& w, PersonId id, TilePos from2, TilePos to2, bool newTrip) {
     Person& p = w.people[id];
+    privatecars::release(w, id);
+    p.carPath.clear();
+    p.carStarted = false;
+    p.carOwner = p.carOwner || privatecars::ownsCar(p.serial, w.clock.date().year);
     const i64 dist = distanceTiles(from2, to2);
     Town* town = w.towns.tryGet(p.town);
     if (newTrip) {
@@ -245,10 +248,9 @@ void travelAbstract(World& w, PersonId id, TilePos from2, TilePos to2, bool newT
         walking::begin(w,id,std::move(*walk),w.clock.tick);
         duration = p.walkEnd-w.clock.tick;
         if (town) ++town->thisMonth.walked;
-    } else if (p.carOwner) {
-        p.state = PersonState::Driving;
-        duration = dist * kDriveTicksPerTile + kDriveOverheadTicks;
+    } else if (privatecars::begin(w, id, from2, to2)) {
         if (town) ++town->thisMonth.drove;
+        return;
     } else {
         p.state = PersonState::Lift;
         duration = dist * kLiftTicksPerTile + kLiftOverheadTicks;
@@ -308,10 +310,12 @@ void handleEvent(World& w, PersonId id) {
         startTrip(w, id, p.tripTo2, home->centre2());
         return;
     case PersonState::Walking:
-    case PersonState::Driving:
     case PersonState::Lift:
     case PersonState::FromStop:
         arrive(w, id);
+        return;
+    case PersonState::Driving:
+        if (!privatecars::advance(w, id)) arrive(w, id);
         return;
     case PersonState::ToStop:
         passengers::arriveAtStation(w, id);
@@ -339,7 +343,9 @@ PersonId create(World& w, BuildingId homeId) {
         p.arriveMinute = static_cast<u16>(7 * 60 + 30 + rng.below(120));
         p.departMinute = static_cast<u16>(p.arriveMinute - p.commuteMinutes);
         p.workMinutes = static_cast<u16>(7 * 60 + rng.below(150));
-        p.carOwner = rng.chance(static_cast<u32>(carOwnershipPercent(w.clock.date().year)), 100);
+        // Preserve the old ownership draw so this change does not alter town layouts.
+        (void)rng.below(100);
+        p.carOwner = privatecars::ownsCar(p.serial, w.clock.date().year);
         p.nameSeed = rng.next();
         p.state = PersonState::AtHome;
         p.tripTo2 = home.centre2();
@@ -353,6 +359,7 @@ PersonId create(World& w, BuildingId homeId) {
 
 void remove(World& w, PersonId id) {
     Person& p = w.people[id];
+    privatecars::release(w, id);
     if (p.state == PersonState::Waiting) {
         if (Station* s = w.stations.tryGet(p.station)) {
             auto it = s->waiting.find(p.targetStation);
@@ -502,6 +509,7 @@ void jobMarket(World& w) {
 }
 
 void rebuildEvents(World& w) {
+    privatecars::rebuild(w);
     w.personEvents = {};
     for (const auto [id, p] : w.people)
         if (p.nextEvent >= 0) w.personEvents.push(PersonEvent{p.nextEvent, id.value, p.serial});

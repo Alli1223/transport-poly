@@ -28,7 +28,7 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 27;
+inline constexpr u32 kSaveVersion = 28;
 inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
@@ -126,6 +126,7 @@ public:
     u32 trackRevision = 0;
     // Tile key -> vehicles on the tile (rebuilt every tick).
     std::unordered_map<u64, std::vector<VehicleId>> vehicleTiles;
+    std::unordered_map<u64, std::vector<PersonId>> privateCarTiles; // derived, updated as citizens drive
     RoutingTable routing;
     TownLinks townLinks; // derived from the routing (not saved)
 

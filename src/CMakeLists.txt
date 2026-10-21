@@ -35,6 +35,14 @@ if(TP_BUILD_CLIENT)
     if(WIN32)
         target_link_libraries(transport-poly PRIVATE winhttp)
         target_sources(transport-poly PRIVATE client/transport-poly.rc)
+        # Packaged clients open as a GUI application; Debug keeps its developer console.
+        set_property(TARGET transport-poly PROPERTY WIN32_EXECUTABLE "$<NOT:$<CONFIG:Debug>>")
+        # Keep the normal main(argc, argv) startup so automation and command-line options work.
+        if(MSVC)
+            target_link_options(transport-poly PRIVATE "$<$<NOT:$<CONFIG:Debug>>:/ENTRY:mainCRTStartup>")
+        elseif(MINGW)
+            target_link_options(transport-poly PRIVATE "$<$<NOT:$<CONFIG:Debug>>:-Wl,--entry,mainCRTStartup>")
+        endif()
     endif()
     # Ship the UI font next to the executable.
     add_custom_command(TARGET transport-poly POST_BUILD

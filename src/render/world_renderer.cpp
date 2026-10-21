@@ -812,9 +812,30 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
     // Walking and seated citizens share the upload. Opaque roofs and frames hide occupants
     // naturally; glass is drawn afterwards so people are visible through the windows.
     for (const auto [id, person] : world.people) {
+        if (person.state == PersonState::Driving) {
+            const auto car = privateCarPose(world, person, tickFraction);
+            if (!car) continue;
+            const auto delta = car->pos - focus;
+            if (delta.x * delta.x + delta.z * delta.z > radius * radius) continue;
+            constexpr u32 colours[] = {rgba(175, 46, 39), rgba(45, 97, 160), rgba(229, 218, 178), rgba(65, 115, 75),
+                                       rgba(205, 166, 48), rgba(57, 61, 68), rgba(216, 220, 224), rgba(116, 68, 127)};
+            const int style = world.clock.date().year < 1970 ? 0 : static_cast<int>(person.nameSeed % 3);
+            dynamic_.add(static_cast<ModelId>(models::kPrivateCarBase + style), makeInstance(poseMatrix(*car), colours[person.nameSeed % 8]));
+            if (night > .02f) {
+                const auto m = poseMatrix(*car);
+                for (const float side : {-.055f, .055f}) {
+                    glows_.push_back({local(m, {.26f, .095f, side}), headlight, .09f, night});
+                    glows_.push_back({local(m, {-.24f, .095f, side}), tailLamp, .06f, night});
+                }
+                const auto ahead = glm::normalize(glm::vec3(m * glm::vec4(1, 0, 0, 0)));
+                lamps_.push_back({local(m, {.28f, .14f, 0}), 3.0f, headlight * .65f * night,
+                                  glm::normalize(ahead + glm::vec3(0, -.25f, 0)), .8f, 2.0f});
+            }
+            ++stats_.vehiclesDrawn;
+        }
         if (person.state != PersonState::Walking && person.state != PersonState::ToStop &&
             person.state != PersonState::FromStop && person.state != PersonState::Waiting &&
-            person.state != PersonState::Riding) continue;
+            person.state != PersonState::Riding && person.state != PersonState::Driving) continue;
         if (person.state == PersonState::Riding) {
             const auto* vehicle = world.vehicles.tryGet(person.vehicle);
             if (!vehicle) continue;
@@ -829,8 +850,8 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
                              static_cast<u8>(70 + (person.nameSeed >> 8) % 150),
                              static_cast<u8>(70 + (person.nameSeed >> 16) % 150));
         const bool seated =
-            person.state == PersonState::Riding &&
-            !(person.transitMotion == 1 && world.clock.tick + tickFraction < person.transitEnd);
+            person.state == PersonState::Driving || (person.state == PersonState::Riding &&
+            !(person.transitMotion == 1 && world.clock.tick + tickFraction < person.transitEnd));
         dynamic_.add(seated ? models::kSeatedPerson : models::kPerson,
                      makeInstance(glm::vec3(pose->pos - origin), pose->yaw, 1.0f, tint));
         ++stats_.peopleDrawn;
@@ -922,6 +943,8 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     weather_ = computeWeather(world.settings.seed, static_cast<double>(world.clock.tick) / kTicksPerDay, minuteOfDay);
     if (settings.forceCloudCover >= 0.0f) weather_.cover = settings.forceCloudCover;
     if (settings.forceMist >= 0.0f) weather_.mist = settings.forceMist;
+    if (!settings.clouds) weather_.cover = 0.0f;
+    weather_.mist *= settings.fogStrength;
     if (!settings.weather) weather_ = {};
     {
         const float dt = lastSeconds_ < 0.0 ? 0.0f : static_cast<float>(std::clamp(timeSeconds - lastSeconds_, 0.0, 0.25));
@@ -942,7 +965,8 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     // --- Determine visible chunks, building meshes nearest first -------------------------
     const double viewRadius = std::min<double>(settings.maxViewDistance, cam.distance * 2.6 + 120.0);
     const double shadowRadius = std::min(viewRadius, cam.distance * 1.1 + 24.0);
-    const double treeRadius = std::min(viewRadius, 200.0);
+    const auto lodFor = [&](double d) { return d < 150.0 * settings.detailScale ? 0 : (d < 300.0 * settings.detailScale ? 1 : 2); };
+    const double treeRadius = std::min<double>(viewRadius, settings.treeDistance);
     const double buildingRadius = std::min(viewRadius, 420.0);
     const Frustum frustum = extractFrustum(viewProj);
     struct Candidate {
@@ -976,7 +1000,6 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
         const auto cached = meshes_.find(cand.pos.key());
         const auto* active = map.chunk(cand.pos);
         const u32 wanted = active ? active->revision + 1 : 0;
-        const auto lodFor = [](double d) { return d < 150 ? 0 : d < 300 ? 1 : 2; };
         const double dist = std::sqrt(cand.dist2);
         int lod = lodFor(dist);
         if (cached != meshes_.end() && cached->second.lod != lod &&
@@ -1026,7 +1049,6 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
         const u32 wanted = active ? active->revision + 1 : 0;
         // Level of detail by distance, with hysteresis to avoid rebuild churn at the boundaries.
         const double dist = std::sqrt(cand.dist2);
-        const auto lodFor = [](double d) { return d < 150.0 ? 0 : (d < 300.0 ? 1 : 2); };
         int lod = lodFor(dist);
         if (it != meshes_.end() && it->second.lod != lod &&
             (lodFor(dist + 16.0) == it->second.lod || lodFor(dist - 16.0) == it->second.lod))
@@ -1071,6 +1093,7 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     // --- Per frame uniforms ---------------------------------------------------------------
     const glm::vec3 focus(static_cast<float>(cam.target.x - origin.x), static_cast<float>(cam.target.y),
                           static_cast<float>(cam.target.z - origin.z));
+    if (settings.shadows) ensureShadowTarget();
     const bool shadows = settings.shadows && sky_.sunStrength > 0.01f;
     glm::mat4 lightViewProj(1.0f);
     const float shadowTexel = 1.0f / static_cast<float>(shadowSize_);
@@ -1096,7 +1119,7 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     fu.sunDir = glm::vec4(sky_.sunDir, sky_.sunStrength);
     fu.sunColor = glm::vec4(sky_.sunColor, sky_.night);
     fu.zenithColor = glm::vec4(sky_.zenith, 1.0f);
-    fu.horizonColor = glm::vec4(sky_.horizon, 1.0f);
+    fu.horizonColor = glm::vec4(sky_.horizon, settings.nightFogStrength);
     fu.ambientSky = glm::vec4(sky_.ambientSky, 1.0f);
     fu.ambientGround = glm::vec4(sky_.ambientGround, 1.0f);
     const float fogEnd = static_cast<float>(viewRadius) - kChunkSize * 0.75f;
@@ -1104,6 +1127,8 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     fu.shadowParams = glm::vec4(shadowTexel, 0.0006f, shadows ? 1.0f : 0.0f, 0.04f);
     fu.weather = glm::vec4(weather_.cover, weather_.mist, cloudDrift_.x, cloudDrift_.y);
     fu.origin = glm::vec4(static_cast<float>(origin.x), kCloudHeight, static_cast<float>(origin.z), mistLevel_);
+    fu.visualOptions = glm::vec4(settings.brightness, settings.cloudShadows ? 1.0f : 0.0f,
+                                 settings.treeSway ? 1.0f : 0.0f, settings.waterAnimation ? 1.0f : 0.0f);
     {
         // The lamps nearest the view (headlights count as much nearer) light the scene.
         const auto score = [&](const Lamp& l) {
@@ -1198,9 +1223,9 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     glDepthMask(GL_TRUE);
 
     // Halos around lamps at night.
-    drawGlows(view);
+    if (settings.lightHalos) drawGlows(view);
     // Steam and smoke.
-    fx_.draw(view, origin);
+    if (settings.particles) fx_.draw(view, origin);
 
     // Clouds: low poly puffs where the cloud field is thick, drifting with the wind. They show
     // once the camera is well above the land, fading in as it rises, and are skipped above it.

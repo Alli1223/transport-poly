@@ -5,6 +5,50 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-21
+
+### Private cars
+- Citizens without a usable public transport route drive longer local journeys
+  on connected roads within their home town. Short journeys remain walks.
+- Car ownership increases with the year, including among existing residents.
+- Visible coloured saloons, hatchbacks and estates with drivers, night lights and
+  positional engine sounds. Cars queue with road traffic and re-plan after road removal.
+- Save format 28 retains active car routes and loads older saves; multiplayer
+  protocol 37 requires matching game versions.
+
+### Fixes
+- Returning to the main menu closes the session between frames, preventing the
+  news, minimap and renderer from accessing a world that has just been destroyed.
+
+### Audio
+- Three original synthesized funk/jazz arrangements with bass, drums, electric
+  piano, clavinet, brass and vibraphone parts.
+- Named soundtrack playlist and next-track control, with fuller instrument tones
+  and melodies arriving earlier in each tune.
+- Positional steam, diesel and electric trains, road vehicles, trams and ships;
+  nearby vehicles get louder as the camera zooms in, with departure whistles/horns.
+- Rhythmic steam exhaust, brake-air releases and speed-dependent wheel/joint
+  sounds from every locomotive and carriage, with up to 24 nearby sources mixed.
+- Layered car engines and tyre noise, boat engine/propeller wash, and local water,
+  countryside and town soundscapes.
+- Birds, crickets, water, farms and industry ambience, construction/demolition,
+  purchases, interface feedback and news sounds.
+- Separate master, music, vehicle, ambience and interface volume controls in the
+  Audio settings tab, plus background muting. Existing mute choices are preserved.
+
+### Graphics settings
+- Windows release builds open without a console window and default to fullscreen;
+  an existing saved windowed preference is respected. Debug builds keep their console.
+- Borderless fullscreen, monitor selection and an Alt+Enter shortcut.
+- Low, Balanced and High presets, plus separate controls for anti-aliasing, frame
+  rate limits, brightness, shadow resolution, terrain detail and tree draw distance.
+- Individual cloud, cloud shadow, mist, night mist, smoke/steam, light halo, tree
+  sway and water animation controls. Existing settings files remain compatible.
+
+### Visibility
+- Night mist is thinner and uses cool sky colours instead of the orange sunset
+  lighting, keeping terrain and transport routes easier to see after dark.
+
 ## [0.2.0] - 2026-10-20
 
 ### Installation and updates
@@ -90,6 +134,7 @@ Transport Fever, with deterministic lockstep multiplayer.
 - Multiplayer through a dedicated server or a hosted game, with chat, a
   player list and host-controlled pause and speed; save, load and autosave.
 
-[Unreleased]: https://github.com/Alli1223/transport-poly/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Alli1223/transport-poly/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Alli1223/transport-poly/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Alli1223/transport-poly/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Alli1223/transport-poly/releases/tag/v0.1.0

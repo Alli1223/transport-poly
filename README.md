@@ -84,7 +84,7 @@ the font to `build/<preset>/packages/`.
 On Windows, install Inno Setup 6 or 7 and run
 `powershell -File scripts/package-windows.ps1` from a VS developer prompt after
 configuring the Windows preset. This builds the game, portable ZIP, checksums and
-`transport-poly-0.2.0-windows-x64-setup.exe`. The installer lets you choose a folder,
+`transport-poly-0.3.0-windows-x64-setup.exe`. The installer lets you choose a folder,
 install for yourself or everyone, and create shortcuts. Windows Settings or the
 Start menu uninstaller removes the game while preserving saves and settings.
 
@@ -289,10 +289,39 @@ or livery. Four quarterly checks with negative cash trigger bankruptcy: vehicles
 are liquidated, stops and depots close, and remaining routes become public.
 Returning to a non-negative balance resets the debt-quarter counter.
 
-Open **Settings** from either menu for shadows, view distance, VSync, daylight,
-camera sensitivity and autosave intervals (0 disables autosaving). Save preferences
-to retain them in `settings.cfg`. Starting year and interest apply to new worlds.
+Open **Settings > Graphics** for fullscreen and monitor selection, VSync, frame
+rate limits, anti-aliasing, brightness, shadow resolution, terrain detail, view and
+tree distances, clouds, mist, and individual visual effects. **Alt+Enter** switches
+fullscreen on or off. Low, Balanced and High presets provide starting points;
+individual controls can then be adjusted. Anti-aliasing takes effect after saving
+and restarting; other graphics changes apply immediately.
+Settings also include camera sensitivity and autosave intervals (0 disables
+autosaving). Save preferences to retain them in `settings.cfg`.
+Starting year and interest apply to new worlds.
 Clicking the clock also remembers the daylight preference.
+
+Residents with cars drive longer journeys within their home town when they cannot
+use public transport. Short trips remain walks, and usable public transport stays
+their first choice for longer journeys. Cars follow connected town roads, queue
+behind traffic and can be clicked to inspect or follow their driver. Ownership
+increases as the years pass, so a later town with poor public transport has more
+private traffic. Private cars currently stay within one town; they do not drive
+between towns. Their colours, body styles, lights and engine sounds appear in the
+world, and active journeys resume when loading a save.
+
+**Settings > Audio** controls master, music, vehicle, ambience and interface
+volume, with optional muting when the game is in the background. Three original
+funk/jazz arrangements play in menus and during play. Steam, diesel and electric
+engines, trams, road vehicles and ships have stereo positional sounds: move closer
+or zoom in to hear them, and zoom out to quieten them. Pausing quietens vehicles
+while music continues. Local birds/crickets, water, farms and industry ambience
+accompany construction, purchases and news sounds. Existing installations retain
+their previous audio on/off choice; enable audio here if it was previously off.
+The playlist shows the current tune and offers **Next track**. Steam exhaust
+chuffs with speed, and every locomotive and carriage contributes rolling wheel
+and track-joint sounds, so following the rear of a long train still sounds right.
+Car tyres, boat propeller wash and departure whistles/horns complete the traffic
+soundscape. All music and sound effects are synthesized from original code.
 
 Gameplay settings also control inflation and recessions for new worlds. Inflation
 raises construction, vehicle and upkeep prices and fares by about 2% per year.
@@ -422,9 +451,9 @@ vehicles. Station windows also show the freight queue by commodity.
 
 ## Optional competitors and sounds
 
-In **Settings > Gameplay**, choose 0-3 AI competitors for new games and enable
-**Sounds** for local command confirmation and error tones. Both preferences are
-saved with the other settings. Missing audio hardware quietly disables playback.
+In **Settings > Gameplay**, choose 0-3 AI competitors for new games. The separate
+**Audio** tab controls music, effects and ambience. These preferences are saved
+with the other settings. Missing audio hardware quietly disables playback.
 The dedicated server accepts `--ai 0-3`; headless builds require no audio library.
 
 AI companies build affordable two-stop bus routes over existing connected town

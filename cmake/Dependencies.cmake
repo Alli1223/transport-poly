@@ -38,7 +38,7 @@ if(TP_BUILD_CLIENT)
         GIT_SHALLOW TRUE
         SOURCE_SUBDIR _header_only_no_cmake)
     FetchContent_MakeAvailable(glfw glm imgui miniaudio)
-    add_library(tp_audio STATIC ${PROJECT_SOURCE_DIR}/src/audio/audio.cpp)
+    add_library(tp_audio STATIC ${PROJECT_SOURCE_DIR}/src/audio/audio.cpp ${PROJECT_SOURCE_DIR}/src/audio/mixer.cpp)
     target_include_directories(tp_audio PUBLIC ${PROJECT_SOURCE_DIR}/src)
     target_include_directories(tp_audio SYSTEM PRIVATE ${miniaudio_SOURCE_DIR})
     target_link_libraries(tp_audio PRIVATE tp_options ${CMAKE_DL_LIBS})

@@ -28,6 +28,7 @@ TEST_CASE("preferences: validated settings round trip and malformed files leave 
                       std::format("transport-poly-prefs-{}.cfg", std::chrono::steady_clock::now().time_since_epoch().count());
     struct Cleanup { std::filesystem::path path; ~Cleanup() { std::error_code ec; std::filesystem::remove(path, ec); } } cleanup{path};
     ClientPreferences original;
+    CHECK(original.fullscreen);
     original.daylightOnly = true;
     original.viewDistance = 700;
     original.panPercent = 180;
@@ -36,6 +37,25 @@ TEST_CASE("preferences: validated settings round trip and malformed files leave 
     original.sounds = true;
     original.aiCompetitors = 3;
     original.recessions = false;
+    original.fullscreen = true;
+    original.monitor = 1;
+    original.antiAliasing = 3;
+    original.frameCap = 2;
+    original.shadowQuality = 3;
+    original.detailQuality = 2;
+    original.treeDistance = 350;
+    original.brightnessPercent = 140;
+    original.clouds = false;
+    original.cloudShadows = false;
+    original.fogPercent = 30;
+    original.nightFogPercent = 10;
+    original.particles = original.lightHalos = original.treeSway = original.waterAnimation = false;
+    original.masterVolume = 40;
+    original.musicVolume = 23;
+    original.vehicleVolume = 89;
+    original.ambienceVolume = 17;
+    original.interfaceVolume = 68;
+    original.muteUnfocused = false;
     REQUIRE(original.save(path));
     ClientPreferences copy;
     REQUIRE(copy.load(path));
@@ -47,17 +67,83 @@ TEST_CASE("preferences: validated settings round trip and malformed files leave 
     CHECK(copy.sounds);
     CHECK_EQ(copy.aiCompetitors, 3);
     CHECK(!copy.recessions);
+    CHECK(copy.fullscreen);
+    CHECK_EQ(copy.monitor, 1);
+    CHECK_EQ(copy.antiAliasing, 3);
+    CHECK_EQ(copy.frameRateLimit(), 60);
+    CHECK_EQ(copy.shadowQuality, 3);
+    CHECK_EQ(copy.detailQuality, 2);
+    CHECK_EQ(copy.treeDistance, 350);
+    CHECK_EQ(copy.brightnessPercent, 140);
+    CHECK(!copy.clouds && !copy.cloudShadows);
+    CHECK_EQ(copy.fogPercent, 30);
+    CHECK_EQ(copy.nightFogPercent, 10);
+    CHECK(!copy.particles && !copy.lightHalos && !copy.treeSway && !copy.waterAnimation);
+    CHECK_EQ(copy.masterVolume, 40);
+    CHECK_EQ(copy.musicVolume, 23);
+    CHECK_EQ(copy.vehicleVolume, 89);
+    CHECK_EQ(copy.ambienceVolume, 17);
+    CHECK_EQ(copy.interfaceVolume, 68);
+    CHECK(!copy.muteUnfocused);
     { std::ofstream out(path); out << "bad settings"; }
     CHECK(!copy.load(path));
     CHECK_EQ(copy.viewDistance, 700);
     original.viewDistance = 99999;
     original.panPercent = -10;
     original.autosaveMonths = 99;
+    original.brightnessPercent = -10;
+    original.shadowQuality = 99;
+    original.frameCap = 99;
+    original.masterVolume = -9;
+    original.musicVolume = 123;
     REQUIRE(original.save(path));
     REQUIRE(copy.load(path));
     CHECK_EQ(copy.viewDistance, 900);
     CHECK_EQ(copy.panPercent, 25);
     CHECK_EQ(copy.autosaveMonths, 12);
+    CHECK_EQ(copy.brightnessPercent, 50);
+    CHECK_EQ(copy.shadowQuality, 3);
+    CHECK_EQ(copy.frameRateLimit(), 240);
+    CHECK_EQ(copy.masterVolume, 0);
+    CHECK_EQ(copy.musicVolume, 100);
+    original.fullscreen = false;
+    REQUIRE(original.save(path));
+    REQUIRE(copy.load(path));
+    CHECK(!copy.fullscreen); // An explicit windowed preference still wins over the default.
+    // Files from existing installations receive safe defaults for the new options.
+    { std::ofstream out(path); out << "7\n1 1 0 460 100 100 100 1 1950 4 0 1 0 0 0 2 2 2 0 1 1 -\n"; }
+    REQUIRE(copy.load(path));
+    CHECK(copy.fullscreen);
+    CHECK_EQ(copy.antiAliasing, 2);
+    CHECK_EQ(copy.nightFogPercent, 25);
+    CHECK(copy.clouds && copy.treeSway);
+    CHECK(!copy.sounds); // Keep an existing player's mute choice.
+    CHECK_EQ(copy.musicVolume, 55);
+    CHECK(copy.muteUnfocused);
+    { std::ofstream out(path); out << "8\n1 1 0 460 100 100 100 1 1950 4 0 1 0 0 0 2 2 2 0 1 1 -\n1 0 3\n"; }
+    CHECK(!copy.load(path));
+    CHECK(copy.fullscreen);
+    CHECK_EQ(copy.antiAliasing, 2);
+}
+
+TEST_CASE("preferences: graphics presets retain display, visibility and gameplay choices") {
+    ClientPreferences p;
+    p.fullscreen = true;
+    p.brightnessPercent = 150;
+    p.nightFogPercent = 0;
+    p.startYear = 1990;
+    p.graphicsPreset(0);
+    CHECK(!p.shadows);
+    const int lowDistance = p.viewDistance;
+    const int lowTrees = p.treeDistance;
+    p.graphicsPreset(2);
+    CHECK(p.shadows);
+    CHECK(p.viewDistance > lowDistance);
+    CHECK(p.treeDistance > lowTrees);
+    CHECK(p.fullscreen);
+    CHECK_EQ(p.brightnessPercent, 150);
+    CHECK_EQ(p.nightFogPercent, 0);
+    CHECK_EQ(p.startYear, 1990);
 }
 
 TEST_CASE("math: floorDiv and floorMod") {
