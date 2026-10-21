@@ -401,6 +401,20 @@ struct CmdDemolishBuilding {
     template<class Ar> void serialize(Ar& ar) { ar(building); }
 };
 
+// Autoreplace: replace one vehicle model with another at depot visits (kNoReplacement clears it).
+inline constexpr u16 kNoReplacement = 0xFFFF;
+struct CmdSetAutoreplace {
+    u16 from = 0;
+    u16 to = kNoReplacement;
+    template <class Ar> void serialize(Ar& ar) { ar(from, to); }
+};
+
+// Autorenew: replace vehicles past their life span with new ones at depot visits.
+struct CmdSetAutorenew {
+    bool enabled = false;
+    template <class Ar> void serialize(Ar& ar) { ar(enabled); }
+};
+
 using CommandPayload =
     std::variant<CmdActivateChunks, CmdCreateCompany, CmdSetLoan, CmdTerraform, CmdClearArea, CmdPlantTrees, CmdBuildRoad,
                  CmdRemoveRoad, CmdBuildRoadStop, CmdBuildRoadDepot, CmdBuyVehicle, CmdSellVehicle, CmdStartStopVehicle,
@@ -409,7 +423,7 @@ using CommandPayload =
                  CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater, CmdBuildSpan, CmdRemoveSpan,
                  CmdUpdateCompany, CmdTerraformBrush, CmdBuildTrack, CmdRemoveTrack, CmdBuildTrackStation,
                  CmdBuildTrackDepot, CmdTrackSignal, CmdReorderConsist, CmdStationEntrance, CmdAddPlatform, CmdExtendPlatform,
-                 CmdDemolishBuilding, CmdElectrifyTrack>;
+                 CmdDemolishBuilding, CmdElectrifyTrack, CmdSetAutoreplace, CmdSetAutorenew>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

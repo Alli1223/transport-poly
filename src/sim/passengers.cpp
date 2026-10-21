@@ -2,8 +2,10 @@
 
 #include "core/hash.hpp"
 #include "core/math.hpp"
+#include "sim/feedback.hpp"
 #include "sim/person.hpp"
 #include "sim/rail.hpp"
+#include "sim/subsidies.hpp"
 #include "sim/vehicle.hpp"
 #include "sim/world.hpp"
 
@@ -85,6 +87,7 @@ void waitAt(World& w, PersonId pid, StationId at, StationId nextHop) {
     Station& station = w.stations[at];
     if (station.waitingCount() >= station.waitingCapacity()) {
         station.rating = std::max(0, station.rating - 4);
+        feedback::stationFull(w, pid, at);
         people::travelAbstract(w, pid, {station.sign.x * 2 + 1, station.sign.y * 2 + 1}, p.tripTo2, false);
         return;
     }
@@ -196,12 +199,14 @@ void chooseLocalContinuation(World& w, Person& p, StationId at) {
     }
 }
 
-void alight(World& w, PersonId pid, StationId at, Vehicle& v, usize seat) {
+void alight(World& w, PersonId pid, StationId at, VehicleId vid, Vehicle& v, usize seat) {
     Person& p = w.people[pid];
     const Station* from = w.stations.tryGet(p.station);
     const Station* to = w.stations.tryGet(at);
     const i64 tiles = (from && to) ? manhattan(from->sign.x - to->sign.x, from->sign.y - to->sign.y) : 0;
-    const Money pay = w.fareIncome(fare(tiles, w.clock.tick - p.boardTick));
+    const i64 ride = w.clock.tick - p.boardTick;
+    const Money pay = subsidies::passengerPay(w, v.owner, p.station, at, w.fareIncome(fare(tiles, ride)));
+    feedback::alighted(w, pid, vid, p.station, at, tiles, ride);
     if (Company* c = w.companies.tryGet(v.owner)) {
         const Expense cat = v.info().type == VehicleType::Rail   ? Expense::TrainIncome
                             : v.info().type == VehicleType::Ship ? Expense::ShipIncome
@@ -474,6 +479,7 @@ void reviewWaiting(World& w, PersonId pid) {
 void giveUpWaiting(World& w, PersonId pid) {
     removeFromWaiting(w, pid);
     Person& p = w.people[pid];
+    feedback::gaveUp(w, pid, p.station, w.clock.tick - p.boardTick);
     if (Station* s = w.stations.tryGet(p.station)) s->rating = std::max(0, s->rating - 2);
     people::travelAbstract(w, pid, stationPos2(w, p.station, p.tripFrom2), p.tripTo2, false);
 }
@@ -499,7 +505,7 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
         if (!p) continue;
         if ((order && (order->flags & kOrderUnloadOnly)) || p->targetStation == sid ||
             p->finalStation == sid || !vehicleVisits(v, p->targetStation)) {
-            alight(w, pid, sid, v, v.passengerSeats[i]);
+            alight(w, pid, sid, vid, v, v.passengerSeats[i]);
             ++moved;
         } else {
             staying.push_back(pid);
@@ -583,6 +589,7 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
             path = {{current.p, door.height}, {approach, door.height}, {entrance, door.height}};
         else
             path = walking::withinStation(w, sid, current.p, entrance);
+        const i64 waited = w.clock.tick - p->boardTick; // boardTick held the queue arrival
         p->state = PersonState::Riding;
         p->vehicle = vid;
         p->boardTick = w.clock.tick;
@@ -597,6 +604,7 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
         v.loadingUntil = std::max(v.loadingUntil, p->transitEnd);
         v.passengers.push_back(pid);
         v.passengerSeats.push_back(static_cast<u16>(best));
+        feedback::boarded(w, pid, vid, sid, waited);
         occupied[best] = true;
         ++doorLoads[{door.centre.x, door.centre.z}];
         ++station->boardedThisMonth;

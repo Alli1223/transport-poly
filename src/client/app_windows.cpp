@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <format>
+#include <map>
 #include <string>
 #include <cctype>
 
@@ -99,6 +100,12 @@ ImVec2 viewportPoint(float fx, float fy, float dx = 0.0f, float dy = 0.0f) {
     return ImVec2(vp->WorkPos.x + vp->WorkSize.x * fx + dx * s, vp->WorkPos.y + vp->WorkSize.y * fy + dy * s);
 }
 
+VehicleId idOf(const World& w, const Vehicle& v) {
+    for (const auto [id, o] : w.vehicles)
+        if (&o == &v) return id;
+    return {};
+}
+
 // A small text button with a tooltip.
 bool actionButton(const char* label, ui::Icon icon, ui::Btn kind, const char* tip, float width = 0.0f) {
     const bool pressed = ui::button(label, icon, kind, ImVec2(width, 0.0f));
@@ -123,10 +130,19 @@ std::string App::vehicleStatus(const Vehicle& v) const {
     if (v.breakdownTicks > 0) return "Broken down!";
     if (v.state == VehicleState::Loading) {
         const Order* o = v.currentOrder();
-        return o ? std::format("Loading at {}", stationName(o->station)) : "Loading";
+        if (!o) return "Loading";
+        const auto clock = [](i64 tick) { return formatTimeOfDay(static_cast<i32>(tick % kTicksPerDay / kTicksPerMinute)); };
+        if (v.holdingSince >= 0)
+            if (const VehicleId id = idOf(w, v); id.valid())
+                return std::format("Holding at {} for even spacing, departs {}", stationName(o->station),
+                                   clock(std::max(w.clock.tick, vehicles::timetableRelease(w, id))));
+        if (o->waitMinutes && w.clock.tick < v.loadingStartTick + o->waitMinutes * kTicksPerMinute)
+            return std::format("Timetabled stop at {}, departs {}", stationName(o->station),
+                               clock(v.loadingStartTick + o->waitMinutes * kTicksPerMinute));
+        return std::format("Loading at {}", stationName(o->station));
     }
     if (v.sendToDepot) return "Heading for depot";
-    if (v.goingForService) return "Heading for depot (service)";
+    if (v.goingForService) return vehicles::plannedReplacement(w, v) ? "Heading for depot (replacement)" : "Heading for depot (service)";
     if (v.lost) return "Lost - can't find a route!";
     if (const Order* o = v.currentOrder()) {
         if (o->kind == OrderKind::Station) return std::format("Heading for {}", stationName(o->station));
@@ -248,9 +264,12 @@ void App::drawWindows() {
     drawCompaniesWindow();
     drawFinanceWindow();
     drawVehicleList();
+    drawReplaceWindow();
     drawNewsWindow();
     drawTownList();
     drawCitizens();
+    drawFeedbackWindow();
+    drawSubsidiesWindow();
 }
 
 void App::drawNews(double now) {
@@ -724,6 +743,8 @@ void App::drawVehicleWindow() {
         const std::string relText = std::format("{:.0f}%", rel * 100.0f);
         ImGui::Dummy(ImVec2(0, 2.0f * s));
         ui::meterRow("Reliability", relText.c_str(), rel, qualityColour(std::clamp((rel - 0.3f) / 0.6f, 0.0f, 1.0f)));
+        satisfactionMeter("Satisfaction", v->satisfactionSum[0] + v->satisfactionSum[1],
+                          v->satisfactionCount[0] + v->satisfactionCount[1]);
 
         drawVehiclePassengers(*v);
 
@@ -737,6 +758,13 @@ void App::drawVehicleWindow() {
         ui::statRow("Last serviced", dateOf(w, v->lastServiceTick).c_str());
         ui::statRow("Breakdowns since service", std::format("{}", v->breakdownsSinceService).c_str(),
                     v->breakdownsSinceService > 0 ? ui::col::kOrange : ui::col::kText);
+        if (const auto r = vehicles::plannedReplacement(w, *v)) {
+            const bool same = r->cars.empty() ? r->model == v->model : r->cars == v->cars;
+            const std::string what = same ? std::string("Renewed")
+                : r->model != v->model ? std::format("Replaced by {}", vehicleModel(r->model).name)
+                                       : std::string("New carriages and wagons");
+            ui::statRow("At next depot visit", std::format("{} ({})", what, formatMoney(r->price - v->value)).c_str(), ui::col::kTeal);
+        }
 
         ImGui::Dummy(ImVec2(0, 4.0f * s));
         const float bw = ui::columnWidth(4) / s;
@@ -765,6 +793,11 @@ void App::drawVehicleWindow() {
             ImGui::SameLine();
             if (actionButton("Shared", ui::Icon::Link, ui::Btn::Ghost, "Buy a copy that shares this vehicle's order list", bw))
                 pendingBuySeq_ = session_->submit(CmdCloneVehicle{v->depot, selVehicle_, true});
+            ImGui::SameLine();
+            if (actionButton("Replace", ui::Icon::Wrench, ui::Btn::Ghost, "Autorenew old vehicles and replace models with newer ones", bw)) {
+                showReplace_ = true;
+                replaceType_ = static_cast<int>(m.type);
+            }
             if (v->state == VehicleState::InDepot && v->stopped) {
                 ImGui::SameLine();
                 if (actionButton("Sell", ui::Icon::Trash, ui::Btn::Danger, "Sell the vehicle", bw))
@@ -824,13 +857,17 @@ void App::drawVehicleWindow() {
                 tx += 20.0f * s;
             }
             dl->AddText(ImVec2(tx, p.y + (h - ts.y) * 0.5f), ui::col::kText, name.c_str());
-            if (o.flags & kOrderFullLoad) {
-                const char* fl = "FULL LOAD";
-                const ImVec2 fs = sf->CalcTextSizeA(sf->FontSize, FLT_MAX, 0.0f, fl);
-                const ImVec2 b0(tx + ts.x + 8.0f * s, p.y + (h - fs.y) * 0.5f - 2.0f * s);
-                dl->AddRectFilled(b0, ImVec2(b0.x + fs.x + 12.0f * s, b0.y + fs.y + 4.0f * s), ui::withAlpha(ui::col::kTeal, 0.18f), 8.0f * s);
-                dl->AddText(sf, sf->FontSize, ImVec2(b0.x + 6.0f * s, b0.y + 2.0f * s), ui::col::kTeal, fl);
-            }
+            float pillX = tx + ts.x + 8.0f * s;
+            const auto pill = [&](const std::string& text, ImU32 colour) {
+                const ImVec2 fs = sf->CalcTextSizeA(sf->FontSize, FLT_MAX, 0.0f, text.c_str());
+                const ImVec2 b0(pillX, p.y + (h - fs.y) * 0.5f - 2.0f * s);
+                dl->AddRectFilled(b0, ImVec2(b0.x + fs.x + 12.0f * s, b0.y + fs.y + 4.0f * s), ui::withAlpha(colour, 0.18f), 8.0f * s);
+                dl->AddText(sf, sf->FontSize, ImVec2(b0.x + 6.0f * s, b0.y + 2.0f * s), colour, text.c_str());
+                pillX += fs.x + 16.0f * s;
+            };
+            if (o.flags & kOrderFullLoad) pill("FULL LOAD", ui::col::kTeal);
+            if (o.flags & kOrderTimingPoint) pill("TIMING", ui::col::kPurple);
+            if (o.waitMinutes) pill(std::format("WAIT {} MIN", o.waitMinutes), ui::col::kAccent);
             if (mine) {
                 const ImVec2 back = ImGui::GetCursorScreenPos();
                 ImGui::SetCursorScreenPos(ImVec2(p.x + avail - buttons + 4.0f * s, p.y + (h - ImGui::GetFrameHeight() * 0.85f) * 0.5f));
@@ -885,6 +922,7 @@ void App::drawVehicleWindow() {
                         changed = true;
                     }
                 }
+                drawOrderTimetable(selVehicle_, i, o, changed);
                 ImGui::EndDisabled();
             }
             ImGui::PopID();
@@ -970,6 +1008,10 @@ void App::drawStationWindow() {
         ui::statRow("Catchment radius", std::format("{} tiles", st->catchment).c_str());
         ui::statRow("Stop tiles", std::format("{}", st->tiles.size()).c_str());
         ui::statRow("Waiting capacity", std::format("{} / {}", st->waitingCount(), st->waitingCapacity()).c_str());
+        if (std::ranges::any_of(w.feedback, [&](const Feedback& f) { return f.station == selStation_ || f.from == selStation_; })) {
+            ui::sectionHeader("What passengers say");
+            drawFeedbackEntries([&](const Feedback& f) { return f.station == selStation_ || f.from == selStation_; }, 3);
+        }
         const auto platforms = track::platformsOf(w,selStation_);
         if (!platforms.empty()) {
             ui::sectionHeader("Station layout and road access");
@@ -1283,6 +1325,12 @@ void App::drawVehicleList() {
         }
         const char* statuses[] = {"All vehicles", "Operating", "Stopped / depot", "Lost"};
         ImGui::Combo("Status", &status, statuses, 4);
+        if (w.companies.contains(session_->localCompany())) {
+            if (actionButton("Replace vehicles", ui::Icon::Wrench, ui::Btn::Ghost, "Autorenew old vehicles and replace models with newer ones")) {
+                showReplace_ = true;
+                if (filter > 0) replaceType_ = filter - 1;
+            }
+        }
         static constexpr ui::Segment kFilters[] = {{"All", ui::Icon::None, nullptr},
                                                    {"Buses", ui::Icon::Bus, nullptr},
                                                    {"Trams", ui::Icon::Tram, nullptr},
@@ -1326,6 +1374,148 @@ void App::drawVehicleList() {
             ImGui::EndTable();
         }
         if (count == 0) ui::emptyState(ui::Icon::Bus, "No vehicles match these filters");
+    }
+    ui::endPanel();
+}
+
+// Timetable for one stop of a vehicle's orders: a timetabled stop and the timing point that keeps
+// the vehicles on the service evenly spaced.
+void App::drawOrderTimetable(VehicleId vehicle, usize index, Order& o, bool& changed) {
+    if (o.passThrough()) return;
+    const World& w = world();
+    const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+    const auto minutes = [&](const char* id, u16& value, int max, const char* none, const char* some) {
+        int edit = value;
+        ImGui::SliderInt(id, &edit, 0, max, edit ? some : none);
+        if (ImGui::IsItemDeactivatedAfterEdit() && edit != value) {
+            value = static_cast<u16>(std::clamp<int>(edit, 0, kMaxTimetableMinutes));
+            changed = true;
+        }
+    };
+    ImGui::SetNextItemWidth(half);
+    minutes("##wait", o.waitMinutes, 120, "No timetabled wait", "Wait %d min");
+    ui::itemTooltip({"Timetabled stop", "Stay at least this long at the stop, even when loading finishes sooner. "
+                                        "Ctrl+click to type a time of up to a day."});
+    ImGui::SameLine();
+    bool timing = o.flags & kOrderTimingPoint;
+    if (ImGui::Checkbox("Timing point", &timing)) {
+        o.flags = static_cast<u8>(timing ? o.flags | kOrderTimingPoint : o.flags & ~kOrderTimingPoint);
+        if (!timing) o.intervalMinutes = 0;
+        changed = true;
+    }
+    ui::itemTooltip({"Timing point", "Vehicles hold here so the vehicles running this service leave evenly spaced "
+                                     "instead of bunching. Vehicles sharing orders, or with identical orders, run one "
+                                     "service. Choose a stop with room to wait."});
+    if (!timing) return;
+    ImGui::SetNextItemWidth(-1.0f);
+    minutes("##interval", o.intervalMinutes, 240, "Even spacing: the round trip shared out", "Depart every %d min");
+    ui::itemTooltip({"Departures", "Automatic: the measured round trip divided by the number of vehicles. "
+                                   "Or a fixed interval after the previous vehicle (Ctrl+click to type)."});
+    const Vehicle& v = w.vehicles[vehicle];
+    if (index >= v.orders.size() || v.orders[index] != o) return; // edited this frame
+    const vehicles::ServiceSpacing sp = vehicles::spacing(w, vehicle, index);
+    const auto mins = [](i64 ticks) { return (ticks + kTicksPerMinute / 2) / kTicksPerMinute; };
+    std::string info = std::format("{} vehicle{} on this service", sp.vehicles, sp.vehicles == 1 ? "" : "s");
+    if (sp.roundTrip) info += std::format(", round trip {} min", mins(sp.roundTrip));
+    if (sp.interval) info += std::format(": one every {} min", mins(sp.interval));
+    else if (!o.intervalMinutes && sp.vehicles > 1) info += ": measuring the round trip";
+    ui::FontScope f(ui::fonts().small);
+    ui::mutedText(info.c_str());
+}
+
+// Autorenew and autoreplace for the local company's fleet.
+void App::drawReplaceWindow() {
+    if (!showReplace_) return;
+    const World& w = world();
+    const CompanyId me = session_->localCompany();
+    const Company* co = w.companies.tryGet(me);
+    if (!co) {
+        showReplace_ = false;
+        return;
+    }
+    const float s = uiScale_;
+    ui::PanelSpec spec;
+    spec.pos = viewportPoint(0.5f, 0.0f, -270.0f, 110.0f);
+    spec.width = 540.0f;
+    spec.accent = ui::col::kBlue;
+    spec.subtitle = co->name.c_str();
+    if (ui::beginPanel("###replacePanel", "Vehicle replacement", ui::Icon::Wrench, &showReplace_, spec)) {
+        bool renew = co->autorenew;
+        if (ImGui::Checkbox("Renew vehicles when they get old", &renew)) session_->submit(CmdSetAutorenew{renew});
+        ui::itemTooltip({"Autorenew", "A vehicle past its life span is replaced by a new one of the same model (or "
+                                      "its replacement below) at its next depot visit."});
+        {
+            ui::FontScope f(ui::fonts().small);
+            ui::mutedText("Vehicles are replaced at their next depot visit, keeping their orders. Vehicles due for");
+            ui::mutedText("replacement visit their depot as soon as you can afford it; the old one is traded in.");
+        }
+        ImGui::Dummy(ImVec2(0, 2.0f * s));
+        static constexpr ui::Segment kTypes[] = {{"Buses", ui::Icon::Bus, nullptr},
+                                                 {"Trams", ui::Icon::Tram, nullptr},
+                                                 {"Trains", ui::Icon::Train, nullptr},
+                                                 {"Ships", ui::Icon::Ship, nullptr}};
+        if (const int clicked = ui::segmented("##replaceType", kTypes, replaceType_); clicked >= 0) replaceType_ = clicked;
+        const auto type = static_cast<VehicleType>(std::clamp(replaceType_, 0, 3));
+
+        // Models in the fleet (every carriage and wagon of a train counts) and those with a rule.
+        std::map<u16, int> fleet;
+        int due = 0;
+        Money dueCost = 0;
+        for (const auto [id, v] : w.vehicles) {
+            if (v.owner != me || v.info().type != type) continue;
+            if (v.cars.empty()) ++fleet[v.model];
+            for (const u16 car : v.cars) ++fleet[car];
+            if (const auto r = vehicles::plannedReplacement(w, v)) {
+                ++due;
+                dueCost += r->price - v.value;
+            }
+        }
+        for (const auto& [from, to] : co->replacements)
+            if (vehicleModel(from).type == type) fleet.try_emplace(from, 0);
+        if (due) ui::statRow("Due at their next depot visit", std::format("{} for {}", due, formatMoney(dueCost)).c_str(), ui::col::kTeal);
+
+        if (fleet.empty()) {
+            ui::emptyState(vehicleIcon(type), "No vehicles of this kind yet");
+        } else if (ImGui::BeginTable("replacements", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_PadOuterX)) {
+            ImGui::TableSetupColumn("Model", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("In use", 0, 56.0f * s);
+            ImGui::TableSetupColumn("Replace with", 0, 230.0f * s);
+            ImGui::TableHeadersRow();
+            const i32 year = w.clock.date().year;
+            for (const auto& [model, count] : fleet) {
+                const VehicleModel& from = vehicleModel(model);
+                u16 target = kNoReplacement;
+                for (const auto& [f, t] : co->replacements)
+                    if (f == model) target = t;
+                ImGui::PushID(model);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted(from.name.data());
+                ImGui::TableNextColumn();
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("%d", count);
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-1.0f);
+                const char* preview = target == kNoReplacement ? "Keep" : vehicleModel(target).name.data();
+                if (ImGui::BeginCombo("##to", preview)) {
+                    if (ImGui::Selectable("Keep", target == kNoReplacement) && target != kNoReplacement)
+                        session_->submit(CmdSetAutoreplace{model, kNoReplacement});
+                    for (u16 m = 0; m < vehicleModels().size(); ++m) {
+                        const VehicleModel& to = vehicleModel(m);
+                        if (m == model || to.introYear > year || !canReplace(from, to)) continue;
+                        const std::string label = std::format("{}  ({} km/h, {})", to.name, to.maxSpeedKmh,
+                            to.cargoType != CargoType::None ? std::format("{} units", to.cargoCapacity) : std::format("{} seats", to.capacity));
+                        if (ImGui::Selectable(label.c_str(), target == m) && target != m)
+                            session_->submit(CmdSetAutoreplace{model, m});
+                        if (to.electric && !from.electric) ui::itemTooltip({"Electric", "Runs only under overhead wires: wire the whole route first."});
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
     }
     ui::endPanel();
 }

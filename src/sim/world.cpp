@@ -39,6 +39,7 @@ void World::onNewDay() {
     towns::growAll(*this);
     vehicles::daily(*this);
     cargo::daily(*this);
+    subsidies::daily(*this);
     ai::daily(*this);
 }
 
@@ -54,6 +55,7 @@ void World::onNewMonth() {
     economy::monthly(*this);
     towns::monthly(*this);
     cargo::monthly(*this);
+    feedback::monthly(*this);
     towns::spawnNewTowns(*this);
     stations::monthly(*this);
     people::jobMarket(*this);

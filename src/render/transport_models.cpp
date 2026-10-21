@@ -99,6 +99,35 @@ void busBody(MeshBuilder& mb, float length, float height, bool slantedFront, boo
     }
 }
 
+// Intercity coach: a high floor over luggage lockers, a long window band and a raked windscreen.
+// The later high-deck model is taller and rides on a third (tag) axle.
+void coachBody(MeshBuilder& mb, float length, bool highDeck) {
+    const float hl = length * 0.5f, hw = 0.105f, base = 0.045f;
+    const float sill = base + (highDeck ? 0.13f : 0.11f), top = base + (highDeck ? 0.28f : 0.245f);
+    const float nose = hl - 0.07f, screen = sill + 0.03f;
+    mb.box({-hl, base, -hw}, {hl, screen, hw}, kLiveryDark);
+    mb.box({-hl, screen, -hw}, {nose, top, hw}, kLivery);
+    // Locker doors along both sides.
+    for (float x = -hl + 0.1f; x + 0.1f < hl - 0.12f; x += 0.15f)
+        for (const float side : {-1.0f, 1.0f})
+            mb.box({x, base + 0.025f, side * hw - 0.003f}, {x + 0.11f, sill - 0.012f, side * hw + 0.003f}, kLivery);
+    // Raked windscreen and the side panels under it.
+    mb.quadFacing({nose, top, -hw}, {hl, screen, -hw}, {hl, screen, hw}, {nose, top, hw}, kGlass, {1, 0.55f, 0});
+    mb.quadFacing({nose, screen, -hw}, {hl, screen, -hw}, {hl, screen + 0.004f, -hw}, {nose, top, -hw}, kLivery, {0, 0, -1});
+    mb.quadFacing({nose, screen, hw}, {nose, top, hw}, {hl, screen + 0.004f, hw}, {hl, screen, hw}, kLivery, {0, 0, 1});
+    windowBand(mb, -hl + 0.05f, nose - 0.01f, sill + 0.02f, top - 0.025f, hw);
+    // Roof stripe and air conditioning pod.
+    mb.box({-hl + 0.02f, top, -hw + 0.012f}, {nose - 0.02f, top + 0.01f, hw - 0.012f}, kWhite);
+    mb.box({-hl * 0.45f, top + 0.01f, -0.05f}, {hl * 0.1f, top + 0.032f, 0.05f}, kRoofGrey);
+    lamps(mb, hl, base + 0.045f, hw - 0.03f, true);
+    lamps(mb, -hl, base + 0.07f, hw - 0.03f, false);
+    wheels(mb, -hl + 0.13f, hl - 0.14f, hw);
+    if (highDeck)
+        for (const float side : {-1.0f, 1.0f})
+            mb.box({-hl + 0.205f, 0.0f, side * hw - (side > 0 ? 0.035f : 0.005f)},
+                   {-hl + 0.295f, 0.09f, side * hw + (side > 0 ? 0.005f : 0.035f)}, kTyre);
+}
+
 void tramBody(MeshBuilder& mb, float length, int sections) {
     const float hl = length * 0.5f, hw = 0.1f, base = 0.03f, top = 0.27f;
     const float seg = length / static_cast<float>(sections);
@@ -916,6 +945,8 @@ void buildTransportModels(MeshBuilder& out, ModelId id) {
     case models::bus(1): busBody(out, 0.62f, 0.21f, false, false); break;
     case models::bus(2): busBody(out, 0.66f, 0.24f, false, false); break;
     case models::bus(3): busBody(out, 0.92f, 0.22f, false, true); break;
+    case models::bus(8): coachBody(out, 0.8f, false); break;
+    case models::bus(9): coachBody(out, 0.86f, true); break;
     case models::tram(0): tramBody(out, 0.85f, 1); break;
     case models::tram(1): tramBody(out, 1.1f, 2); break;
     case models::tram(2): tramBody(out, 1.35f, 3); break;

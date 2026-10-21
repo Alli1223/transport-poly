@@ -318,6 +318,80 @@ void App::drawLinesWindow() {
             const float load = l.capacity ? static_cast<float>(l.aboard) / static_cast<float>(l.capacity) : 0.0f;
             ui::meterRow("Aboard now", std::format("{} / {}", l.aboard, l.capacity).c_str(), load, ui::col::kTeal);
 
+            i64 satisfied = 0, rated = 0;
+            for (const VehicleId id : l.vehicles)
+                if (const Vehicle* v = w.vehicles.tryGet(id)) {
+                    satisfied += v->satisfactionSum[0] + v->satisfactionSum[1];
+                    rated += v->satisfactionCount[0] + v->satisfactionCount[1];
+                }
+            satisfactionMeter("Passenger satisfaction", satisfied, rated);
+            const auto aboutLine = [&](const Feedback& f) {
+                const Vehicle* v = w.vehicles.tryGet(f.vehicle);
+                return f.company == l.owner && v && v->unitNumber == f.unit && std::ranges::find(l.vehicles, f.vehicle) != l.vehicles.end();
+            };
+            if (std::ranges::any_of(w.feedback, aboutLine)) {
+                ui::sectionHeader("What passengers say");
+                drawFeedbackEntries(aboutLine, 3);
+            }
+
+            // Timetable: a timing point holds the line's vehicles so they leave evenly spaced.
+            ui::sectionHeader("Timetable");
+            if (const Vehicle* lead = w.vehicles.tryGet(l.vehicles.front())) {
+                const bool mine = l.owner == session_->localCompany();
+                const auto timing = std::ranges::find_if(lead->orders, [](const Order& o) { return o.flags & kOrderTimingPoint; });
+                const bool together = std::ranges::all_of(l.vehicles, [&](VehicleId id) {
+                    const Vehicle* v = w.vehicles.tryGet(id);
+                    return v && v->orders == lead->orders;
+                });
+                // Gives every vehicle of the line the lead vehicle's orders, changed by `edit`.
+                const auto apply = [&](auto edit) {
+                    std::vector<Order> orders = lead->orders;
+                    edit(orders);
+                    std::vector<u32> groups;
+                    for (const VehicleId id : l.vehicles) {
+                        const Vehicle* v = w.vehicles.tryGet(id);
+                        if (!v || (v->orderGroup && std::ranges::find(groups, v->orderGroup) != groups.end())) continue;
+                        if (v->orderGroup) groups.push_back(v->orderGroup);
+                        session_->submit(CmdSetOrders{id, orders});
+                    }
+                };
+                const auto mins = [](i64 ticks) { return (ticks + kTicksPerMinute / 2) / kTicksPerMinute; };
+                if (timing != lead->orders.end()) {
+                    const usize index = static_cast<usize>(timing - lead->orders.begin());
+                    const vehicles::ServiceSpacing sp = vehicles::spacing(w, l.vehicles.front(), index);
+                    const Station* st = w.stations.tryGet(timing->station);
+                    ui::statRow("Timing point", st ? st->name.c_str() : "?");
+                    ui::statRow("Departures", sp.interval ? std::format("every {} min", mins(sp.interval)).c_str()
+                                              : sp.vehicles > 1 ? "measuring the round trip" : "one vehicle: no spacing");
+                    if (sp.roundTrip) ui::statRow("Round trip", std::format("{} min", mins(sp.roundTrip)).c_str());
+                    if (!together) ui::mutedText("Some vehicles have different orders and are not spaced with the rest.");
+                    if (mine && ui::button(together ? "Stop spacing" : "Space every vehicle on the line", ui::Icon::Clock,
+                                           ui::Btn::Secondary, ImVec2(-1.0f, 0.0f))) {
+                        apply([&](std::vector<Order>& orders) {
+                            if (together)
+                                for (Order& o : orders) {
+                                    o.flags = static_cast<u8>(o.flags & ~kOrderTimingPoint);
+                                    o.intervalMinutes = 0;
+                                }
+                        });
+                    }
+                } else {
+                    ui::mutedText("Vehicles may bunch up. A timing point holds them at a stop so they leave evenly spaced.");
+                    if (mine) {
+                        if (ui::button("Keep evenly spaced", ui::Icon::Clock, ui::Btn::Primary, ImVec2(-1.0f, 0.0f)))
+                            apply([](std::vector<Order>& orders) {
+                                for (Order& o : orders)
+                                    if (o.kind == OrderKind::Station && !o.passThrough()) {
+                                        o.flags = static_cast<u8>(o.flags | kOrderTimingPoint);
+                                        break;
+                                    }
+                            });
+                        ui::itemTooltip({"Keep evenly spaced", "Makes the first stop a timing point and gives every vehicle "
+                                                               "on the line the same orders, so they run as one service."});
+                    }
+                }
+            }
+
             // The line diagram: its stops in order, the way back drawn as the return to the first,
             // and each vehicle placed between the stop it left and the one it is heading for.
             ui::sectionHeader("Stops and vehicles");

@@ -94,6 +94,8 @@ std::string_view commandName(const CommandPayload& payload) {
                           [](const CmdBuildSpan& c) { return std::string_view(c.tunnel ? "Build tunnel" : "Build bridge"); },
                           [](const CmdRemoveSpan&) { return std::string_view("Remove bridge / tunnel"); },
                           [](const CmdUpdateCompany&) { return std::string_view("Company details"); },
+                          [](const CmdSetAutoreplace&) { return std::string_view("Autoreplace"); },
+                          [](const CmdSetAutorenew&) { return std::string_view("Autorenew"); },
                       },
                       payload);
 }

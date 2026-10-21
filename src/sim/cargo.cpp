@@ -324,7 +324,7 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
                     town->supplied[static_cast<usize>(batch.type)] += delivered;
                 const auto* origin = w.stations.tryGet(batch.origin);
                 const i64 distance = origin ? manhattan(s->sign.x - origin->sign.x, s->sign.y - origin->sign.y) : 0;
-                const Money pay = w.fareIncome(delivered * (distance + 10) / 4);
+                const Money pay = subsidies::cargoPay(w, v.owner, batch, *target, w.fareIncome(delivered * (distance + 10) / 4));
                 const Expense cat = v.info().type == VehicleType::Rail ? Expense::TrainIncome :
                     v.info().type == VehicleType::Ship ? Expense::ShipIncome : Expense::RoadVehicleIncome;
                 if (auto* co = w.companies.tryGet(v.owner)) co->earn(cat, pay);

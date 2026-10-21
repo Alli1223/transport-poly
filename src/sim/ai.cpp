@@ -53,7 +53,7 @@ bool buildRoute(World& w, CompanyId company, const Town& town) {
         u16 model = 0;
         for (u16 m = 0; m < vehicleModels().size(); ++m) {
             const auto& info = vehicleModel(m);
-            if (info.type == VehicleType::Road && info.capacity && info.introYear <= w.clock.date().year) model = m;
+            if (info.type == VehicleType::Road && info.capacity && !info.intercity && info.introYear <= w.clock.date().year) model = m;
         }
         if (vehicleModel(model).introYear > w.clock.date().year) return false;
         const auto bought = run(CmdBuyVehicle{depot, model});

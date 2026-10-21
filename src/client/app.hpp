@@ -14,6 +14,7 @@
 #include "render/world_renderer.hpp"
 
 #include <deque>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -133,6 +134,12 @@ private:
     void applyCompetition(WorldSettings& ws) const;
     void competitionPicker();
 
+    // app_feedback.cpp
+    void drawFeedbackWindow();
+    void drawFeedbackEntries(const std::function<bool(const Feedback&)>& match, usize max);
+    void satisfactionMeter(const char* label, i64 sum, i64 count);
+    void drawSubsidiesWindow();
+
     // app_lines.cpp
     void drawLinesWindow();
     void drawLineRoutes(std::vector<gfx::OverlayQuad>& overlays, bool all);
@@ -174,6 +181,8 @@ private:
     void drawTownNeeds(const Town& t);
     void drawFinanceWindow();
     void drawVehicleList();
+    void drawReplaceWindow();
+    void drawOrderTimetable(VehicleId vehicle, usize index, Order& o, bool& changed);
     void drawNews(double now);
     void drawNewsWindow();
     void drawMinimap(double now);
@@ -298,6 +307,11 @@ private:
     u32 selLine_ = 0;                         // key of the line shown in the lines window
     std::shared_ptr<struct LineCache> lineCache_; // routes of the lines drawn on the map
     int fleetCompany_ = -2;
+    bool showReplace_ = false; // vehicle replacement: autorenew and autoreplace rules
+    bool showFeedback_ = false;
+    int feedbackFilter_ = 0; // all, complaints, praise
+    bool showSubsidies_ = false;
+    int replaceType_ = 0;      // VehicleType shown in the replacement window
     std::deque<std::pair<i64, std::string>> citizenDiary_;
 
     // News: the newest item already announced, and the banner currently shown.

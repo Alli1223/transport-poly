@@ -5,7 +5,8 @@
 #include "core/hash.hpp"
 #include "core/math.hpp"
 #include <algorithm>
-#include <deque>
+#include <limits>
+#include <queue>
 #include <unordered_map>
 
 namespace tp::privatecars {
@@ -14,7 +15,7 @@ u64 tileKey(TilePos tile) { return ChunkPos{tile.x, tile.y}.key(); }
 Dir direction(TilePos a, TilePos b) {
     return b.x > a.x ? Dir::E : b.x < a.x ? Dir::W : b.y > a.y ? Dir::S : Dir::N;
 }
-std::vector<TilePos> access(const World& w, TownId town, TilePos point2) {
+std::vector<TilePos> access(const World& w, TilePos point2) {
     const TilePos at = tileAt(walking::endpoint(w, point2));
     std::vector<TilePos> result;
     // Start at the building's street entrance; never jump over a block to another road.
@@ -22,7 +23,7 @@ std::vector<TilePos> access(const World& w, TownId town, TilePos point2) {
         for (int y = -radius; y <= radius; ++y) for (int x = -radius; x <= radius; ++x) {
             if (std::abs(x) + std::abs(y) != radius) continue;
             const TilePos tile{at.x + x, at.y + y};
-            if (towns::townAt(w, tile) == town && drivablePieces(w, tile, VehicleType::Road, {})) result.push_back(tile);
+            if (drivablePieces(w, tile, VehicleType::Road, {})) result.push_back(tile);
         }
     return result;
 }
@@ -53,27 +54,49 @@ bool ownsCar(u32 serial, i32 year) {
     const auto percent = static_cast<u32>(iclamp(12 + (year - 1950) * 6 / 5, 12, 75));
     return mix32(serial * 0x9e3779b9u) % 100 < percent;
 }
-std::optional<std::vector<TilePos>> route(const World& w, TownId town, TilePos from2, TilePos to2) {
-    if (!w.towns.contains(town) || towns::townAt(w, {floorDiv(from2.x, 2), floorDiv(from2.y, 2)}) != town ||
-        towns::townAt(w, {floorDiv(to2.x, 2), floorDiv(to2.y, 2)}) != town) return std::nullopt;
-    const auto starts = access(w, town, from2), goals = access(w, town, to2);
+std::optional<std::vector<TilePos>> route(const World& w, TilePos from2, TilePos to2) {
+    const auto starts = access(w, from2), goals = access(w, to2);
     if (starts.empty() || goals.empty()) return std::nullopt;
-    std::deque<TilePos> queue;
-    std::unordered_map<u64, TilePos> previous;
-    for (auto tile : starts) { previous[tileKey(tile)] = tile; queue.push_back(tile); }
-    while (!queue.empty() && previous.size() < 8192) {
-        const auto current = queue.front(); queue.pop_front();
-        if (std::ranges::find(goals, current) != goals.end()) {
-            std::vector<TilePos> path{current};
-            while (previous.at(tileKey(path.back())) != path.back()) path.push_back(previous.at(tileKey(path.back())));
+    // A* over every connected road, in towns and across the countryside between them. Ties break
+    // on insertion order, so every peer finds the same path.
+    const auto estimate = [&](TilePos t) {
+        i64 best = std::numeric_limits<i64>::max();
+        for (const TilePos g : goals) best = std::min<i64>(best, std::abs(t.x - g.x) + std::abs(t.y - g.y));
+        return best;
+    };
+    struct Open {
+        i64 f, cost;
+        u32 order;
+        TilePos tile;
+        bool operator>(const Open& o) const { return f != o.f ? f > o.f : order > o.order; }
+    };
+    std::priority_queue<Open, std::vector<Open>, std::greater<Open>> open;
+    std::unordered_map<u64, std::pair<TilePos, i64>> best; // tile -> (previous tile, cost)
+    u32 order = 0;
+    for (const TilePos tile : starts) {
+        best[tileKey(tile)] = {tile, 0};
+        open.push({estimate(tile), 0, order++, tile});
+    }
+    for (i32 expanded = 0; !open.empty() && expanded < kMaxRouteTiles; ++expanded) {
+        const Open current = open.top();
+        open.pop();
+        if (current.cost > best.at(tileKey(current.tile)).second) continue; // superseded
+        if (std::ranges::find(goals, current.tile) != goals.end()) {
+            std::vector<TilePos> path{current.tile};
+            while (best.at(tileKey(path.back())).first != path.back()) path.push_back(best.at(tileKey(path.back())).first);
             std::reverse(path.begin(), path.end());
             return path.size() >= 2 ? std::optional(std::move(path)) : std::nullopt;
         }
-        for (Dir d : kDirs) {
-            const auto next = neighbour(current, d);
-            if (previous.contains(tileKey(next)) || towns::townAt(w, next) != town ||
-                !roadLinkOpen(w, current, d, VehicleType::Road, {})) continue;
-            previous.emplace(tileKey(next), current); queue.push_back(next);
+        for (const Dir d : kDirs) {
+            if (!roadLinkOpen(w, current.tile, d, VehicleType::Road, {})) continue;
+            const TilePos next = neighbour(current.tile, d);
+            const i64 cost = current.cost + 1;
+            const auto [it, fresh] = best.try_emplace(tileKey(next), current.tile, cost);
+            if (!fresh) {
+                if (it->second.second <= cost) continue;
+                it->second = {current.tile, cost};
+            }
+            open.push({cost + estimate(next), cost, order++, next});
         }
     }
     return std::nullopt;
@@ -103,7 +126,7 @@ void release(World& w, PersonId id) {
 bool begin(World& w, PersonId id, TilePos from2, TilePos to2) {
     auto& p = w.people[id];
     if (!p.carOwner) return false;
-    auto path = route(w, p.town, from2, to2);
+    auto path = route(w, from2, to2);
     if (!path) return false;
     release(w, id);
     p.carPath = std::move(*path); p.carIndex = 0;
@@ -127,10 +150,10 @@ bool advance(World& w, PersonId id) {
     }
     if (p.carIndex + 1 == p.carPath.size()) { release(w, id); p.carPath.clear(); return false; }
     const auto next = p.carPath[p.carIndex + 1];
-    if (!roadLinkOpen(w, current, exit(p), VehicleType::Road, {}) || towns::townAt(w, next) != p.town) {
+    if (!roadLinkOpen(w, current, exit(p), VehicleType::Road, {})) {
         // A road was removed: re-plan from the current street, falling back safely if cut off.
         release(w, id); p.carPath.clear();
-        if (auto replacement = route(w, p.town, {current.x * 2 + 1, current.y * 2 + 1}, p.tripTo2)) {
+        if (auto replacement = route(w, {current.x * 2 + 1, current.y * 2 + 1}, p.tripTo2)) {
             p.carPath = std::move(*replacement); p.carIndex = 0; p.carStepStart = w.clock.tick;
             index(w, id); people::schedule(w, id, w.clock.tick + kDriveTicksPerTile); return true;
         }

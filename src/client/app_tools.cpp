@@ -525,6 +525,8 @@ void App::drawToolbar() {
     const WindowButton windows[] = {
         {"##vehicles", ui::Icon::Bus, &showVehicleList_, {"Vehicles", "All of your buses, trams, trains and ships", "V"}},
         {"##lines", ui::Icon::Link, &showLines_, {"Lines", "Your lines: their stops, vehicles, passengers and profit", "L"}},
+        {"##feedback", ui::Icon::Chat, &showFeedback_, {"Passenger feedback", "What passengers say about your services, and how satisfied they are", "P"}},
+        {"##subsidies", ui::Icon::Spark, &showSubsidies_, {"Subsidies", "Double pay for a year to the first company to start a new service", "U"}},
         {"##companies", ui::Icon::Star, &showCompanies_, {"Companies", "The league table, company graphs and performance ratings", "G"}},
         {"##finances", ui::Icon::Coins, &showFinances_, {"Finances", "Income, expenses and your loan", "F"}},
         {"##towns", ui::Icon::Town, &showTownList_, {"Towns", "Every town you have discovered", "T"}},

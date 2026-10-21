@@ -482,8 +482,13 @@ CommandResult handle(World& w, const Command& c, const CmdSetOrders& x, bool exe
     if (x.orders.size() > 64) return CommandResult::failure("Too many orders");
     const VehicleType type = v->info().type;
     for (const Order& o : x.orders) {
-        if (o.flags & ~(kOrderNonStop | kOrderFullLoad | kOrderUnloadOnly | kOrderNoLoading | kOrderPlatform))
+        if (o.flags & ~(kOrderNonStop | kOrderFullLoad | kOrderUnloadOnly | kOrderNoLoading | kOrderPlatform | kOrderTimingPoint))
             return CommandResult::failure("Unknown order flags");
+        if (o.waitMinutes > kMaxTimetableMinutes || o.intervalMinutes > kMaxTimetableMinutes)
+            return CommandResult::failure("Timetable times can be at most a day");
+        if ((o.waitMinutes || o.intervalMinutes || (o.flags & kOrderTimingPoint)) &&
+            (o.kind != OrderKind::Station || o.passThrough()))
+            return CommandResult::failure("Only stops can be timetabled");
         if ((o.flags & kOrderPlatform) &&
             (o.kind != OrderKind::Station || type != VehicleType::Rail || !track::platformNear(w, o.station, o.platform).valid()))
             return CommandResult::failure("That platform is not part of the station");
@@ -518,10 +523,19 @@ CommandResult handle(World& w, const Command& c, const CmdSetOrders& x, bool exe
         const CompanyId owner = v->owner;
         for (auto [id, o] : w.vehicles) {
             if (id != x.vehicle && (group == 0 || o.orderGroup != group || o.owner != owner)) continue;
+            // A vehicle waiting for its old timetable reconsiders under the new one.
+            if (const Order* old = o.currentOrder();
+                o.state == VehicleState::Loading && (o.holdingSince >= 0 || (old && old->waitMinutes)))
+                o.loadingUntil = std::min(o.loadingUntil, w.clock.tick + 1);
             o.orders = x.orders;
             if (o.orderIndex >= o.orders.size()) o.orderIndex = 0;
             o.path.clear();
             o.pathIndex = 0;
+            // A new timetable starts afresh: departures and round trips are measured again.
+            o.departures.clear();
+            o.holdingSince = -1;
+            o.heldTicks = 0;
+            o.cycleTicks = 0;
         }
         passengers::markDirty(w);
     }
@@ -580,8 +594,34 @@ CommandResult handle(World& w, const Command& c, const CmdSkipOrder& x, bool exe
         v->path.clear();
         v->pathIndex = 0;
         v->stopAtMiddle = false;
+        v->holdingSince = -1;
         if (v->state == VehicleState::Loading) v->state = VehicleState::Driving;
     }
+    return CommandResult::success();
+}
+
+CommandResult handle(World& w, const Command& c, const CmdSetAutoreplace& x, bool exec) {
+    Company* co = w.companies.tryGet(c.company);
+    if (!co) return CommandResult::failure("Only companies replace vehicles");
+    if (x.from >= vehicleModels().size()) return CommandResult::failure("Unknown vehicle");
+    if (x.to != kNoReplacement) {
+        if (x.to >= vehicleModels().size()) return CommandResult::failure("Unknown vehicle");
+        if (x.to == x.from) return CommandResult::failure("Choose a different model");
+        if (!canReplace(vehicleModel(x.from), vehicleModel(x.to)))
+            return CommandResult::failure(std::format("A {} can't replace a {}", vehicleModel(x.to).name, vehicleModel(x.from).name));
+        if (vehicleModel(x.to).introYear > w.clock.date().year) return CommandResult::failure("Not yet available");
+    }
+    if (exec) {
+        std::erase_if(co->replacements, [&](const auto& r) { return r.first == x.from; });
+        if (x.to != kNoReplacement) co->replacements.emplace_back(x.from, x.to);
+    }
+    return CommandResult::success();
+}
+
+CommandResult handle(World& w, const Command& c, const CmdSetAutorenew& x, bool exec) {
+    Company* co = w.companies.tryGet(c.company);
+    if (!co) return CommandResult::failure("Only companies renew vehicles");
+    if (exec) co->autorenew = x.enabled;
     return CommandResult::success();
 }
 

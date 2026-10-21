@@ -7,11 +7,13 @@
 #include "sim/buildings.hpp"
 #include "sim/company.hpp"
 #include "sim/economy.hpp"
+#include "sim/feedback.hpp"
 #include "sim/ids.hpp"
 #include "sim/map.hpp"
 #include "sim/passengers.hpp"
 #include "sim/person.hpp"
 #include "sim/station.hpp"
+#include "sim/subsidies.hpp"
 #include "sim/town.hpp"
 #include "sim/track.hpp"
 #include "sim/vehicle.hpp"
@@ -28,7 +30,7 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 28;
+inline constexpr u32 kSaveVersion = 29;
 inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
@@ -109,6 +111,8 @@ public:
     std::vector<Industry> industries;
     CompanyId competitionWinner; // decided by league::monthly
     bool competitionOver = false;
+    std::deque<Feedback> feedback;  // passengers' comments, oldest first
+    std::vector<Subsidy> subsidies; // on offer and awarded
 
     Money inflated(Money base) const { return base / 10'000 * economy.priceIndex + (base % 10'000 * economy.priceIndex + 5000) / 10'000; }
     Money fareIncome(Money base) const { return inflated(base) * (economy.recessionMonths > 0 ? 70 : 100) / 100; }
@@ -153,6 +157,7 @@ public:
         if (ar.version == 0 || ar.version >= 17) ar(industries);
         if (ar.version == 0 || ar.version >= 21) ar(processedIndustrySites);
         if (ar.version == 0 || ar.version >= 26) ar(competitionWinner, competitionOver);
+        if (ar.version == 0 || ar.version >= 29) ar(feedback, subsidies);
         if constexpr (Ar::kReading) {
             for (auto [id, c] : companies)
                 if (!c.thisMonth.month) {

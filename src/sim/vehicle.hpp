@@ -9,6 +9,7 @@
 #include "sim/track.hpp"
 
 #include <algorithm>
+#include <array>
 #include <deque>
 #include <optional>
 #include <span>
@@ -38,11 +39,15 @@ struct VehicleModel {
     u16 cargoCapacity = 0;
     bool openCargo = false;
     bool electric = false; // trains: an engine that runs only under overhead wires
+    bool intercity = false; // road: a long distance coach rather than a town bus
 };
 
 std::span<const VehicleModel> vehicleModels();
 const VehicleModel& vehicleModel(u16 index);
 std::string_view vehicleTypeName(VehicleType t);
+// A model can take another's place in a fleet: the same kind of vehicle (engine, coach, wagon,
+// bus or lorry) carrying the same class of load.
+bool canReplace(const VehicleModel& from, const VehicleModel& to);
 
 // Reliability in basis points (10000 = 100%): newer designs are more reliable.
 constexpr u16 maxReliability(const VehicleModel& m) {
@@ -70,7 +75,11 @@ enum OrderFlags : u8 {
     kOrderUnloadOnly = 1 << 2,
     kOrderNoLoading = 1 << 3,
     kOrderPlatform = 1 << 4, // free-form track: stop at the platform nearest Order::platform
+    kOrderTimingPoint = 1 << 5, // hold here so the vehicles running this service leave evenly spaced
 };
+
+// Longest timetabled stop or departure interval, in minutes.
+inline constexpr u16 kMaxTimetableMinutes = 24 * 60;
 
 enum class OrderKind : u8 { Station, Depot, Via };
 
@@ -81,6 +90,10 @@ struct Order {
     u8 flags = 0;
     TilePos waypoint;
     TPoint platform; // with kOrderPlatform: a point on the chosen platform
+    // Timetable: stop at least this long, and with kOrderTimingPoint leave this long after the
+    // previous vehicle of the service (0: the round trip shared out between its vehicles).
+    u16 waitMinutes = 0;
+    u16 intervalMinutes = 0;
 
     bool passThrough() const { return kind == OrderKind::Via || (kind == OrderKind::Station && (flags & kOrderNonStop)); }
 
@@ -90,6 +103,7 @@ struct Order {
         ar(kind, station, depot, flags);
         if (ar.version == 0 || ar.version >= 9) ar(waypoint);
         if (ar.version == 0 || ar.version >= 16) ar(platform);
+        if (ar.version == 0 || ar.version >= 29) ar(waitMinutes, intervalMinutes);
     }
 };
 
@@ -176,6 +190,18 @@ struct Vehicle {
     bool goingForService = false; // heading for its depot for a service; keeps its place in the orders
     u32 orderGroup = 0;           // vehicles with the same non-zero group share one order list
 
+    // Timetable: when it last left each order's stop (timing points only, -1 never), when it
+    // started holding at the current timing point (-1 not holding), and its round trip from the
+    // first timing point back to it, without the time spent holding.
+    std::vector<i64> departures;
+    i64 holdingSince = -1;
+    i64 heldTicks = 0;
+    i64 cycleTicks = 0;
+    // Passenger satisfaction (see feedback.hpp): ride scores out of 100 added up, and how many,
+    // this month and last.
+    std::array<i64, 2> satisfactionSum{};
+    std::array<i32, 2> satisfactionCount{};
+
     Money profitThisYear = 0;
     Money profitLastYear = 0;
     Money value = 0;
@@ -257,6 +283,7 @@ struct Vehicle {
         if (ar.version == 0 || ar.version >= 14) ar(freeTrack, runs, runsAhead);
         if (ar.version == 0 || ar.version >= 17) ar(cargo, cargoExchangeTick, cargoExchangeUnits, loadingStartTick, cargoLoaded, cargoUnloaded);
         if (ar.version == 0 || ar.version >= 24) ar(passengerSeats);
+        if (ar.version == 0 || ar.version >= 29) ar(departures, holdingSince, heldTicks, cycleTicks, satisfactionSum, satisfactionCount);
     }
 };
 
@@ -351,6 +378,31 @@ void invalidatePaths(World& w);
 // let it carry on with its orders (after a service visit) or move on to the next order.
 void arriveInDepot(World& w, VehicleId id);
 i32 ageDays(const World& w, const Vehicle& v);
+
+// The vehicles running one service: the same owner and type with identical orders (vehicles
+// sharing an order list always have identical orders). At a timing point they leave `interval`
+// ticks apart: the order's interval, or the measured round trip shared out between them (0 while
+// unknown).
+struct ServiceSpacing {
+    i32 vehicles = 0;    // operating, including the one asked about
+    i64 roundTrip = 0;   // average measured round trip in ticks, 0 while unknown
+    i64 interval = 0;    // ticks between departures, 0 while unknown
+    i64 lastDeparture = -1;
+};
+ServiceSpacing spacing(const World& w, VehicleId id, usize orderIndex);
+// The first tick the vehicle may leave the stop of its current order under its timetable.
+i64 timetableRelease(const World& w, VehicleId id);
+
+// Vehicle replacement: what a vehicle becomes at its next depot visit under its company's
+// autoreplace rules and autorenew (nullopt: it stays as it is).
+struct Replacement {
+    u16 model = 0;
+    std::vector<u16> cars; // trains
+    Money price = 0;       // of the new vehicle, inflated
+};
+std::optional<Replacement> plannedReplacement(const World& w, const Vehicle& v);
+// Replaces the vehicle in its depot if a replacement is planned and the company can pay for it.
+void autoreplace(World& w, VehicleId id);
 
 } // namespace vehicles
 
