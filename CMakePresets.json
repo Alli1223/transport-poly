@@ -12,7 +12,7 @@
       "inherits": "base",
       "displayName": "Windows MSVC (Ninja Multi-Config, run from a VS developer prompt)",
       "generator": "Ninja Multi-Config",
-      "cacheVariables": { "CMAKE_C_COMPILER": "cl", "CMAKE_CXX_COMPILER": "cl" },
+      "cacheVariables": { "CMAKE_C_COMPILER": "cl", "CMAKE_CXX_COMPILER": "cl", "TP_UPDATE_FEED": "https://api.github.com/repos/Alli1223/transport-poly/releases/latest" },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
     },
     {
@@ -21,6 +21,7 @@
       "displayName": "Visual Studio 2026 solution",
       "generator": "Visual Studio 18 2026",
       "architecture": "x64",
+      "cacheVariables": { "TP_UPDATE_FEED": "https://api.github.com/repos/Alli1223/transport-poly/releases/latest" },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
     },
     {
@@ -28,7 +29,7 @@
       "inherits": "base",
       "displayName": "Linux GCC (Ninja Multi-Config)",
       "generator": "Ninja Multi-Config",
-      "cacheVariables": { "CMAKE_C_COMPILER": "gcc", "CMAKE_CXX_COMPILER": "g++" },
+      "cacheVariables": { "CMAKE_C_COMPILER": "gcc", "CMAKE_CXX_COMPILER": "g++", "TP_UPDATE_FEED": "https://api.github.com/repos/Alli1223/transport-poly/releases/latest" },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
     },
     {
@@ -36,7 +37,7 @@
       "inherits": "base",
       "displayName": "Linux Clang (Ninja Multi-Config)",
       "generator": "Ninja Multi-Config",
-      "cacheVariables": { "CMAKE_C_COMPILER": "clang", "CMAKE_CXX_COMPILER": "clang++" },
+      "cacheVariables": { "CMAKE_C_COMPILER": "clang", "CMAKE_CXX_COMPILER": "clang++", "TP_UPDATE_FEED": "https://api.github.com/repos/Alli1223/transport-poly/releases/latest" },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
     },
     {

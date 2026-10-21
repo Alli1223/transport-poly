@@ -8,6 +8,7 @@
 namespace tp {
 void App::drawWorldOverlays(std::vector<gfx::OverlayQuad>& overlays) {
     drawInspectOverlays(overlays);
+    drawPlayerCursors(overlays);
     if (overlayMode_ == 4 || showLines_) drawLineRoutes(overlays, overlayMode_ == 4);
     if (!overlayMode_) return;
     const World& w = world();

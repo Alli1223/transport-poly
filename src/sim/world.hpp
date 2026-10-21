@@ -28,7 +28,7 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 25;
+inline constexpr u32 kSaveVersion = 28;
 inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
@@ -46,6 +46,9 @@ struct WorldSettings {
     bool smoothTerrain = true; // smooth hills with varied inclines (worlds before save version 12: stepped)
     TerrainSettings terrain;   // land, mountains, lakes and rivers (worlds before save version 19: the original)
     bool industries = true;    // countryside industries and town needs (worlds before save version 21: off)
+    // The competition (0: none): the first company to this value wins, or the best rating in this year.
+    Money goalValue = 0;
+    i32 goalYear = 0;
 
     template <class Ar>
     void serialize(Ar& ar) {
@@ -63,6 +66,7 @@ struct WorldSettings {
         else if constexpr (Ar::kReading) terrain = TerrainSettings::original();
         if (ar.version == 0 || ar.version >= 21) ar(industries);
         else if constexpr (Ar::kReading) industries = false;
+        if (ar.version == 0 || ar.version >= 26) ar(goalValue, goalYear);
     }
 };
 
@@ -103,6 +107,8 @@ public:
     std::deque<NewsItem> news;
     Economy economy;
     std::vector<Industry> industries;
+    CompanyId competitionWinner; // decided by league::monthly
+    bool competitionOver = false;
 
     Money inflated(Money base) const { return base / 10'000 * economy.priceIndex + (base % 10'000 * economy.priceIndex + 5000) / 10'000; }
     Money fareIncome(Money base) const { return inflated(base) * (economy.recessionMonths > 0 ? 70 : 100) / 100; }
@@ -120,6 +126,7 @@ public:
     u32 trackRevision = 0;
     // Tile key -> vehicles on the tile (rebuilt every tick).
     std::unordered_map<u64, std::vector<VehicleId>> vehicleTiles;
+    std::unordered_map<u64, std::vector<PersonId>> privateCarTiles; // derived, updated as citizens drive
     RoutingTable routing;
     TownLinks townLinks; // derived from the routing (not saved)
 
@@ -145,6 +152,7 @@ public:
         if (ar.version == 0 || ar.version >= 13) ar(trackNodes, trackEdges);
         if (ar.version == 0 || ar.version >= 17) ar(industries);
         if (ar.version == 0 || ar.version >= 21) ar(processedIndustrySites);
+        if (ar.version == 0 || ar.version >= 26) ar(competitionWinner, competitionOver);
         if constexpr (Ar::kReading) {
             for (auto [id, c] : companies)
                 if (!c.thisMonth.month) {

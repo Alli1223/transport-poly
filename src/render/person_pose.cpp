@@ -7,6 +7,11 @@
 
 namespace tp::gfx {
 std::optional<PersonPose> personPose(const World& w, const Person& p, double fraction) {
+    if (p.state == PersonState::Driving && !p.carPath.empty()) {
+        if (auto car = privateCarPose(w, p, fraction))
+            return PersonPose{car->pos + glm::dvec3(0, .055, 0), car->yaw, true};
+        return std::nullopt;
+    }
     const double now = static_cast<double>(w.clock.tick) + fraction;
     const bool onFoot = p.state == PersonState::Walking || p.state == PersonState::ToStop ||
         p.state == PersonState::FromStop || p.state == PersonState::Waiting ||

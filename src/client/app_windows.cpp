@@ -245,6 +245,7 @@ void App::drawWindows() {
     drawPersonWindow();
     drawPersonLabels();
     drawLinesWindow();
+    drawCompaniesWindow();
     drawFinanceWindow();
     drawVehicleList();
     drawNewsWindow();
@@ -264,6 +265,7 @@ void App::drawNews(double now) {
         lastNewsTick_ = w.news.back().tick;
         newsBanner_ = w.news.back();
         newsBannerUntil_ = now + 10.0;
+        audio_.play(SoundEvent::Notify);
     }
     if (!newsBanner_ || now > newsBannerUntil_) return;
     const float s = uiScale_;

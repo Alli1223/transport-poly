@@ -2,6 +2,7 @@
 // facing +Z; walls use tintable colours so instances can vary their facade colour.
 
 #include "render/models.hpp"
+#include "sim/buildings.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -608,6 +609,48 @@ void furnitureFactory(MeshBuilder& mb, u8) {
     chimney(mb, -0.6f, -0.5f, 0.6f, 0.25f);
 }
 
+// Add separate paddocks, stores and work sheds around the original production building.
+// The uneven arrangement leaves lanes and open corners instead of a single square block.
+void industryGrounds(MeshBuilder& mb, u16 type, u8 variant) {
+    const float half = buildingType(type).size * 0.5f;
+    const bool farm = type >= 15 && type <= 17;
+    const bool timber = type == 18 || type == 24 || type == 28;
+    const float edge = half + 0.85f;
+    for (int section = 0; section <= variant; ++section) {
+        const float z = -half + section * (2.0f * half / 3.0f);
+        if (farm) {
+            if (type == 15) {
+                field(mb, -edge, z, -half - 0.12f, z + 0.85f, section % 2 ? rgba(126, 168, 72) : rgba(214, 186, 92), rgba(166, 148, 76), 5);
+            } else {
+                field(mb, -edge, z, -half - 0.12f, z + 0.85f, kPasture, kPasture, 1);
+                fence(mb, -edge, z, -half - 0.12f, z + 0.85f);
+                if (type == 16) {
+                    sheep(mb, -half - 0.5f, z + 0.22f, 0.7f);
+                    sheep(mb, -half - 0.38f, z + 0.6f, 2.0f);
+                } else cow(mb, -half - 0.5f, z + 0.4f, section % 2 == 0);
+            }
+        } else {
+            mb.box({-edge, 0, z}, {-half - 0.1f, 0.015f, z + 0.7f}, rgba(144, 132, 110));
+            if (timber) logPile(mb, -half - 0.48f, z + 0.35f, 0.55f, 2 + section);
+            else heap(mb, -half - 0.45f, z + 0.3f, 0.24f, 0.2f + section * 0.06f, type == 21 ? rgba(48, 48, 52) : kRockGrey);
+        }
+    }
+    // A maintenance shed, loading store and, at larger sites, a second workshop.
+    for (int i = 0; i < 1 + variant; ++i) {
+        const float x = -half + 0.15f + i * 0.8f;
+        const glm::vec3 mn(x, 0, half + 0.18f), mx(x + 0.58f, 0.28f + i * 0.05f, edge - 0.08f);
+        const u32 wall = farm ? kBarnRed : (timber ? kTimber : kBrick);
+        walls(mb, mn, mx, wall);
+        mb.gableRoofX(mn, mx, mx.y, 0.16f, kRoofSlate, wall, 0.025f);
+        door(mb, x + 0.2f, mx.z, 0.15f, 0.22f);
+    }
+    if (variant > 0 && farm) silo(mb, half + 0.4f, -half + 0.35f, 0.18f, 0.65f + variant * 0.15f);
+    if (variant > 0 && timber) {
+        plankStack(mb, half + 0.4f, 0.2f);
+        plankStack(mb, half + 0.4f, 0.7f);
+    }
+}
+
 } // namespace
 
 void buildBuildingModel(MeshBuilder& mb, u16 type, u8 variant) {
@@ -643,6 +686,7 @@ void buildBuildingModel(MeshBuilder& mb, u16 type, u8 variant) {
     case 28: furnitureFactory(mb, variant); break;
     default: house(mb, 0); break;
     }
+    if (type >= 15 && type <= 28) industryGrounds(mb, type, variant);
 }
 
 } // namespace tp::gfx

@@ -93,7 +93,7 @@ u32 buildingGround(const Tile& t, const World* world) {
     if (!world) return kGarden;
     const Building* b = world->buildings.tryGet(BuildingId(t.index));
     if (!b) return kGarden;
-    return b->info().category == BuildingCategory::Residential ? kGarden : kPlaza;
+    return b->info().category == BuildingCategory::Residential || b->type == 12 || (b->type >= 15 && b->type <= 18) ? kGarden : kPlaza;
 }
 
 // Describes how the top of a structure tile is shaped.

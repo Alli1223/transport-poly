@@ -8,6 +8,8 @@
 #include "sim/prices.hpp"
 #include "sim/ai.hpp"
 #include "sim/industries.hpp"
+#include "sim/league.hpp"
+#include "sim/private_cars.hpp"
 
 namespace tp {
 
@@ -93,11 +95,13 @@ void World::onNewMonth() {
         }
     }
     for (auto [id, c] : companies) if (c.money >= 0 && !c.bankrupt) c.quartersInDebt = 0;
+    league::monthly(*this);
 }
 
 void World::onNewYear() {
     vehicles::yearly(*this);
     const i32 year = clock.date().year;
+    for (auto [id, person] : people) person.carOwner = person.carOwner || privatecars::ownsCar(person.serial, year);
     for (const VehicleModel& m : vehicleModels())
         if (m.introYear == year)
             addNews(NewsKind::Vehicle, std::format("New {} available: {} ({} km/h{})", vehicleTypeName(m.type), m.name,

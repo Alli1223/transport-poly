@@ -33,6 +33,7 @@
 #include <filesystem>
 #include <fstream>
 #include <format>
+#include <thread>
 #include <string_view>
 #include <vector>
 
@@ -457,10 +458,12 @@ void App::onFramebufferSize(int width, int height) { camera_.setViewport(width, 
 
 bool App::parseArgs(int argc, char** argv) {
     if (argc > 0 && argv[0]) exeDir_ = std::filesystem::path(argv[0]).parent_path().string();
+    if (const auto exe = update::executablePath(); !exe.empty()) exeDir_ = exe.parent_path().string();
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (arg != "--no-debug" && arg != "--screenshot" && arg != "--frames" && arg != "--time" && arg != "--open" &&
-            arg != "--land" && arg != "--climate" && arg != "--clouds" && arg != "--mist" && arg != "--mountains" && arg != "--lakes" && arg != "--rivers")
+            arg != "--land" && arg != "--climate" && arg != "--clouds" && arg != "--mist" && arg != "--mountains" && arg != "--lakes" && arg != "--rivers" &&
+            arg != "--update-feed" && arg != "--auto-update")
             directStart_ = true;
         const auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : nullptr; };
         if (arg == "--screenshot") {
@@ -469,6 +472,8 @@ bool App::parseArgs(int argc, char** argv) {
             if (const char* v = next()) profilePath_ = v;
         } else if (arg == "--frames") {
             if (const char* v = next()) autoFrames_ = std::max(1, std::atoi(v));
+        } else if (arg == "--return-to-menu-at") {
+            if (const char* v = next()) menuReturnFrame_ = std::max(1, std::atoi(v));
         } else if (arg == "--seed") {
             if (const char* v = next()) seed_ = std::strtoull(v, nullptr, 10);
         } else if (arg == "--time") {
@@ -557,6 +562,26 @@ bool App::parseArgs(int argc, char** argv) {
             demoShips_ = true;
         } else if (arg == "--join") {
             if (const char* v = next()) joinAddress_ = v;
+        } else if (arg == "--ai") {
+            if (const char* v = next()) preferences_.aiCompetitors = std::clamp(std::atoi(v), 0, 3);
+        } else if (arg == "--competition") {
+            if (const char* v = next()) competition_ = std::clamp(std::atoi(v), 0, 6);
+        } else if (arg == "--name") {
+            if (const char* v = next()) std::snprintf(playerName_, sizeof(playerName_), "%s", v);
+        } else if (arg == "--password") {
+            if (const char* v = next()) std::snprintf(serverPassword_, sizeof(serverPassword_), "%s", v);
+        } else if (arg == "--update-feed") {
+            // Automation and testing: check this release feed (even in development builds).
+            if (const char* v = next()) updateFeed_ = v;
+        } else if (arg == "--auto-update") {
+            autoUpdate_ = true;
+            showUpdateErrors_ = true;
+        } else if (arg == "--fast-forward") {
+            // Automation: run the --host-demo game this many days before showing it.
+            if (const char* v = next()) fastForwardDays_ = std::clamp(std::atoi(v), 0, 3650);
+        } else if (arg == "--host-demo") {
+            // Automation: host a game on a free port with this many bot players.
+            if (const char* v = next()) hostDemoBots_ = std::clamp(std::atoi(v), 0, 3);
         } else if (arg == "--no-debug") {
             showDebug_ = false;
         } else {
@@ -591,8 +616,15 @@ void App::captureScreenshot(const std::string& path) {
 }
 
 bool App::init() {
+    // An installed game keeps saves, settings and screenshots in the player's own folder.
+    if (update::installKind() == releases::Kind::WindowsInstaller) {
+        std::error_code ec;
+        const auto data = update::userDataDir();
+        std::filesystem::create_directories(data, ec);
+        std::filesystem::current_path(data, ec);
+    }
     preferences_.load("settings.cfg");
-    audio_.setEnabled(preferences_.sounds);
+    if (preferences_.checkUpdates || !updateFeed_.empty()) startUpdateCheck();
     renderer_.settings.shadows = preferences_.shadows;
     renderer_.settings.weather = preferences_.weather;
     renderer_.settings.maxViewDistance = static_cast<float>(preferences_.viewDistance);
@@ -604,7 +636,10 @@ bool App::init() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
-    glfwWindowHint(GLFW_SAMPLES, 4);
+    constexpr int samples[] = {0, 2, 4, 8};
+    startupAntiAliasing_ = preferences_.antiAliasing;
+    glfwWindowHint(GLFW_SAMPLES, samples[startupAntiAliasing_]);
+    glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
     glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
     if (autoScreenshot_) {
         // Automated runs must not steal keyboard focus from whatever the user is doing.
@@ -617,6 +652,14 @@ bool App::init() {
     glfwMakeContextCurrent(window_);
     glfwSwapInterval(preferences_.vsync ? 1 : 0);
     glfwSetWindowUserPointer(window_, this);
+    glfwSetKeyCallback(window_, [](GLFWwindow* w, int key, int, int action, int mods) {
+        if (key == GLFW_KEY_ENTER && action == GLFW_PRESS && (mods & GLFW_MOD_ALT)) {
+            App* app = appFrom(w);
+            app->preferences_.fullscreen = !app->preferences_.fullscreen;
+            app->applyPreferences();
+            app->preferences_.save("settings.cfg");
+        }
+    });
     glfwSetScrollCallback(window_, [](GLFWwindow* w, double, double dy) { appFrom(w)->onScroll(dy); });
     glfwSetFramebufferSizeCallback(
         window_, [](GLFWwindow* w, int width, int height) { appFrom(w)->onFramebufferSize(width, height); });
@@ -625,6 +668,7 @@ bool App::init() {
     log::info("OpenGL {} on {}", reinterpret_cast<const char*>(glGetString(GL_VERSION)),
               reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
     glEnable(GL_MULTISAMPLE);
+    applyPreferences();
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -655,7 +699,38 @@ bool App::init() {
             port = static_cast<u16>(std::atoi(host.substr(colon + 1).c_str()));
             host = host.substr(0, colon);
         }
-        startSession(std::make_unique<net::NetClientSession>(host, port, "Player"));
+        startSession(std::make_unique<net::NetClientSession>(host, port, playerName_, net::kJoinAsk, serverPassword_));
+    } else if (hostDemoBots_ > 0) {
+        WorldSettings ws;
+        ws.seed = seed_;
+        ws.terrain = terrainSettings(preferences_);
+        ws.startYear = preferences_.startYear;
+        ws.aiCompetitors = preferences_.aiCompetitors;
+        applyCompetition(ws);
+        auto hosted = std::make_unique<World>(ws);
+        Command create;
+        create.client = kLocalClientId;
+        create.payload = CmdCreateCompany{"Kestrel Lines", 9};
+        const CompanyId company(static_cast<u8>(executeCommand(*hosted, create).createdId));
+        if (demoNetwork_) {
+            buildDemoNetwork(*hosted, company);
+            demoNetwork_ = false;
+        }
+        for (i64 t = 0; t < static_cast<i64>(fastForwardDays_) * kTicksPerDay; ++t) hosted->tick();
+        net::NetServer::Options opt;
+        opt.port = 0;
+        auto host = std::make_unique<net::HostSession>(std::move(hosted), company, opt);
+        std::string err;
+        if (!host->start(err)) {
+            log::error("Could not host the demo game: {}", err);
+            return false;
+        }
+        const u16 port = host->net().options().port;
+        host->net().setLocalHost(company, playerName_);
+        startSession(std::move(host));
+        static constexpr const char* kBotNames[] = {"Ada", "Brunel", "Stephenson"};
+        for (int i = 0; i < hostDemoBots_; ++i)
+            bots_.push_back(std::make_unique<net::NetClientSession>("127.0.0.1", port, kBotNames[i], net::kJoinAsk));
     } else if (directStart_) {
         newGame(seed_);
     }
@@ -839,7 +914,15 @@ void App::processFeedback(double now) {
     const ImVec2 mouse = ImGui::GetIO().MousePos;
     const bool mouseValid = mouse.x > -1000.0f && mouse.y > -1000.0f;
     for (const CommandFeedback& f : session_->takeFeedback()) {
-        if (f.name != "Explore") audio_.play(f.result.ok);
+        if (f.name != "Explore") {
+            SoundEvent event = SoundEvent::Confirm;
+            if (!f.result.ok) event = SoundEvent::Error;
+            else if (f.name.find("Buy") != std::string::npos) event = SoundEvent::Buy;
+            else if (f.name.find("Remove") != std::string::npos || f.name.find("Clear") != std::string::npos ||
+                     f.name.find("Demolish") != std::string::npos) event = SoundEvent::Demolish;
+            else if (f.result.cost > 0) event = SoundEvent::Build;
+            audio_.play(event);
+        }
         if (f.result.ok) {
             if (f.seq == pendingBuySeq_ && f.result.createdId != 0xFFFFFFFFu) {
                 const VehicleId bought(f.result.createdId);
@@ -1104,6 +1187,7 @@ void App::handleHotkeys() {
     if (ImGui::IsKeyPressed(ImGuiKey_5, false)) toggleGroup(ToolGroup::Water);
     if (ImGui::IsKeyPressed(ImGuiKey_V, false)) showVehicleList_ = !showVehicleList_;
     if (ImGui::IsKeyPressed(ImGuiKey_L, false)) showLines_ = !showLines_;
+    if (ImGui::IsKeyPressed(ImGuiKey_G, false)) showCompanies_ = !showCompanies_;
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) showFinances_ = !showFinances_;
     if (ImGui::IsKeyPressed(ImGuiKey_T, false)) showTownList_ = !showTownList_;
     if (ImGui::IsKeyPressed(ImGuiKey_N, false)) showNews_ = !showNews_;
@@ -1208,6 +1292,7 @@ int App::run(int argc, char** argv) {
     double last = glfwGetTime();
     while (!glfwWindowShouldClose(window_)) {
         glfwPollEvents();
+        applyScreenTransition();
         const double now = glfwGetTime();
         const double dt = std::min(now - last, 0.1);
         last = now;
@@ -1217,6 +1302,7 @@ int App::run(int argc, char** argv) {
         double simulationMs = 0;
         if (session_) {
             session_->update(dt);
+            updateBots(dt);
             simulationMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-cpuStart).count();
             if (session_->ready()) processFeedback(now);
         }
@@ -1236,6 +1322,7 @@ int App::run(int argc, char** argv) {
             }
             updatePreview(dt);
             drawMainMenu();
+            drawUpdatePanel();
             if (preview_) renderer_.render(preview_->world(), camera_, 15.5 * 60.0, timeSeconds_, preview_->tickFraction(), {});
         } else if (!session_->ready()) {
             glViewport(0, 0, camera_.viewportWidth(), camera_.viewportHeight());
@@ -1371,7 +1458,7 @@ int App::run(int argc, char** argv) {
                     }
                 }
                 if (best) {
-                    const double size = best->info().size;
+                    const double size = best->size();
                     camera_.targetGoal = glm::dvec3(best->pos.x + size * 0.5, 0.0, best->pos.y + size * 0.5);
                     camera_.targetGoal.y = gfx::terrainHeightAt(w.map, camera_.targetGoal.x, camera_.targetGoal.z);
                     camera_.distanceGoal = 9.0;
@@ -1428,6 +1515,17 @@ int App::run(int argc, char** argv) {
                     for (const auto [id, v] : w.vehicles) { selVehicle_ = id; break; }
                 if (wants("towns")) showTownList_ = true;
                 if (wants("news")) showNews_ = true;
+                if (wants("players")) showClients_ = true;
+                if (wants("companies")) showCompanies_ = true;
+                if (wants("graphs")) {
+                    showCompanies_ = true;
+                    companiesTab_ = 1;
+                }
+                if (wants("rating")) {
+                    showCompanies_ = true;
+                    companiesTab_ = 2;
+                }
+                if (wants("lobby")) showLobby_ = true;
                 if (wants("depot"))
                     for (const auto [id, d] : w.depots) {
                         selDepot_ = id;
@@ -1449,11 +1547,37 @@ int App::run(int argc, char** argv) {
                 if (wants("rail")) toolGroup_ = ToolGroup::Rail;
                 if (wants("water")) toolGroup_ = ToolGroup::Water;
                 if (wants("settings")) showSettings_ = true;
+                if (wants("audio")) { showSettings_ = true; openAudioSettings_ = true; }
                 if (wants("citizens")) showCitizens_ = true;
                 if (wants("zones")) overlayMode_ = 3;
                 if (wants("flow")) overlayMode_ = 2;
                 if (wants("catchments")) overlayMode_ = 1;
                 if (wants("gamemenu")) showGameMenu_ = true;
+                if (wants("privatecars")) {
+                    // Visual smoke test using real resident trips on generated town streets.
+                    const auto centre = chunkOf(TilePos{static_cast<i32>(camera_.target.x), static_cast<i32>(camera_.target.z)});
+                    for (int y = -4; y <= 4; ++y) for (int x = -4; x <= 4; ++x) world().activateChunk({centre.x + x, centre.y + y});
+                    for (const auto [id, p] : world().people) {
+                        if (!p.carOwner || !p.work.valid()) continue;
+                        const auto* home = world().buildings.tryGet(p.home.id);
+                        const auto* work = world().buildings.tryGet(p.work.id);
+                        if (!home || !work || home->town != work->town) continue;
+                        world().people[id].purpose = TripPurpose::Work;
+                        people::travelAbstract(world(), id, home->centre2(), work->centre2(), true);
+                    }
+                    for (int tick = 0; tick < kDriveOverheadTicks + 18; ++tick) world().tick();
+                    int count = 0;
+                    for (const auto [id, p] : world().people) {
+                        const auto pose = gfx::privateCarPose(world(), p, 0);
+                        if (!pose) continue;
+                        if (++count == 1) {
+                            camera_.targetGoal = pose->pos; camera_.distanceGoal = 13;
+                            camera_.pitchGoal = .9; camera_.snapToGoals();
+                        }
+                    }
+                    session_->setSpeed(0); showMinimap_ = false;
+                    log::info("Private car preview: {} active cars", count);
+                }
                 openWindows_.clear();
             }
             if (demoElectric_ && frameCount >= 200 && !demoTrack_ && !demoRail_) {
@@ -1548,6 +1672,12 @@ int App::run(int argc, char** argv) {
             drawDebugUi();
             drawChat();
             drawGameMenu();
+            if (frameCount == menuReturnFrame_) returnToMainMenu();
+            if (!updateAnnounced_ && updater_.state() == update::Updater::State::Available &&
+                updater_.release().version != preferences_.skippedVersion) {
+                updateAnnounced_ = true;
+                toasts_.push_back({std::format("{} is available: update from the main menu", updater_.release().title), now + 8.0, false});
+            }
             drawToasts(now);
             drawNews(now);
             drawMinimap(now);
@@ -1557,6 +1687,8 @@ int App::run(int argc, char** argv) {
             renderer_.render(world(), camera_, minute, timeSeconds_, session_->tickFraction(), overlays);
         }
         drawSettings();
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsAnyItemHovered()) audio_.play(SoundEvent::Confirm);
+        updateAudio(now);
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         if (profile) {
@@ -1576,6 +1708,11 @@ int App::run(int argc, char** argv) {
             glfwSetWindowShouldClose(window_, GLFW_TRUE);
         }
         glfwSwapBuffers(window_);
+        const int frameLimit = preferences_.frameRateLimit();
+        if (frameLimit > 0) {
+            const double spare = 1.0 / frameLimit - (glfwGetTime() - now);
+            if (spare > 0) std::this_thread::sleep_for(std::chrono::duration<double>(spare));
+        }
     }
     shutdown();
     return EXIT_SUCCESS;

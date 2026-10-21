@@ -26,7 +26,7 @@ constexpr i64 kBaseDwellTicks = 4 * kTicksPerMinute;
 
 enum class Extend { Extended, AtTarget, Blocked, NoPath, NoOrders };
 
-u8 segBit(const TrackSeg& s) { return s.entry == s.exit ? kTrackNS : trackBetween(s.entry, s.exit); }
+u8 segBit(const TrackSeg& s) { return s.entry == s.exit ? static_cast<u8>(kTrackNS) : trackBetween(s.entry, s.exit); }
 i32 segLen(const TrackSeg& s) { return trackLength(segBit(s)); }
 
 DepotId allowedDepot(const Vehicle& v) {

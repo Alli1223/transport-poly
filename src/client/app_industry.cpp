@@ -47,7 +47,7 @@ void App::drawIndustryWindow() {
     const float s = uiScale_;
     bool open = true;
     const bool raw = recipe->inputs[0] == CargoType::None;
-    const std::string sub = raw ? std::format("Production level {} of 4", ind.level) : std::string("Processing plant");
+    const std::string sub = std::format("{} industry - level {} of 8", ind.level == 1 ? "Small" : (ind.level <= 3 ? "Medium" : "Large"), ind.level);
     ui::PanelSpec spec;
     spec.pos = panelPoint(1.0f, 0.0f, -450.0f, 70.0f);
     spec.pivot = ImVec2(1.0f, 0.0f);
@@ -56,10 +56,10 @@ void App::drawIndustryWindow() {
     spec.subtitle = sub.c_str();
     if (ui::beginPanel("###industryPanel", b->info().name.data(), ui::Icon::Briefcase, &open, spec)) {
         const usize out = static_cast<usize>(recipe->output);
-        const u32 daily = raw ? recipe->rate * ind.level / 2 : recipe->rate;
+        const u32 daily = recipe->rate * ind.level / 2;
         const float cw = ui::columnWidth(3);
         const std::string made = std::format("{}", ind.producedLastMonth);
-        const std::string shipped = ind.producedLastMonth ? std::format("{}%", std::min<u32>(100, ind.shippedLastMonth * 100 / ind.producedLastMonth)) : std::string("-");
+        const std::string shipped = ind.producedLastMonth ? std::format("{}%", std::min<u32>(100, ind.exportedLastMonth * 100 / ind.producedLastMonth)) : std::string("-");
         const std::string stock = std::format("{}", ind.stock[out]);
         ui::statCard(ui::Icon::Chart, made.c_str(), "Last month", ui::col::kLeaf, cw);
         ImGui::SameLine();
@@ -67,6 +67,11 @@ void App::drawIndustryWindow() {
         ImGui::SameLine();
         ui::statCard(ui::Icon::Home, stock.c_str(), "In stock", ui::col::kAccent, cw);
         ImGui::Dummy(ImVec2(0, 2.0f * s));
+        if (ind.level < 8) {
+            const std::string progress = std::format("{} / 100", ind.growthProgress);
+            ui::meterRow("Expansion", progress.c_str(), ind.growthProgress / 100.0f, ui::col::kGreen);
+            ui::mutedText("Deliver at least half its monthly capacity to grow.");
+        } else ui::mutedText("Maximum production level reached.");
         ui::sectionHeader("Produces");
         ui::statRow(cargoName(recipe->output).data(), raw ? std::format("{} a day", daily).c_str() : std::format("up to {} a day", daily).c_str());
         if (!raw) {
@@ -104,6 +109,8 @@ void App::drawIndustryWindow() {
 void App::drawTownNeeds(const Town& t) {
     const World& w = world();
     if (!w.settings.industries) return;
+    ui::statRow("Passengers arrived last month", std::format("{}", t.arrivalsLastMonth).c_str());
+    ui::statRow("Goods received last month", std::format("{}", t.goodsReceivedLastMonth).c_str());
     ui::sectionHeader("Needs");
     if (t.needs.empty()) {
         ui::emptyState(ui::Icon::Cart, "Nothing yet");

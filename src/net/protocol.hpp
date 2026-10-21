@@ -25,6 +25,8 @@ enum class PacketType : u8 {
     CommandRequest, // CommandRequestMsg
     Chat,           // ChatMsg
     JoinCompany,    // JoinCompanyMsg
+    Cursor,         // CursorMsg: where the player is pointing
+    SetCompanyPassword, // SetCompanyPasswordMsg
     // server -> client
     Welcome = 64,   // WelcomeMsg
     Reject,         // RejectMsg
@@ -36,15 +38,18 @@ enum class PacketType : u8 {
     ChatBroadcast,  // ChatBroadcastMsg
     ClientList,     // ClientListMsg
     CompanyAssigned, // CompanyAssignedMsg
-    Speed           // SpeedMsg: sent even while paused
+    Speed,          // SpeedMsg: sent even while paused
+    JoinRefused,    // JoinRefusedMsg: a company could not be joined (the connection stays open)
+    Cursors         // CursorsMsg: where every player is pointing
 };
 
 struct HelloMsg {
     u32 protocol = 0;
     std::string name;
+    std::string password; // the server's, if it has one
     template <class Ar>
     void serialize(Ar& ar) {
-        ar(protocol, name);
+        ar(protocol, name, password);
     }
 };
 
@@ -57,22 +62,77 @@ struct CommandRequestMsg {
     }
 };
 
+// Who a chat message is for: everyone, the sender's company (co-op partners) or one player.
+enum class ChatScope : u8 { All, Company, Private };
+
 struct ChatMsg {
     std::string text;
+    ChatScope scope = ChatScope::All;
+    u16 target = 0; // client id, for private messages
     template <class Ar>
     void serialize(Ar& ar) {
-        ar(text);
+        ar(text, scope, target);
     }
 };
 
 inline constexpr u8 kJoinNewCompany = 0xFF;
 inline constexpr u8 kJoinSpectator = 0xFE;
+inline constexpr u8 kJoinAsk = 0xFD; // client side only: let the player choose once the map is loaded
 
 struct JoinCompanyMsg {
-    u8 company = kJoinNewCompany;
+    u8 company = kJoinNewCompany; // a company id, kJoinNewCompany or kJoinSpectator
+    std::string name;             // a new company's name (empty: one is made up)
+    u8 colour = 0xFF;             // a new company's livery (0xFF: the first free one)
+    std::string password;         // an existing company's password, if it has one
     template <class Ar>
     void serialize(Ar& ar) {
-        ar(company);
+        ar(company, name, colour, password);
+    }
+};
+
+// Locks the sender's company with a password co-op partners must give to join it (empty unlocks).
+struct SetCompanyPasswordMsg {
+    std::string password;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(password);
+    }
+};
+
+// A world position in 1/64 tiles.
+inline constexpr i32 kCursorScale = 64;
+
+struct CursorMsg {
+    bool visible = false; // false when the pointer is over the interface or off the map
+    i32 x = 0, y = 0, z = 0;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(visible, x, y, z);
+    }
+};
+
+struct CursorInfo {
+    u16 client = 0;
+    i32 x = 0, y = 0, z = 0;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(client, x, y, z);
+    }
+};
+
+struct CursorsMsg {
+    std::vector<CursorInfo> cursors;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(cursors);
+    }
+};
+
+struct JoinRefusedMsg {
+    std::string reason;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(reason);
     }
 };
 
@@ -130,9 +190,12 @@ struct SpeedMsg {
 struct ChatBroadcastMsg {
     std::string from;
     std::string text;
+    ChatScope scope = ChatScope::All;
+    u16 fromClient = 0;
+    CompanyId fromCompany;
     template <class Ar>
     void serialize(Ar& ar) {
-        ar(from, text);
+        ar(from, text, scope, fromClient, fromCompany);
     }
 };
 
@@ -148,9 +211,10 @@ struct ClientInfo {
 
 struct ClientListMsg {
     std::vector<ClientInfo> clients;
+    std::vector<CompanyId> locked; // companies that need a password to join
     template <class Ar>
     void serialize(Ar& ar) {
-        ar(clients);
+        ar(clients, locked);
     }
 };
 

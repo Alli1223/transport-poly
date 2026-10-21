@@ -22,7 +22,7 @@ enum class PersonState : u8 {
     AtWork,
     AtShop,
     Walking, // on foot to the destination
-    Driving, // in their own car (abstract)
+    Driving, // their own car on a town road (legacy saves may have abstract trips)
     Lift,    // no car and no usable transit: someone drives them (abstract, unserved demand)
     ToStop,  // walking to a station
     Waiting, // waiting at a station
@@ -66,6 +66,10 @@ struct Person {
 
     std::vector<WalkPoint> walkPath;
     i64 walkBegin = 0, walkEnd = 0;
+    std::vector<TilePos> carPath;
+    u32 carIndex = 0;
+    i64 carStepStart = 0;
+    bool carStarted = false;
 
     bool employed() const { return work.valid(); }
 
@@ -77,6 +81,7 @@ struct Person {
         if (ar.version == 0 || ar.version >= 18) ar(walkPath,walkBegin,walkEnd);
         if (ar.version == 0 || ar.version >= 11) ar(transitFrom2, transitTo2, transitBegin, transitEnd, transitMotion);
         if (ar.version == 0 || ar.version >= 22) ar(visit);
+        if (ar.version == 0 || ar.version >= 28) ar(carPath, carIndex, carStepStart, carStarted);
     }
 };
 

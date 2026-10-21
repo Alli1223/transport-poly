@@ -1,6 +1,9 @@
 #pragma once
 
 #include "net/session.hpp"
+#include "net/host_session.hpp"
+#include "net/net_client.hpp"
+#include "client/updater.hpp"
 #include "core/preferences.hpp"
 #include "audio/audio.hpp"
 #include "render/camera.hpp"
@@ -107,6 +110,29 @@ private:
     void drawPersonWindow();
     void drawVehiclePassengers(const Vehicle& v);
 
+    // app_multiplayer.cpp
+    net::NetClientSession* netClient();
+    net::HostSession* netHost();
+    std::vector<net::ClientInfo> players();
+    u16 localClientId();
+    bool companyLocked(CompanyId company);
+    bool colourPicker(const char* id, int& colour, CompanyId own);
+    void drawCompanyLobby();
+    void drawPlayersWindow();
+    void drawPlayerCursors(std::vector<gfx::OverlayQuad>& overlays);
+    void updateBots(double dt);
+
+    // app_update.cpp
+    bool updatesConfigured() const;
+    void startUpdateCheck();
+    void drawUpdatePanel();
+    void drawUpdateSettings();
+
+    // app_companies.cpp
+    void drawCompaniesWindow();
+    void applyCompetition(WorldSettings& ws) const;
+    void competitionPicker();
+
     // app_lines.cpp
     void drawLinesWindow();
     void drawLineRoutes(std::vector<gfx::OverlayQuad>& overlays, bool all);
@@ -128,11 +154,13 @@ private:
     void drawChat();
     void startSession(std::unique_ptr<GameSession> session);
     void returnToMainMenu();
+    void applyScreenTransition();
     void updatePreview(double dt);
     void autosave();
     void quicksave();
     void drawSettings();
     void applyPreferences();
+    void updateAudio(double now);
     void placeCameraAtStart();
 
     // app_windows.cpp
@@ -158,6 +186,10 @@ private:
     void focusOn(TilePos t);
 
     GLFWwindow* window_ = nullptr;
+    int windowedX_ = 100, windowedY_ = 100, windowedWidth_ = 1600, windowedHeight_ = 900;
+    int startupAntiAliasing_ = 2;
+    bool wasMaximized_ = false;
+    void applyDisplayMode();
     Screen screen_ = Screen::MainMenu;
     MenuPage menuPage_ = MenuPage::Main;
     std::unique_ptr<GameSession> preview_; // background world on the main menu
@@ -176,8 +208,12 @@ private:
     u16 consistCar_ = 0;
     bool showGameMenu_ = false;
     bool showSettings_ = false;
+    bool openAudioSettings_ = false;
     ClientPreferences preferences_;
     Audio audio_;
+    double nextAudioUpdate_ = 0;
+    bool returnToMenuRequested_ = false;
+    int menuReturnFrame_ = -1; // automation: exercise leaving a live session mid-frame
     std::string settingsError_;
     bool showChat_ = false;
     bool showClients_ = false;
@@ -228,6 +264,36 @@ private:
     VehicleId hoverVehicle_;      // under the cursor
     PersonId hoverPerson_;
     bool showLines_ = false;
+    // Multiplayer: the company lobby, chat to a company or a player, other players' pointers.
+    bool showLobby_ = false;
+    // Updates: the release feed (set by release builds, or --update-feed) and what the player chose.
+    update::Updater updater_;
+    std::string updateFeed_;
+    bool updateDismissed_ = false;
+    bool showUpdateErrors_ = false; // only after the player asked to check
+    bool autoUpdate_ = false;        // automation: install an update as soon as it is found
+    bool updateAnnounced_ = false;
+    // Companies window: league, graphs and ratings; the competition chosen for a new game.
+    bool showCompanies_ = false;
+    int companiesTab_ = 0;
+    int graphMetric_ = 0;
+    int graphSpan_ = 1;
+    CompanyId ratingCompany_;
+    int competition_ = 0;
+    int fastForwardDays_ = 0; // automation: run a hosted demo game this many days before showing it
+    std::string lobbyNotice_;
+    int joinTarget_ = -1; // company whose password is being asked for
+    char joinPassword_[64] = "";
+    char lobbyCompanyName_[64] = "";
+    int companyColour_ = -1; // chosen livery for a new company (-1: the first free one)
+    char companyPassword_[64] = "";
+    char serverPassword_[64] = "";
+    int chatScope_ = 0; // net::ChatScope
+    u16 chatTarget_ = 0;
+    std::unordered_map<u16, glm::dvec3> cursorDisplay_;
+    std::vector<std::unique_ptr<net::NetClientSession>> bots_; // automation: --host-demo
+    bool botsGreeted_ = false;
+    int hostDemoBots_ = 0;
     std::vector<u32> wiredThisDrag_; // edges already sent while dragging the electrify tool
     u32 selLine_ = 0;                         // key of the line shown in the lines window
     std::shared_ptr<struct LineCache> lineCache_; // routes of the lines drawn on the map

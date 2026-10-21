@@ -181,6 +181,7 @@ void App::placeCameraAtStart() {
 }
 
 void App::startSession(std::unique_ptr<GameSession> session) {
+    returnToMenuRequested_ = false;
     session_ = std::move(session);
     renderer_.invalidateAll();
     explorePending_.clear();
@@ -205,11 +206,23 @@ void App::startSession(std::unique_ptr<GameSession> session) {
 }
 
 void App::returnToMainMenu() {
+    // UI is drawn before news, minimap and the world. Keep the session alive until
+    // this frame finishes so those consumers cannot access a destroyed world.
+    returnToMenuRequested_ = true;
+}
+
+void App::applyScreenTransition() {
+    if (!returnToMenuRequested_) return;
+    returnToMenuRequested_ = false;
     session_.reset();
     screen_ = Screen::MainMenu;
     menuPage_ = MenuPage::Main;
     renderer_.invalidateAll();
     showGameMenu_ = false;
+    newsSession_ = nullptr;
+    newsBanner_.reset();
+    toasts_.clear();
+    nextAudioUpdate_ = 0;
 }
 
 void App::updatePreview(double dt) {
@@ -368,8 +381,11 @@ void App::drawMainMenu() {
             if (ui::miniButton("##random", ui::Icon::Spark, ui::col::kAccent, "Random seed"))
                 std::snprintf(seedBuf_, sizeof(seedBuf_), "%llu", static_cast<unsigned long long>(randomSeed()));
             field("Company name", "##company", companyName_, sizeof(companyName_), "Leave empty for a generated name");
+            ui::fieldLabel("Company colour");
+            colourPicker("##newcolour", companyColour_, CompanyId{});
             ImGui::SliderInt("Starting year", &preferences_.startYear, 1900, 2100);
             ImGui::SliderInt("Loan interest", &preferences_.interestPercent, 0, 20, "%d%%");
+            competitionPicker();
             terrainOptions(preferences_, terrainPreview_, std::strtoull(seedBuf_, nullptr, 10), s);
             ImGui::Dummy(ImVec2(0, 6.0f * s));
             if (ui::button("Start", ui::Icon::Play, ui::Btn::Primary, ImVec2(-1.0f, 40.0f))) {
@@ -381,7 +397,8 @@ void App::drawMainMenu() {
                 ws.inflation = preferences_.inflation;
                 ws.recessions = preferences_.recessions;
                 ws.aiCompetitors = preferences_.aiCompetitors;
-                startSession(std::make_unique<LocalSession>(ws, companyName_));
+                applyCompetition(ws);
+                startSession(std::make_unique<LocalSession>(ws, companyName_, companyColour_ < 0 ? 0xFF : static_cast<u8>(companyColour_)));
             }
             break;
         case MenuPage::Load:
@@ -414,8 +431,13 @@ void App::drawMainMenu() {
             break;
         case MenuPage::Host:
             field("World seed", "##seed", seedBuf_, sizeof(seedBuf_));
+            field("Your name", "##hostname", playerName_, sizeof(playerName_));
             field("Company name", "##company", companyName_, sizeof(companyName_), "Leave empty for a generated name");
+            ui::fieldLabel("Company colour");
+            colourPicker("##hostcolour", companyColour_, CompanyId{});
             portField(port_);
+            field("Server password", "##hostpw", serverPassword_, sizeof(serverPassword_), "Optional: players must give it to join");
+            competitionPicker();
             terrainOptions(preferences_, terrainPreview_, std::strtoull(seedBuf_, nullptr, 10), s);
             ImGui::Dummy(ImVec2(0, 6.0f * s));
             if (ui::button("Host new world", ui::Icon::Server, ui::Btn::Primary, ImVec2(-1.0f, 40.0f))) {
@@ -427,14 +449,17 @@ void App::drawMainMenu() {
                 ws.inflation = preferences_.inflation;
                 ws.recessions = preferences_.recessions;
                 ws.aiCompetitors = preferences_.aiCompetitors;
+                applyCompetition(ws);
                 auto hosted = std::make_unique<World>(ws);
                 Command create;
                 create.client = kLocalClientId;
-                create.payload = CmdCreateCompany{companyName_, 0xFF};
+                create.payload = CmdCreateCompany{companyName_, companyColour_ < 0 ? u8{0xFF} : static_cast<u8>(companyColour_)};
                 const CommandResult r = executeCommand(*hosted, create);
                 net::NetServer::Options opt;
                 opt.port = static_cast<u16>(port_);
+                opt.password = serverPassword_;
                 auto host = std::make_unique<net::HostSession>(std::move(hosted), CompanyId(static_cast<u8>(r.createdId)), opt);
+                host->net().setLocalHost(CompanyId(static_cast<u8>(r.createdId)), playerName_[0] ? playerName_ : "Host");
                 std::string err;
                 if (host->start(err)) startSession(std::move(host));
                 else menuError_ = err;
@@ -444,10 +469,17 @@ void App::drawMainMenu() {
             field("Server address", "##address", address_, sizeof(address_));
             portField(port_);
             field("Your name", "##name", playerName_, sizeof(playerName_));
+            field("Server password", "##joinpw", serverPassword_, sizeof(serverPassword_), "Only if the server has one");
+            {
+                ui::FontScope f(ui::fonts().small);
+                ui::mutedText("Once the world has loaded you choose a company: start your own,");
+                ui::mutedText("join a friend's to play together, or watch.");
+            }
             ImGui::Dummy(ImVec2(0, 6.0f * s));
             if (ui::button("Join", ui::Icon::Globe, ui::Btn::Primary, ImVec2(-1.0f, 40.0f))) {
                 menuError_.clear();
-                startSession(std::make_unique<net::NetClientSession>(address_, static_cast<u16>(port_), playerName_));
+                startSession(std::make_unique<net::NetClientSession>(address_, static_cast<u16>(port_), playerName_, net::kJoinAsk,
+                                                                     serverPassword_));
             }
             break;
         case MenuPage::Main: break;
@@ -549,30 +581,26 @@ void App::drawChat() {
     auto* client = dynamic_cast<net::NetClientSession*>(session_.get());
     auto* host = dynamic_cast<net::HostSession*>(session_.get());
     if (!ImGui::GetIO().WantCaptureKeyboard && ImGui::IsKeyPressed(ImGuiKey_Tab)) showClients_ = !showClients_;
-    if (showClients_) {
-        ui::PanelSpec spec;
-        spec.width = 440.0f;
-        spec.subtitle = "Only the host controls pause and speed";
-        if (ui::beginPanel("##clients", "Players", ui::Icon::People, &showClients_, spec)) {
-            const auto players = client ? client->clients() : host->net().clients();
-            ImGui::Text("%zu connected player%s", players.size(), players.size() == 1 ? "" : "s");
-            ImGui::Separator();
-            for (const auto& player : players) {
-                const auto* company = world().companies.tryGet(player.company);
-                const bool local = client ? player.id == client->clientId() : player.id == kLocalClientId;
-                ImGui::Text("%s%s%s", player.name.c_str(), local ? " (you)" : "", player.id == kLocalClientId ? " [host]" : "");
-                ImGui::TextDisabled("  %s", company ? company->name.c_str() : "Spectator");
-            }
-        }
-        ui::endPanel();
-    }
+    drawPlayersWindow();
+    drawCompanyLobby();
     std::vector<net::ChatBroadcastMsg> incoming;
     if (client) incoming = client->takeChat();
     if (host) {
         incoming = host->net().takeChat();
         for (const std::string& e : host->net().takeEvents()) chatLines_.push_back("* " + e);
     }
-    for (const auto& m : incoming) chatLines_.push_back(std::format("<{}> {}", m.from, m.text));
+    const std::vector<net::ClientInfo> everyone = players();
+    const auto nameOf = [&](u16 id) {
+        const auto it = std::ranges::find_if(everyone, [&](const net::ClientInfo& p) { return p.id == id; });
+        return it == everyone.end() ? std::string("?") : it->name;
+    };
+    for (const auto& m : incoming) {
+        if (m.scope == net::ChatScope::Company) chatLines_.push_back(std::format("[Company] <{}> {}", m.from, m.text));
+        else if (m.scope == net::ChatScope::Private)
+            chatLines_.push_back(m.fromClient == localClientId() ? std::format("[To {}] {}", nameOf(chatTarget_), m.text)
+                                                                 : std::format("[From {}] {}", m.from, m.text));
+        else chatLines_.push_back(std::format("<{}> {}", m.from, m.text));
+    }
     while (chatLines_.size() > 50) chatLines_.pop_front();
     if (!ImGui::GetIO().WantCaptureKeyboard && ImGui::IsKeyPressed(ImGuiKey_Enter)) showChat_ = true;
 
@@ -597,12 +625,31 @@ void App::drawChat() {
         ImGui::TextDisabled("Press Enter to chat");
     }
     if (showChat_) {
+        // Who to: everyone, your company (co-op partners), or the player picked in the players window.
+        const bool inCompany = world().companies.contains(session_->localCompany());
+        if (chatScope_ == static_cast<int>(net::ChatScope::Company) && !inCompany) chatScope_ = 0;
+        if (chatScope_ == static_cast<int>(net::ChatScope::Private) &&
+            std::ranges::none_of(everyone, [&](const net::ClientInfo& p) { return p.id == chatTarget_; }))
+            chatScope_ = 0;
+        {
+            ui::FontScope f(ui::fonts().small);
+            if (ImGui::RadioButton("Everyone", chatScope_ == 0)) chatScope_ = 0;
+            if (inCompany) {
+                ImGui::SameLine();
+                if (ImGui::RadioButton("Company", chatScope_ == 1)) chatScope_ = 1;
+            }
+            if (chatScope_ == 2) {
+                ImGui::SameLine();
+                ImGui::RadioButton(std::format("To {}", nameOf(chatTarget_)).c_str(), true);
+            }
+        }
         ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(-1.0f);
         if (ImGui::InputTextWithHint("##say", "Say something...", chatBuf_, sizeof(chatBuf_), ImGuiInputTextFlags_EnterReturnsTrue)) {
             if (chatBuf_[0]) {
-                if (client) client->sendChat(chatBuf_);
-                if (host) host->net().broadcastChat("Host", chatBuf_);
+                const auto scope = static_cast<net::ChatScope>(chatScope_);
+                if (client) client->sendChat(chatBuf_, scope, chatTarget_);
+                if (host) host->net().localChat(chatBuf_, scope, chatTarget_);
             }
             chatBuf_[0] = 0;
             showChat_ = false;
@@ -643,13 +690,68 @@ void App::autosave() {
         log::warn("Autosave failed: {}", err);
 }
 
+void App::applyDisplayMode() {
+    if (!window_) return;
+    GLFWmonitor* current = glfwGetWindowMonitor(window_);
+    int count = 0;
+    GLFWmonitor** monitors = glfwGetMonitors(&count);
+    if (!monitors || count == 0) return;
+    preferences_.monitor = std::clamp(preferences_.monitor, 0, count - 1);
+    if (preferences_.fullscreen) {
+        GLFWmonitor* target = monitors[preferences_.monitor];
+        if (current == target) return;
+        const GLFWvidmode* mode = glfwGetVideoMode(target);
+        if (!mode) { settingsError_ = "The selected display is unavailable"; return; }
+        if (!current) {
+            wasMaximized_ = glfwGetWindowAttrib(window_, GLFW_MAXIMIZED) == GLFW_TRUE;
+            if (wasMaximized_) glfwRestoreWindow(window_);
+            glfwGetWindowPos(window_, &windowedX_, &windowedY_);
+            glfwGetWindowSize(window_, &windowedWidth_, &windowedHeight_);
+        }
+        // Match the desktop's current mode for smooth, borderless fullscreen switching.
+        glfwSetWindowMonitor(window_, target, 0, 0, mode->width, mode->height, mode->refreshRate);
+    } else if (current) {
+        // Keep the restored window reachable if its previous display was disconnected.
+        bool visible = false;
+        for (int i = 0; i < count; ++i) {
+            int x, y, width, height;
+            glfwGetMonitorWorkarea(monitors[i], &x, &y, &width, &height);
+            if (windowedX_ + windowedWidth_ > x && windowedX_ < x + width &&
+                windowedY_ >= y && windowedY_ < y + height - 32) visible = true;
+        }
+        if (!visible) {
+            int width, height;
+            glfwGetMonitorWorkarea(monitors[preferences_.monitor], &windowedX_, &windowedY_, &width, &height);
+            windowedWidth_ = std::min(windowedWidth_, width);
+            windowedHeight_ = std::min(windowedHeight_, height - 40);
+        }
+        glfwSetWindowMonitor(window_, nullptr, windowedX_, windowedY_, windowedWidth_, windowedHeight_, GLFW_DONT_CARE);
+        if (wasMaximized_) glfwMaximizeWindow(window_);
+    }
+}
+
 void App::applyPreferences() {
-    audio_.setEnabled(preferences_.sounds);
     preferences_.clamp();
+    audio_.configure({preferences_.sounds, preferences_.masterVolume / 100.0f, preferences_.musicVolume / 100.0f,
+        preferences_.vehicleVolume / 100.0f, preferences_.ambienceVolume / 100.0f, preferences_.interfaceVolume / 100.0f});
     renderer_.settings.shadows = preferences_.shadows;
     renderer_.settings.weather = preferences_.weather;
     renderer_.settings.maxViewDistance = static_cast<float>(preferences_.viewDistance);
+    renderer_.settings.shadowMapSize = 512 << preferences_.shadowQuality;
+    renderer_.settings.treeDistance = static_cast<float>(preferences_.treeDistance);
+    constexpr float detail[] = {0.65f, 1.0f, 1.5f};
+    renderer_.settings.detailScale = detail[preferences_.detailQuality];
+    renderer_.settings.brightness = preferences_.brightnessPercent / 100.0f;
+    renderer_.settings.clouds = preferences_.clouds;
+    renderer_.settings.cloudShadows = preferences_.cloudShadows;
+    renderer_.settings.fogStrength = preferences_.fogPercent / 100.0f;
+    renderer_.settings.nightFogStrength = preferences_.nightFogPercent / 100.0f;
+    renderer_.settings.particles = preferences_.particles;
+    renderer_.settings.lightHalos = preferences_.lightHalos;
+    renderer_.settings.treeSway = preferences_.treeSway;
+    renderer_.settings.waterAnimation = preferences_.waterAnimation;
     daylightOnly_ = preferences_.daylightOnly;
+    applyDisplayMode();
     glfwSwapInterval(preferences_.vsync ? 1 : 0);
 }
 
@@ -658,19 +760,70 @@ void App::drawSettings() {
     ui::PanelSpec spec;
     spec.pos = screenCentre();
     spec.pivot = ImVec2(0.5f, 0.5f);
-    spec.width = 510.0f;
-    spec.height = 510.0f;
-    spec.subtitle = "Graphics, controls and gameplay";
+    const float scale = uiScale_;
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    spec.width = std::min(660.0f, viewport->WorkSize.x / scale - 32.0f);
+    spec.height = std::min(740.0f, viewport->WorkSize.y / scale - 40.0f);
+    spec.subtitle = "Graphics, audio, controls and gameplay";
     bool changed = false;
     if (ui::beginPanel("###settings", "Settings", ui::Icon::Wrench, &showSettings_, spec)) {
         if (ImGui::BeginTabBar("##settingsTabs")) {
             if (ImGui::BeginTabItem("Graphics")) {
-                changed |= ImGui::Checkbox("Shadows", &preferences_.shadows);
-                changed |= ImGui::Checkbox("Weather effects (clouds, cloud shadows and mist)", &preferences_.weather);
-                changed |= ImGui::Checkbox("VSync", &preferences_.vsync);
-                changed |= ImGui::SliderInt("View distance", &preferences_.viewDistance, 120, 900, "%d tiles");
-                changed |= ImGui::Checkbox("Always daylight", &preferences_.daylightOnly);
-                ImGui::TextWrapped("Always daylight changes the lighting. Citizens and the game clock continue normally.");
+                if (ImGui::BeginChild("##graphicsOptions", ImVec2(0, -68.0f * scale))) {
+                    ImGui::PushItemWidth(260.0f * scale);
+                    ui::sectionHeader("Display");
+                    changed |= ImGui::Checkbox("Fullscreen (borderless)", &preferences_.fullscreen);
+                    ImGui::TextDisabled("Alt+Enter switches fullscreen on and off.");
+                    int count = 0;
+                    GLFWmonitor** monitors = glfwGetMonitors(&count);
+                    const int selected = count > 0 ? std::clamp(preferences_.monitor, 0, count - 1) : 0;
+                    if (ImGui::BeginCombo("Fullscreen monitor", count ? glfwGetMonitorName(monitors[selected]) : "Unavailable")) {
+                        for (int i = 0; i < count; ++i) {
+                            ImGui::PushID(i);
+                            if (ImGui::Selectable(glfwGetMonitorName(monitors[i]), selected == i)) { preferences_.monitor = i; changed = true; }
+                            ImGui::PopID();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    changed |= ImGui::Checkbox("VSync", &preferences_.vsync);
+                    changed |= ImGui::Combo("Frame rate limit", &preferences_.frameCap, "Unlimited\0" "30 FPS\0" "60 FPS\0" "90 FPS\0" "120 FPS\0" "144 FPS\0" "165 FPS\0" "240 FPS\0");
+                    changed |= ImGui::Combo("Anti-aliasing", &preferences_.antiAliasing, "Off\0" "2x MSAA\0" "4x MSAA\0" "8x MSAA\0");
+                    if (startupAntiAliasing_ != preferences_.antiAliasing) ImGui::TextWrapped("Save preferences and restart to apply anti-aliasing.");
+                    changed |= ImGui::SliderInt("Brightness", &preferences_.brightnessPercent, 50, 200, "%d%%");
+                    ui::sectionHeader("Quality");
+                    for (int i = 0; i < 3; ++i) {
+                        if (i) ImGui::SameLine();
+                        if (ui::button(i == 0 ? "Low" : i == 1 ? "Balanced" : "High", ui::Icon::Chart, ui::Btn::Secondary)) {
+                            preferences_.graphicsPreset(i); changed = true;
+                        }
+                    }
+                    changed |= ImGui::Checkbox("Shadows", &preferences_.shadows);
+                    ImGui::BeginDisabled(!preferences_.shadows);
+                    changed |= ImGui::Combo("Shadow resolution", &preferences_.shadowQuality, "512 (Low)\0" "1024\0" "2048 (Balanced)\0" "4096 (High)\0");
+                    ImGui::EndDisabled();
+                    changed |= ImGui::Combo("Terrain detail", &preferences_.detailQuality, "Low\0" "Balanced\0" "High\0");
+                    changed |= ImGui::SliderInt("View distance", &preferences_.viewDistance, 120, 900, "%d tiles");
+                    changed |= ImGui::SliderInt("Tree draw distance", &preferences_.treeDistance, 60, 500, "%d tiles");
+                    ui::sectionHeader("Atmosphere");
+                    changed |= ImGui::Checkbox("Weather effects", &preferences_.weather);
+                    ImGui::BeginDisabled(!preferences_.weather);
+                    changed |= ImGui::Checkbox("Clouds", &preferences_.clouds);
+                    ImGui::BeginDisabled(!preferences_.clouds);
+                    changed |= ImGui::Checkbox("Cloud shadows", &preferences_.cloudShadows);
+                    ImGui::EndDisabled();
+                    changed |= ImGui::SliderInt("Mist strength", &preferences_.fogPercent, 0, 150, "%d%%");
+                    changed |= ImGui::SliderInt("Night mist", &preferences_.nightFogPercent, 0, 100, "%d%% of daytime");
+                    ImGui::EndDisabled();
+                    changed |= ImGui::Checkbox("Always daylight", &preferences_.daylightOnly);
+                    ImGui::TextWrapped("Always daylight changes lighting only; the game clock continues normally.");
+                    ui::sectionHeader("Effects");
+                    changed |= ImGui::Checkbox("Smoke and steam", &preferences_.particles);
+                    changed |= ImGui::Checkbox("Light halos", &preferences_.lightHalos);
+                    changed |= ImGui::Checkbox("Tree sway", &preferences_.treeSway);
+                    changed |= ImGui::Checkbox("Animated water", &preferences_.waterAnimation);
+                    ImGui::PopItemWidth();
+                }
+                ImGui::EndChild();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Controls")) {
@@ -681,6 +834,23 @@ void App::drawSettings() {
                 ImGui::TextWrapped("1-5: construction toolbars. Space: pause. F5: quicksave. F12: screenshot. Esc: close the current tool or window.");
                 ImGui::EndTabItem();
             }
+            if (ImGui::BeginTabItem("Audio", nullptr, openAudioSettings_ ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None)) {
+                openAudioSettings_ = false;
+                changed |= ImGui::Checkbox("Enable audio", &preferences_.sounds);
+                ImGui::BeginDisabled(!preferences_.sounds);
+                changed |= ImGui::SliderInt("Master volume", &preferences_.masterVolume, 0, 100, "%d%%");
+                changed |= ImGui::SliderInt("Music", &preferences_.musicVolume, 0, 100, "%d%%");
+                ImGui::Text("Now playing: %s", audio_.musicTrack().data());
+                if (ui::button("Next track", ui::Icon::Play, ui::Btn::Secondary)) audio_.nextTrack();
+                changed |= ImGui::SliderInt("Vehicles", &preferences_.vehicleVolume, 0, 100, "%d%%");
+                changed |= ImGui::SliderInt("Ambience", &preferences_.ambienceVolume, 0, 100, "%d%%");
+                changed |= ImGui::SliderInt("Interface and notifications", &preferences_.interfaceVolume, 0, 100, "%d%%");
+                changed |= ImGui::Checkbox("Mute when game is in background", &preferences_.muteUnfocused);
+                if (ui::button("Preview sound", ui::Icon::Play, ui::Btn::Secondary)) audio_.play(SoundEvent::Buy);
+                ImGui::EndDisabled();
+                ImGui::TextWrapped("Original funk and jazz grooves play in menus and during play. Vehicle sounds follow the camera: zoom in or move closer to hear engines and wheels. Pausing quietens vehicles.");
+                ImGui::EndTabItem();
+            }
             if (ImGui::BeginTabItem("Gameplay")) {
                 changed |= ImGui::SliderInt("Autosave interval", &preferences_.autosaveMonths, 0, 12, "%d months");
                 ImGui::TextDisabled("Zero disables autosaves. Multiplayer hosts save for their game.");
@@ -689,13 +859,20 @@ void App::drawSettings() {
                 changed |= ImGui::Checkbox("New game inflation (about 2% per year)", &preferences_.inflation);
                 changed |= ImGui::Checkbox("New game recessions", &preferences_.recessions);
                 changed |= ImGui::SliderInt("New game AI competitors", &preferences_.aiCompetitors, 0, 3);
-                changed |= ImGui::Checkbox("Sounds", &preferences_.sounds);
                 ImGui::TextWrapped("Year, interest and economy events apply when starting a new world.");
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Updates")) {
+                drawUpdateSettings();
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();
         }
-        if (changed) applyPreferences();
+        if (changed) {
+            applyPreferences();
+            settingsError_ = startupAntiAliasing_ != preferences_.antiAliasing ?
+                "Save preferences to keep changes. Anti-aliasing needs a restart." : "Changes applied. Save preferences to keep them.";
+        }
         if (!settingsError_.empty()) ImGui::TextWrapped("%s", settingsError_.c_str());
         ImGui::Separator();
         if (ui::button("Save preferences", ui::Icon::Save, ui::Btn::Primary)) {

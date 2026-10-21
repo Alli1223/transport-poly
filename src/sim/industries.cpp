@@ -138,7 +138,9 @@ void level(World& w, TilePos pos, i32 size) {
 } // namespace
 
 BuildingId found(World& w, u16 type, TilePos near, i32 search) {
-    const i32 size = buildingType(type).size;
+    if (!isCountryside(type)) return {};
+    const u8 startLevel = static_cast<u8>(1 + hashCoords(w.settings.seed, near.x, near.y, 0x1D57) % 4);
+    const u8 size = static_cast<u8>(buildingType(type).size + 2 + startLevel / 2);
     for (i32 r = 0; r <= search; ++r)
         for (i32 dy = -r; dy <= r; ++dy)
             for (i32 dx = -r; dx <= r; ++dx) {
@@ -155,9 +157,9 @@ BuildingId found(World& w, u16 type, TilePos near, i32 search) {
                         town = id;
                     }
                 }
-                const BuildingId id = towns::placeBuilding(w, town, type, pos, Dir::S, 0);
+                const BuildingId id = towns::placeBuilding(w, town, type, pos, Dir::S, static_cast<u8>((startLevel - 1) / 3), size);
                 Industry entry{w.buildings[id].ref(id)};
-                entry.level = static_cast<u8>(1 + hashCoords(w.settings.seed, pos.x, pos.y, 0x1D57) % 4);
+                entry.level = startLevel;
                 w.industries.push_back(entry);
                 return id;
             }

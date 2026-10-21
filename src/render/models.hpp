@@ -62,7 +62,8 @@ inline constexpr ModelId kMainRod = kEffectBase + 33;       // connecting rod, o
 inline constexpr ModelId kCatenaryMast = kEffectBase + 34; // mast beside the track with its arm over it
 inline constexpr ModelId kCatenaryWire = kEffectBase + 35; // a wire one tile long along +X
 inline constexpr ModelId kPantograph = kEffectBase + 36;   // raised pantograph on an electric engine's roof
-inline constexpr ModelId kCount = kEffectBase + 37;
+inline constexpr ModelId kPrivateCarBase = kEffectBase + 37; // saloon, hatchback, estate
+inline constexpr ModelId kCount = kEffectBase + 40;
 
 constexpr ModelId building(u16 type, u8 variant) {
     return static_cast<ModelId>(kBuildingBase + type * kBuildingVariants + variant % kBuildingVariants);

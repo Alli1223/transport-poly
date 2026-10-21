@@ -17,7 +17,10 @@ class NetClientSession final : public GameSession {
 public:
     enum class Phase { Connecting, Handshake, Downloading, Playing, Failed };
 
-    NetClientSession(std::string host, u16 port, std::string playerName, u8 joinCompany = kJoinNewCompany);
+    // joinCompany: a company to join straight away, kJoinNewCompany, kJoinSpectator, or kJoinAsk to
+    // let the player choose once the map has loaded (see joinCompany()).
+    NetClientSession(std::string host, u16 port, std::string playerName, u8 joinCompany = kJoinNewCompany,
+                     std::string serverPassword = {});
 
     World& world() override { return *world_; }
     CompanyId localCompany() const override { return company_; }
@@ -38,8 +41,21 @@ public:
     u16 clientId() const { return clientId_; }
     i64 framesBehind() const { return frameMax_ - (world_ ? world_->clock.tick : 0); }
     const std::vector<ClientInfo>& clients() const { return clients_; }
-    void sendChat(const std::string& text);
+    void sendChat(const std::string& text, ChatScope scope = ChatScope::All, u16 target = 0);
     std::vector<ChatBroadcastMsg> takeChat() { return std::exchange(chat_, {}); }
+
+    // The company lobby: join a company (co-op), found a new one with a name and colour, or watch.
+    void joinCompany(u8 company, const std::string& name = {}, u8 colour = 0xFF, const std::string& password = {});
+    // Waiting for the player to choose a company (joinCompany() not called yet, or refused).
+    bool choosingCompany() const { return ready() && choosing_; }
+    bool joinPending() const { return joinPending_; }
+    // Why the last join was refused, once.
+    std::vector<std::string> takeNotices() { return std::exchange(notices_, {}); }
+    void setCompanyPassword(const std::string& password);
+    const std::vector<CompanyId>& lockedCompanies() const { return locked_; }
+    // Where this player points (sent ten times a second when it moves), and every other player's pointer.
+    void setCursor(const std::optional<CursorInfo>& cursor);
+    const std::vector<CursorInfo>& cursors() const { return cursors_; }
 
 private:
     void handle(const Packet& p);
@@ -50,6 +66,14 @@ private:
     u16 port_;
     std::string name_;
     u8 joinCompany_;
+    std::string password_;
+    bool choosing_ = false;
+    bool joinPending_ = false;
+    std::vector<std::string> notices_;
+    std::vector<CompanyId> locked_;
+    std::vector<CursorInfo> cursors_;
+    std::optional<CursorInfo> cursor_, sentCursor_;
+    double cursorTimer_ = 0.0;
     Phase phase_ = Phase::Connecting;
     std::string error_;
     Connection conn_;

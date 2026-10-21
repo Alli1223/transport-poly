@@ -27,15 +27,22 @@ TEST_CASE("industries: countryside industries are founded as land is explored") 
     World w(s);
     explore(w, 8);
     std::set<u16> kinds;
+    std::set<u8> levels;
+    std::set<u8> sizes;
     int count = 0;
     for (const auto [id, b] : w.buildings)
         if (industries::isCountryside(b.type)) {
             ++count;
             kinds.insert(b.type);
+            sizes.insert(b.size());
+            CHECK(b.size() > b.info().size);
         }
+    for (const Industry& industry : w.industries) levels.insert(industry.level);
     std::printf("industries: %d of %zu kinds\n", count, kinds.size());
     CHECK(count >= 6);
     CHECK(kinds.size() >= 4);
+    CHECK(levels.size() >= 3);
+    CHECK(sizes.size() >= 3);
 }
 
 namespace {
@@ -111,6 +118,7 @@ TEST_CASE("industries: logs go to the sawmill, planks to the town that needs the
     w.vehicles[logs].orderIndex = 1;
     cargo::exchangeAtStop(w, logs, b);
     CHECK_EQ(cw.industry(mill).stock[static_cast<usize>(CargoType::Logs)], carried);
+    CHECK_EQ(cw.industry(camp).exportedThisMonth, carried);
     CHECK(w.companies[cw.company].money > 0);
 
     // The sawmill turns the logs into planks and sends them to the town's shop.
@@ -121,8 +129,131 @@ TEST_CASE("industries: logs go to the sawmill, planks to the town that needs the
     w.vehicles[planks].orderIndex = 1;
     cargo::exchangeAtStop(w, planks, c);
     CHECK(w.towns[town].supplied[static_cast<usize>(CargoType::Planks)] > 0);
+    CHECK(w.towns[town].goodsReceived > 0);
     CHECK(cw.industry(shop).delivered > 0);
     (void)camp;
+}
+
+TEST_CASE("industries: every recipe expands with sustained completed exports") {
+    for (const IndustryRecipe& recipe : industryRecipes()) {
+        ChainWorld cw;
+        const BuildingId id = cw.building(recipe.building, {0, 0});
+        Industry entry{cw.w.buildings[id].ref(id)};
+        entry.level = 2;
+        cw.w.industries.push_back(entry);
+        for (int month = 0; month < 4; ++month) {
+            cw.w.industries[0].exportedThisMonth = recipe.rate * 30;
+            cargo::monthly(cw.w);
+        }
+        CHECK_EQ(cw.w.industries[0].level, 3u);
+        CHECK_EQ(cw.w.industries[0].growthProgress, 0u);
+        // Processing capacity rises too, while still consuming all required inputs.
+        auto& grown = cw.w.industries[0];
+        for (CargoType input : recipe.inputs)
+            if (input != CargoType::None) grown.stock[static_cast<usize>(input)] = 1000;
+        cargo::daily(cw.w);
+        CHECK_EQ(grown.producedThisMonth, recipe.rate * 3u / 2u);
+    }
+}
+
+TEST_CASE("industries: station dispatch and tiny exports cannot trigger expansion") {
+    ChainWorld cw;
+    const BuildingId id = cw.building(industries::kSheepFarm, {0, 0});
+    Industry entry{cw.w.buildings[id].ref(id)};
+    entry.level = 4;
+    entry.growthProgress = 50;
+    cw.w.industries.push_back(entry);
+    for (int month = 0; month < 12; ++month) {
+        auto& industry = cw.w.industries[0];
+        industry.shippedThisMonth = 4000;
+        industry.exportedThisMonth = 1;
+        cargo::monthly(cw.w);
+    }
+    CHECK_EQ(cw.w.industries[0].level, 4u);
+    CHECK_EQ(cw.w.industries[0].growthProgress, 0u);
+    cw.w.industries[0].level = 8;
+    cw.w.industries[0].exportedThisMonth = 100000;
+    cargo::monthly(cw.w);
+    CHECK_EQ(cw.w.industries[0].level, 8u);
+}
+
+TEST_CASE("towns: receiving passengers and goods increases growth and rolls over monthly") {
+    World w;
+    const TownId id = w.towns.create();
+    Town& town = w.towns[id];
+    town.population = 200;
+    towns::growAll(w);
+    const i32 baseline = town.growthPoints;
+    town.growthPoints = 0;
+    town.arrivalsLastMonth = 400;
+    town.goodsReceivedLastMonth = 100;
+    towns::growAll(w);
+    CHECK(town.growthPoints > baseline);
+    town.arrivals = 123;
+    town.goodsReceived = 45;
+    towns::monthly(w);
+    CHECK_EQ(town.arrivalsLastMonth, 123u);
+    CHECK_EQ(town.goodsReceivedLastMonth, 45u);
+    CHECK_EQ(town.arrivals, 0u);
+    CHECK_EQ(town.goodsReceived, 0u);
+}
+
+TEST_CASE("towns: completed transit visits benefit the destination town once") {
+    ChainWorld cw;
+    const TownId destination = cw.w.towns.create();
+    cw.w.towns[destination].centre = {-20, -20};
+    const BuildingId home = cw.building(0, {0, 0});
+    const BuildingId shop = cw.building(5, {-20, -20}, destination);
+    const PersonId person = cw.w.people.create();
+    auto& visitor = cw.w.people[person];
+    visitor.home = cw.w.buildings[home].ref(home);
+    visitor.visit = cw.w.buildings[shop].ref(shop);
+    visitor.purpose = TripPurpose::Visit;
+    visitor.state = PersonState::FromStop;
+    visitor.tripTo2 = cw.w.buildings[shop].centre2();
+    people::schedule(cw.w, person, cw.w.clock.tick);
+    people::process(cw.w);
+    CHECK_EQ(cw.w.towns[destination].arrivals, 1u);
+    people::process(cw.w);
+    CHECK_EQ(cw.w.towns[destination].arrivals, 1u);
+}
+
+TEST_CASE("industries: growth progress, footprints and shipment provenance survive saves") {
+    ChainWorld cw;
+    const BuildingId id = cw.building(industries::kSheepFarm, {0, 0});
+    cw.w.buildings[id].footprint = 6;
+    Industry entry{cw.w.buildings[id].ref(id)};
+    entry.level = 5;
+    entry.growthProgress = 73;
+    entry.exportedThisMonth = 120;
+    cw.w.industries.push_back(entry);
+    const StationId station = cw.station({0, 6});
+    CargoBatch batch;
+    batch.producer = entry.building;
+    cw.w.stations[station].cargoWaiting.push_back(batch);
+    World copy;
+    fromBytes(toBytes(cw.w, kSaveVersion), copy, kSaveVersion);
+    CHECK_EQ(copy.stateHash(), cw.w.stateHash());
+    CHECK_EQ(copy.buildings[id].size(), 6u);
+    CHECK_EQ(copy.industries[0].growthProgress, 73u);
+    CHECK(copy.stations[station].cargoWaiting[0].producer == entry.building);
+    World legacy;
+    fromBytes(toBytes(cw.w, 26), legacy, 26);
+    CHECK_EQ(legacy.buildings[id].size(), buildingType(industries::kSheepFarm).size);
+    CHECK_EQ(legacy.industries[0].growthProgress, 0u);
+}
+
+TEST_CASE("industries: large plots have full catchment and demolish completely") {
+    ChainWorld cw;
+    cw.w.map.activate({0, 0});
+    const BuildingId farm = towns::placeBuilding(cw.w, {}, industries::kSheepFarm, {4, 4}, Dir::S, 0, 6);
+    const StationId station = cw.station({9, 9});
+    cw.w.stations[station].catchment = 0;
+    CHECK(cargo::covers(cw.w, station, cw.w.buildings[farm]));
+    CHECK_EQ(cw.w.buildings[farm].centre2().x, 14);
+    towns::removeBuilding(cw.w, farm);
+    for (i32 y = 4; y < 10; ++y)
+        for (i32 x = 4; x < 10; ++x) CHECK(cw.w.map.tile({x, y})->type == TileType::Clear);
 }
 
 TEST_CASE("industries: a steel mill needs both iron ore and coal") {

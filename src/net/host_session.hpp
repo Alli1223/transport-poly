@@ -29,6 +29,10 @@ public:
     std::string status() const override;
 
     NetServer& net() { return net_; }
+    // The host player joins another company (co-op) or watches (an invalid id).
+    void switchCompany(CompanyId company);
+    // The host player founds a new company and moves to it once it exists.
+    void foundCompany(const std::string& name, u8 colour);
 
 private:
     NetServer net_;

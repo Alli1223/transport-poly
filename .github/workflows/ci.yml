@@ -28,15 +28,20 @@ jobs:
       - name: Configure
         run: cmake --preset windows-msvc
       - name: Build
-        run: cmake --build --preset windows-msvc-release
+        run: cmake --build --preset windows-msvc-release -- -k 0
       - name: Test
         run: ctest --preset windows-msvc-release
-      - name: Package
-        run: cpack --preset windows-msvc
+      - name: Install installer compiler
+        run: choco install innosetup --yes --no-progress
+      - name: Package installer and portable ZIP
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -SkipBuild
       - uses: actions/upload-artifact@v4
         with:
           name: transport-poly-windows
-          path: build/windows-msvc/packages/*.zip
+          path: |
+            build/windows-msvc/packages/*.zip
+            build/windows-msvc/packages/*-setup.exe
           if-no-files-found: error
 
   linux:
@@ -58,7 +63,7 @@ jobs:
           cmake --preset linux-gcc -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14
           "-DCMAKE_EXE_LINKER_FLAGS=-static-libstdc++ -static-libgcc"
       - name: Build
-        run: cmake --build --preset linux-gcc-release
+        run: cmake --build --preset linux-gcc-release -- -k 0
       - name: Test
         run: ctest --preset linux-gcc-release
       - name: Package
@@ -79,7 +84,7 @@ jobs:
       - name: Configure without graphics or audio dependencies
         run: cmake --preset linux-headless -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 -DTP_WARNINGS_AS_ERRORS=ON
       - name: Build
-        run: cmake --build --preset linux-headless-release
+        run: cmake --build --preset linux-headless-release -- -k 0
       - name: Test
         run: ctest --preset linux-headless-release
 

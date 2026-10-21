@@ -3,6 +3,7 @@
 #include "render/terrain_mesher.hpp"
 #include "render/models.hpp"
 #include "sim/vehicle.hpp"
+#include "sim/buildings.hpp"
 #include <cstring>
 #include <future>
 using namespace tp;
@@ -35,6 +36,22 @@ TEST_CASE("models: every freight and passenger vehicle has geometry") {
         gfx::MeshBuilder mesh;
         gfx::buildTransportModels(mesh, id);
         CHECK(!mesh.vertices.empty());
+    }
+}
+TEST_CASE("models: industry expansion adds geometry within its reserved plot") {
+    for (u16 type = 15; type <= 28; ++type) {
+        usize previous = 0;
+        for (u8 stage = 0; stage < 3; ++stage) {
+            gfx::MeshBuilder mesh;
+            gfx::buildBuildingModel(mesh, type, stage);
+            CHECK(mesh.vertices.size() > previous);
+            previous = mesh.vertices.size();
+            const float half = (buildingType(type).size + 2) * 0.5f;
+            for (const auto& vertex : mesh.vertices) {
+                CHECK(vertex.pos.x >= -half && vertex.pos.x <= half);
+                CHECK(vertex.pos.z >= -half && vertex.pos.z <= half);
+            }
+        }
     }
 }
 #endif

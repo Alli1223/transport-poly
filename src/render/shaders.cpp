@@ -19,6 +19,7 @@ layout(std140) uniform FrameData {
     vec4 uShadowParams;  // x: texel size, y: depth bias, z: enabled, w: normal offset
     vec4 uWeather;       // x: cloud cover (0-1), y: mist, zw: cloud drift (world units)
     vec4 uOrigin;        // xz: render origin in the world, y: height of the cloud layer, w: mist level
+    vec4 uVisualOptions; // x: scene brightness, y: cloud shadows, z: tree sway, w: water animation
     // Lamps lighting the scene at night: headlights, station and street lamps.
     vec4 uLightPos[24];   // xyz: position (render origin relative), w: reach
     vec4 uLightColor[24]; // rgb: colour and strength (already faded in by the night)
@@ -38,7 +39,7 @@ vec3 applyEmission(vec3 c, float kind) {
     vec3 lamp = kind < 2.5 ? vec3(1.6, 1.5, 1.3) : vec3(1.6, 0.12, 0.08);
     return mix(c, lamp, max(uSunColor.w, 0.25));
 }
-vec3 toSrgb(vec3 c) { return pow(max(c, vec3(0.0)), vec3(1.0 / 2.2)); }
+vec3 toSrgb(vec3 c) { return pow(max(c * uVisualOptions.x, vec3(0.0)), vec3(1.0 / 2.2)); }
 
 // Weather noise; the renderer mirrors these functions to place the clouds that cast the shadows.
 float hash12(vec2 p) {
@@ -76,7 +77,7 @@ float shadowFactor(vec3 worldPos, vec3 n) {
 }
 // Shadow of the cloud layer: look up the clouds where the ray towards the sun crosses it.
 float cloudShadow(vec3 worldPos) {
-    if (uWeather.x <= 0.001) return 1.0;
+    if (uWeather.x <= 0.001 || uVisualOptions.y < 0.5) return 1.0;
     float rise = max(uOrigin.y - worldPos.y, 0.0);
     vec2 at = worldPos.xz + uOrigin.xz + uSunDir.xz / max(uSunDir.y, 0.25) * rise;
     return 1.0 - cloudField(at) * 0.6;
@@ -113,8 +114,13 @@ vec3 applyFog(vec3 c, vec3 worldPos) {
         float eye = length(worldPos - uCameraPos.xyz);
         float low = exp(-max(worldPos.y - uOrigin.w, 0.0) * 0.32);
         float patches = 0.55 + 0.9 * valueNoise((worldPos.xz + uOrigin.xz + uWeather.zw * 0.35) / 46.0);
-        float mist = clamp(uWeather.y * low * patches * (1.0 - exp(-eye * 0.014)), 0.0, 0.88);
-        vec3 mistColor = mix(uHorizonColor.rgb, uSunColor.rgb * 0.75 + uAmbientSky.rgb * 0.6, 0.45);
+        // Keep the map readable after dark, fading smoothly through dusk and dawn.
+        float night = uSunColor.w;
+        float mistScale = mix(1.0, uHorizonColor.w, night);
+        float mist = clamp(uWeather.y * mistScale * low * patches * (1.0 - exp(-eye * 0.014)),
+                           0.0, 0.88 * mistScale);
+        // The sun's colour stays sunset-orange below the horizon; it must not light night mist.
+        vec3 mistColor = mix(uHorizonColor.rgb, uSunColor.rgb * (0.75 * (1.0 - night)) + uAmbientSky.rgb * 0.6, 0.45);
         c = mix(c, mistColor, mist);
     }
     float d = length(worldPos.xz - uFogParams.zw);
@@ -209,7 +215,7 @@ void main() {
     vec3 wp = vec3(dot(iRow0, p), dot(iRow1, p), dot(iRow2, p)) + uOffset;
     // Trees (vertex alpha 250) sway in the wind, more towards their tops, in gusts, and harder
     // under cloud.
-    if (abs(aColor.a * 255.0 - 250.0) < 0.25) {
+    if (uVisualOptions.z > 0.5 && abs(aColor.a * 255.0 - 250.0) < 0.25) {
         vec2 at = wp.xz + uOrigin.xz;
         float t = uCameraPos.w;
         float gust = 0.55 + 0.45 * sin(t * 0.4 + at.x * 0.045 + at.y * 0.031);
@@ -240,7 +246,7 @@ void main() {
     vec3 wp = aPos + uOffset;
     vec2 q = aPos.xz + uWavePhase;
     float t = uCameraPos.w;
-    wp.y += sin(q.x * 1.7 + t * 1.1) * 0.03 + sin(q.y * 1.3 - t * 0.9) * 0.03 + sin((q.x + q.y) * 0.9 + t * 1.6) * 0.02;
+    wp.y += (sin(q.x * 1.7 + t * 1.1) * 0.03 + sin(q.y * 1.3 - t * 0.9) * 0.03 + sin((q.x + q.y) * 0.9 + t * 1.6) * 0.02) * uVisualOptions.w;
     vWorldPos = wp;
     gl_Position = uViewProj * vec4(wp, 1.0);
 }
@@ -452,7 +458,7 @@ void main() {
     vec3 wp = vec3(dot(iRow0, p), dot(iRow1, p), dot(iRow2, p)) + uOffset;
     // Trees (vertex alpha 250) sway in the wind, more towards their tops, in gusts, and harder
     // under cloud.
-    if (abs(aColor.a * 255.0 - 250.0) < 0.25) {
+    if (uVisualOptions.z > 0.5 && abs(aColor.a * 255.0 - 250.0) < 0.25) {
         vec2 at = wp.xz + uOrigin.xz;
         float t = uCameraPos.w;
         float gust = 0.55 + 0.45 * sin(t * 0.4 + at.x * 0.045 + at.y * 0.031);

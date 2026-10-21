@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <format>
+#include <functional>
 #include <map>
 #include <queue>
 #include <string>

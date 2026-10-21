@@ -3,6 +3,7 @@
 #include "sim/passengers.hpp"
 #include "sim/road_path.hpp"
 #include "sim/world.hpp"
+#include "sim/private_cars.hpp"
 
 #include <algorithm>
 #include <climits>
@@ -206,6 +207,17 @@ i32 gapAhead(const World& w, VehicleId id) {
     }
     const TilePos next = neighbour(v.tile, v.exit);
     const Dir ne = opposite(v.exit);
+    for (const TilePos tile : {v.tile, next})
+        if (const auto it = w.privateCarTiles.find(tileKey(tile)); it != w.privateCarTiles.end())
+            for (const PersonId pid : it->second) {
+                const auto* p = w.people.tryGet(pid);
+                if (!p || p->state != PersonState::Driving || !p->carStarted || p->carIndex >= p->carPath.size()) continue;
+                const i32 at = privatecars::progress(*p, w.clock.tick);
+                if (tile == v.tile && privatecars::entry(*p) == v.entry && at > v.progress)
+                    best = std::min(best, at - v.progress);
+                else if (tile == next && privatecars::entry(*p) == ne)
+                    best = std::min(best, (len - v.progress) + at);
+            }
     if (const auto it = w.vehicleTiles.find(tileKey(next)); it != w.vehicleTiles.end()) {
         for (const VehicleId oid : it->second) {
             if (oid == id) continue;

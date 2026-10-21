@@ -202,9 +202,9 @@ PersonId App::pickPerson(float* screenDistance) const {
     float bestD = FLT_MAX;
     for (const auto [id, p] : w.people) {
         if (p.state != PersonState::Walking && p.state != PersonState::ToStop && p.state != PersonState::FromStop &&
-            p.state != PersonState::Waiting)
+            p.state != PersonState::Waiting && p.state != PersonState::Driving)
             continue;
-        if (p.walkPath.empty() || (!nearView(p.walkPath.front().p) && !nearView(p.walkPath.back().p))) continue;
+        if (p.state != PersonState::Driving && (p.walkPath.empty() || (!nearView(p.walkPath.front().p) && !nearView(p.walkPath.back().p)))) continue;
         const auto pose = gfx::personPose(w, p, fraction);
         if (!pose || !pose->visible) continue;
         const auto feet = worldToScreen(pose->pos), head = worldToScreen(pose->pos + glm::dvec3(0.0, 0.1, 0.0));
@@ -343,6 +343,20 @@ void App::drawPersonRoute(std::vector<gfx::OverlayQuad>& overlays) {
         if (last && last != alight) ride(last);
         break;
     case PersonState::Driving:
+        if (!p->carPath.empty() && p->carIndex < p->carPath.size()) {
+            std::vector<glm::dvec3> rest;
+            if (here) rest.push_back(*here);
+            for (usize i = p->carIndex + (here ? 1 : 0); i < p->carPath.size(); ++i) {
+                const auto tile = p->carPath[i];
+                rest.push_back(groundPoint(w, tile.x + .5, tile.y + .5, kLift));
+            }
+            if (!rest.empty()) {
+                addRibbon(overlays, rest, .05, abstractColour);
+                from = rest.back();
+            }
+            break;
+        }
+        [[fallthrough]];
     case PersonState::Lift:
         // Off the map: a straight line from where the trip began.
         from = groundPoint(w, p->tripFrom2.x * 0.5, p->tripFrom2.y * 0.5, kLift);
@@ -351,7 +365,7 @@ void App::drawPersonRoute(std::vector<gfx::OverlayQuad>& overlays) {
     }
     if (trip.dest && !travelling(p->state)) {
         // Staying put: mark where they go next.
-        addRing(overlays, buildingPoint(w, *trip.dest, kLift), trip.dest->info().size * 0.5 + 0.15, gfx::rgba(255, 186, 66, 110));
+        addRing(overlays, buildingPoint(w, *trip.dest, kLift), trip.dest->size() * 0.5 + 0.15, gfx::rgba(255, 186, 66, 110));
     } else if (trip.dest) {
         const glm::dvec3 end = buildingPoint(w, *trip.dest, kLift);
         if (from && !(onFoot && p->state != PersonState::ToStop)) {
@@ -359,7 +373,7 @@ void App::drawPersonRoute(std::vector<gfx::OverlayQuad>& overlays) {
             addRibbon(overlays, groundLeg(w, *from, end, kLift), drive ? 0.05 : 0.035, drive ? abstractColour : walkColour,
                       drive ? 0.0 : 0.12);
         }
-        const double size = trip.dest->info().size * 0.5 + 0.15;
+        const double size = trip.dest->size() * 0.5 + 0.15;
         addRing(overlays, end, size, gfx::rgba(255, 186, 66, 200));
     }
 }
@@ -371,7 +385,7 @@ void App::drawPersonLabels() {
     if (!p || p->serial != selPersonSerial_) return;
     const Trip trip = tripOf(w, *p);
     if (!trip.dest) return;
-    const glm::dvec3 at = buildingPoint(w, *trip.dest, 0.6 + trip.dest->info().size * 0.15);
+    const glm::dvec3 at = buildingPoint(w, *trip.dest, 0.6 + trip.dest->size() * 0.15);
     if (const auto sp = worldToScreen(at)) {
         const std::string title = travelling(p->state) ? std::format("{}'s destination", generatePersonFirstName(p->nameSeed))
                                                        : std::string("Next trip");

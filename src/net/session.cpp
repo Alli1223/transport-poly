@@ -2,11 +2,11 @@
 
 namespace tp {
 
-LocalSession::LocalSession(const WorldSettings& settings, const std::string& companyName)
+LocalSession::LocalSession(const WorldSettings& settings, const std::string& companyName, u8 colour)
     : server_(std::make_unique<World>(settings)) {
     Command create;
     create.client = kLocalClientId;
-    create.payload = CmdCreateCompany{companyName, 0xFF};
+    create.payload = CmdCreateCompany{companyName, colour};
     const CommandResult r = server_.executeNow(create);
     company_ = CompanyId(static_cast<u8>(r.createdId));
     (void)server_.takeResults(kLocalClientId);

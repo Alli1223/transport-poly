@@ -128,12 +128,12 @@ TPoint endpoint(const World& w, TilePos centre2) {
     const auto* t = w.map.tile(tileAt(p));
     if (t && t->type == TileType::Building)
         if (const auto* b = w.buildings.tryGet(BuildingId(t->index))) {
-            p = {b->pos.x * kTrackUnits + b->info().size * kTrackUnits / 2,
-                 b->pos.y * kTrackUnits + b->info().size * kTrackUnits / 2};
+            p = {b->pos.x * kTrackUnits + b->size() * kTrackUnits / 2,
+                 b->pos.y * kTrackUnits + b->size() * kTrackUnits / 2};
             if (b->facing == Dir::N) p.z = b->pos.y * kTrackUnits - 1;
-            if (b->facing == Dir::S) p.z = (b->pos.y + b->info().size) * kTrackUnits + 1;
+            if (b->facing == Dir::S) p.z = (b->pos.y + b->size()) * kTrackUnits + 1;
             if (b->facing == Dir::W) p.x = b->pos.x * kTrackUnits - 1;
-            if (b->facing == Dir::E) p.x = (b->pos.x + b->info().size) * kTrackUnits + 1;
+            if (b->facing == Dir::E) p.x = (b->pos.x + b->size()) * kTrackUnits + 1;
         }
     return p;
 }

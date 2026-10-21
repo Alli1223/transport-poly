@@ -731,6 +731,23 @@ void person(MeshBuilder& mb) {
 } // namespace
 
 void buildTransportModels(MeshBuilder& out, ModelId id) {
+    if (id >= models::kPrivateCarBase && id < models::kPrivateCarBase + 3) {
+        const int style = id - models::kPrivateCarBase;
+        const float rear = style == 2 ? -.26f : -.23f;
+        wheels(out, -.15f, .15f, .085f, .033f);
+        out.box({rear, .055f, -.085f}, {.25f, .115f, .085f}, kLivery);
+        out.box({rear, .045f, -.083f}, {.25f, .06f, .083f}, kLiveryDark);
+        passengerShell(out, style == 0 ? -.13f : -.20f, .10f, .09f, .205f, .078f, kLivery, 2, .125f, .185f);
+        out.box({.11f, .115f, -.082f}, {.24f, .13f, .082f}, kLivery); // bonnet
+        out.box({.101f, .13f, -.068f}, {.104f, .184f, .068f}, kPassengerGlass);
+        const float back = style == 0 ? -.134f : -.204f;
+        out.box({back, .132f, -.068f}, {back + .003f, .182f, .068f}, kPassengerGlass);
+        out.box({.245f, .064f, -.087f}, {.258f, .077f, .087f}, kChrome);
+        out.box({rear - .008f, .064f, -.087f}, {rear, .077f, .087f}, kChrome);
+        lamps(out, .25f, .095f, .055f, true); lamps(out, rear, .095f, .055f, false);
+        if (style == 2) for (float z : {-.055f, .055f}) out.box({-.19f, .205f, z}, {.085f, .214f, z + .008f}, kChrome);
+        return;
+    }
     if (id >= models::kTramSectionBase && id < models::kTramBellows) {
         const int slot = id - models::kTramSectionBase;
         if (slot % 3 <= slot / 3) articulatedTramSection(out, slot / 3, slot % 3);

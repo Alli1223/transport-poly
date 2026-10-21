@@ -21,9 +21,11 @@ public:
         std::string name = "transport-poly server";
         i32 hashInterval = 32; // ticks between state hash checks
         i32 maxClients = 16;
+        std::string password;  // players must give it to join (empty: anyone may)
     };
 
-    explicit NetServer(std::unique_ptr<World> world, Options options = {});
+    explicit NetServer(std::unique_ptr<World> world);
+    NetServer(std::unique_ptr<World> world, Options options);
     ~NetServer();
 
     bool start(std::string& error);
@@ -38,9 +40,26 @@ public:
     std::vector<ClientInfo> clients() const;
     void setLocalHost(CompanyId company, const std::string& name = "Host");
     void broadcastChat(const std::string& from, const std::string& text);
+    // Chat from the host player, to everyone, its company or one player.
+    void localChat(const std::string& text, ChatScope scope = ChatScope::All, u16 target = 0);
     // Human readable events (joins, leaves, errors) since the last call.
     std::vector<std::string> takeEvents();
+    // Chat the host player can see.
     std::vector<ChatBroadcastMsg> takeChat();
+
+    // Co-op: a company's password, which players must give to join it (empty: none).
+    void setCompanyPassword(CompanyId company, const std::string& password);
+    bool companyLocked(CompanyId company) const;
+    std::vector<CompanyId> lockedCompanies() const;
+    // Where the host player is pointing (nullopt: nowhere), and every player's pointer.
+    void setLocalCursor(const std::optional<CursorInfo>& cursor);
+    std::vector<CursorInfo> cursors() const;
+    // Disconnects a player, telling them why.
+    bool kick(u16 client, const std::string& reason);
+    // Moves the host player to another company (or makes them a spectator).
+    void setLocalCompany(CompanyId company);
+    // Changes the password new players must give (empty: none); players already in stay.
+    void setPassword(const std::string& password) { options_.password = password; }
 
 private:
     struct Client {
@@ -50,6 +69,7 @@ private:
         CompanyId company;
         bool welcomed = false;
         double exploreBudget = 4.0;
+        std::optional<CursorInfo> cursor;
     };
 
     void acceptClients();
@@ -58,6 +78,9 @@ private:
     void broadcastRaw(PacketType type, const std::vector<u8>& payload);
     void broadcastClientList();
     void collectResults();
+    void deliverChat(const ChatBroadcastMsg& msg, u16 target);
+    void joinCompany(Client& c, const JoinCompanyMsg& msg);
+    void assign(Client& c, CompanyId company);
 
     Server server_;
     Options options_;
@@ -69,6 +92,10 @@ private:
     std::optional<ClientInfo> localHost_;
     std::vector<std::string> events_;
     std::vector<ChatBroadcastMsg> chat_;
+    std::map<u8, std::string> companyPasswords_;
+    std::optional<CursorInfo> localCursor_;
+    double cursorTimer_ = 0.0;
+    std::vector<CursorInfo> lastCursors_;
 };
 
 } // namespace tp::net

@@ -27,6 +27,23 @@ if(TP_BUILD_CLIENT)
     file(GLOB_RECURSE TP_CLIENT_SOURCES CONFIGURE_DEPENDS client/*.cpp client/*.hpp)
     add_executable(transport-poly ${TP_CLIENT_SOURCES})
     target_link_libraries(transport-poly PRIVATE tp_render tp_net tp_imgui glfw tp_audio)
+    # Release builds check this feed for a newer version (GitHub's latest release API).
+    set(TP_UPDATE_FEED "" CACHE STRING "Release feed the game checks for updates (empty: no update checks)")
+    if(TP_UPDATE_FEED)
+        target_compile_definitions(transport-poly PRIVATE TP_UPDATE_FEED="${TP_UPDATE_FEED}")
+    endif()
+    if(WIN32)
+        target_link_libraries(transport-poly PRIVATE winhttp)
+        target_sources(transport-poly PRIVATE client/transport-poly.rc)
+        # Packaged clients open as a GUI application; Debug keeps its developer console.
+        set_property(TARGET transport-poly PROPERTY WIN32_EXECUTABLE "$<NOT:$<CONFIG:Debug>>")
+        # Keep the normal main(argc, argv) startup so automation and command-line options work.
+        if(MSVC)
+            target_link_options(transport-poly PRIVATE "$<$<NOT:$<CONFIG:Debug>>:/ENTRY:mainCRTStartup>")
+        elseif(MINGW)
+            target_link_options(transport-poly PRIVATE "$<$<NOT:$<CONFIG:Debug>>:-Wl,--entry,mainCRTStartup>")
+        endif()
+    endif()
     # Ship the UI font next to the executable.
     add_custom_command(TARGET transport-poly POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:transport-poly>/fonts

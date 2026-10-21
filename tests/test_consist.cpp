@@ -50,7 +50,7 @@ TEST_CASE("consist: rear engines and duplicate wagons reorder through serialized
 
 TEST_CASE("consist: invalid, foreign and moving edits have no side effects") {
     ConsistWorld f;
-    for (const auto order : {std::vector<u16>{0,1}, std::vector<u16>{0,1,1,3,4}, std::vector<u16>{0,1,2,3,5}}) {
+    for (const auto& order : {std::vector<u16>{0,1}, std::vector<u16>{0,1,1,3,4}, std::vector<u16>{0,1,2,3,5}}) {
         const auto before = f.w.stateHash();
         CHECK(!executeCommand(f.w,f.command(CmdReorderConsist{f.train,order})).ok);
         CHECK_EQ(before,f.w.stateHash());

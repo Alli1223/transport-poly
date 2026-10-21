@@ -284,6 +284,10 @@ i32 growthRate(const Town& t) {
     i32 rate = base;
     if (t.lastMonth.trips > 0) rate += base * 2 * t.lastMonth.transit / t.lastMonth.trips;
     rate += std::min(t.servedStations, 6) * 2;
+    // Arrivals and deliveries benefit the receiving town, including visiting non-residents.
+    const u32 population = static_cast<u32>(std::max(1, t.population));
+    rate += static_cast<i32>(std::min<u64>(base * 2, static_cast<u64>(base) * t.arrivalsLastMonth / population));
+    rate += static_cast<i32>(std::min<u64>(base * 2, static_cast<u64>(base) * t.goodsReceivedLastMonth / std::max(16u, population / 4)));
     // Every need met speeds growth up.
     for (const CargoType c : t.needs) rate += needMet(t, c) ? base : 0;
     return rate;
@@ -374,7 +378,7 @@ bool canPlaceBuilding(const World& w, TilePos pos, u8 size) {
     return true;
 }
 
-BuildingId placeBuilding(World& w, TownId townId, u16 type, TilePos pos, Dir facing, u8 variant) {
+BuildingId placeBuilding(World& w, TownId townId, u16 type, TilePos pos, Dir facing, u8 variant, u8 footprint) {
     const BuildingType& bt = buildingType(type);
     const BuildingId id = w.buildings.create();
     {
@@ -386,9 +390,10 @@ BuildingId placeBuilding(World& w, TownId townId, u16 type, TilePos pos, Dir fac
         b.facing = facing;
         b.variant = variant;
         b.builtTick = w.clock.tick;
+        b.footprint = footprint;
     }
-    for (i32 dy = 0; dy < bt.size; ++dy) {
-        for (i32 dx = 0; dx < bt.size; ++dx) {
+    for (i32 dy = 0; dy < w.buildings[id].size(); ++dy) {
+        for (i32 dx = 0; dx < w.buildings[id].size(); ++dx) {
             const TilePos p{pos.x + dx, pos.y + dy};
             Tile& t = *w.map.tile(p);
             t.type = TileType::Building;
@@ -438,9 +443,8 @@ BuildingId placeBuilding(World& w, TownId townId, u16 type, TilePos pos, Dir fac
 
 void removeBuilding(World& w, BuildingId id) {
     const Building b = w.buildings[id];
-    const BuildingType& bt = b.info();
-    for (i32 dy = 0; dy < bt.size; ++dy) {
-        for (i32 dx = 0; dx < bt.size; ++dx) {
+    for (i32 dy = 0; dy < b.size(); ++dy) {
+        for (i32 dx = 0; dx < b.size(); ++dx) {
             const TilePos p{b.pos.x + dx, b.pos.y + dy};
             Tile& t = *w.map.tile(p);
             t.type = TileType::Clear;
@@ -475,7 +479,7 @@ void recompute(World& w, TownId id) {
         t->jobs += bt.jobs;
         t->workers += b.workers;
         t->retailCapacity += bt.customers;
-        radius = std::max(radius, chebyshev(b.pos.x - t->centre.x, b.pos.y - t->centre.y) + bt.size);
+        radius = std::max(radius, chebyshev(b.pos.x - t->centre.x, b.pos.y - t->centre.y) + b.size());
     }
     t->radius = static_cast<i32>(radius);
 }
@@ -628,6 +632,10 @@ void monthly(World& w) {
     for (auto [id, t] : w.towns) {
         t.lastMonth = t.thisMonth;
         t.thisMonth = {};
+        t.arrivalsLastMonth = t.arrivals;
+        t.arrivals = 0;
+        t.goodsReceivedLastMonth = t.goodsReceived;
+        t.goodsReceived = 0;
         recompute(w, id);
         t.suppliedLastMonth = t.supplied;
         t.supplied = {};

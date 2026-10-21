@@ -14,6 +14,15 @@ same day; closing it refreshes their plans. Stations need connected road entranc
 Passengers keep waiting until a vehicle with space arrives while their service
 exists. A full train leaves the remaining passengers queued for the next one.
 
+Towns grow faster when passengers arrive and goods reach their shops and civic
+buildings. Their increasing needs still have to be supplied to unlock further
+growth. Countryside industries start at different sizes, with larger farm plots,
+yards and outbuildings. All producers and processing plants can expand to level 8:
+deliver at least half their monthly production capacity consistently to build
+expansion progress. Successful deliveries count, including through transfers;
+cargo left waiting at stations does not. Expanded industries produce more each
+day, and processing plants need enough of every input to use their new capacity.
+
 * C++23, OpenGL 3.3 core, Windows and Linux
 * Infinite chunked terrain generated deterministically from a seed
 * Server-authoritative lockstep multiplayer (OpenTTD style): clients issue
@@ -72,6 +81,20 @@ To build only the dedicated server and tests (no X11/OpenGL needed) use the
 build writes a self-contained zip / tar.gz with the game, the dedicated server and
 the font to `build/<preset>/packages/`.
 
+On Windows, install Inno Setup 6 or 7 and run
+`powershell -File scripts/package-windows.ps1` from a VS developer prompt after
+configuring the Windows preset. This builds the game, portable ZIP, checksums and
+`transport-poly-0.3.0-windows-x64-setup.exe`. The installer lets you choose a folder,
+install for yourself or everyone, and create shortcuts. Windows Settings or the
+Start menu uninstaller removes the game while preserving saves and settings.
+
+Packaged builds check for a newer stable release at startup and show its release
+notes. Choose **Download update**, then **Install and restart** after verification;
+or skip that release or defer it. Update checks and a manual **Check now** button
+are in Settings. Offline checks fail quietly. Installed Windows copies keep player
+data in `%APPDATA%\transport-poly`; updates retain the chosen installation folder.
+Portable copies keep their existing player data when updated.
+
 ### Releases
 
 Windows and Linux builds of each release are on the
@@ -83,15 +106,42 @@ a release. See [RELEASING.md](RELEASING.md) for the steps and
 ## Running a multiplayer game
 
 ```bash
-transport-poly-server --port 3979 --seed 12345
+transport-poly-server --port 3979 --seed 12345 --password secret
 ```
 
-Clients connect through *Multiplayer → Join* in the main menu.
+Clients connect through *Multiplayer → Join* in the main menu (with the server
+password, if it has one). Once the world has loaded, choose a company: found your
+own with a name and a colour (colours other companies use are struck out), join a
+friend's company to play it together, or watch as a spectator. *Host* asks for
+your name, your company's name and colour, and an optional server password.
 
-Press **Tab** or click **Players** in multiplayer chat to see connected players,
-companies and spectators. The host controls pause and speed (including **Space**).
+Press **Tab** or click **Players** in multiplayer chat to see who is playing,
+grouped by company; companies with more than one player are marked co-op. Lock
+your company with a password so only friends who know it can join, or **Change
+company** to move to another one or to watching. Everyone sees the other players'
+pointers in the world in their company's colour, with their names. Chat goes to
+everyone, to your company only, or privately to one player (**Message** in the
+players window); the host can remove a player with **Kick**. The host controls
+pause and speed (including **Space**).
+
+Press **G** or open **Companies** in the dock to compare companies. The league
+ranks them by a performance rating out of 1000, in the style of OpenTTD's
+detailed performance rating: vehicles making a profit, stations served, the
+lowest vehicle profit, income and operating profit over the last year,
+passengers carried, cash, loan and company value. Each rating earns a title,
+from Engineer to Tycoon, and the news announces a new league leader. The graphs
+plot every company's value, monthly operating profit, monthly income or rating
+over up to ten years, and the rating tab breaks a company's score down. A new or
+hosted game can be played as a competition: the first company to a company value
+of $1,000,000, $5,000,000 or $20,000,000 wins, or the best rated company after
+5, 10 or 20 years (`--goal-value` and `--goal-years` for the dedicated server).
 Clients see changes immediately while paused; commands submitted during pause
-wait until the host resumes. The dedicated server uses its console controls.
+wait until the host resumes. **Find** in the players window looks where another
+player is pointing. The dedicated server is run from its console: `status`,
+`companies` (the league with each company's players), `say <text>`, `pause`,
+`unpause`, `speed <0-16>`, `kick <id or name> [reason]`, `password [text]` (set or
+clear the server password), `unlock <company id>` (clear a company password),
+`save <file>` and `quit`.
 
 Press **F5** in a game to write `saves/quicksave.tpsave`; load it through the
 normal load menu. In multiplayer the host saves the game. Monthly autosaves
@@ -239,10 +289,39 @@ or livery. Four quarterly checks with negative cash trigger bankruptcy: vehicles
 are liquidated, stops and depots close, and remaining routes become public.
 Returning to a non-negative balance resets the debt-quarter counter.
 
-Open **Settings** from either menu for shadows, view distance, VSync, daylight,
-camera sensitivity and autosave intervals (0 disables autosaving). Save preferences
-to retain them in `settings.cfg`. Starting year and interest apply to new worlds.
+Open **Settings > Graphics** for fullscreen and monitor selection, VSync, frame
+rate limits, anti-aliasing, brightness, shadow resolution, terrain detail, view and
+tree distances, clouds, mist, and individual visual effects. **Alt+Enter** switches
+fullscreen on or off. Low, Balanced and High presets provide starting points;
+individual controls can then be adjusted. Anti-aliasing takes effect after saving
+and restarting; other graphics changes apply immediately.
+Settings also include camera sensitivity and autosave intervals (0 disables
+autosaving). Save preferences to retain them in `settings.cfg`.
+Starting year and interest apply to new worlds.
 Clicking the clock also remembers the daylight preference.
+
+Residents with cars drive longer journeys within their home town when they cannot
+use public transport. Short trips remain walks, and usable public transport stays
+their first choice for longer journeys. Cars follow connected town roads, queue
+behind traffic and can be clicked to inspect or follow their driver. Ownership
+increases as the years pass, so a later town with poor public transport has more
+private traffic. Private cars currently stay within one town; they do not drive
+between towns. Their colours, body styles, lights and engine sounds appear in the
+world, and active journeys resume when loading a save.
+
+**Settings > Audio** controls master, music, vehicle, ambience and interface
+volume, with optional muting when the game is in the background. Three original
+funk/jazz arrangements play in menus and during play. Steam, diesel and electric
+engines, trams, road vehicles and ships have stereo positional sounds: move closer
+or zoom in to hear them, and zoom out to quieten them. Pausing quietens vehicles
+while music continues. Local birds/crickets, water, farms and industry ambience
+accompany construction, purchases and news sounds. Existing installations retain
+their previous audio on/off choice; enable audio here if it was previously off.
+The playlist shows the current tune and offers **Next track**. Steam exhaust
+chuffs with speed, and every locomotive and carriage contributes rolling wheel
+and track-joint sounds, so following the rear of a long train still sounds right.
+Car tyres, boat propeller wash and departure whistles/horns complete the traffic
+soundscape. All music and sound effects are synthesized from original code.
 
 Gameplay settings also control inflation and recessions for new worlds. Inflation
 raises construction, vehicle and upkeep prices and fares by about 2% per year.
@@ -372,9 +451,9 @@ vehicles. Station windows also show the freight queue by commodity.
 
 ## Optional competitors and sounds
 
-In **Settings > Gameplay**, choose 0-3 AI competitors for new games and enable
-**Sounds** for local command confirmation and error tones. Both preferences are
-saved with the other settings. Missing audio hardware quietly disables playback.
+In **Settings > Gameplay**, choose 0-3 AI competitors for new games. The separate
+**Audio** tab controls music, effects and ambience. These preferences are saved
+with the other settings. Missing audio hardware quietly disables playback.
 The dedicated server accepts `--ai 0-3`; headless builds require no audio library.
 
 AI companies build affordable two-stop bus routes over existing connected town

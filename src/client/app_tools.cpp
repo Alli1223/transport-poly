@@ -199,8 +199,8 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
         }
         const CmdDemolishBuilding cmd{building->ref(BuildingId(tile->index))};
         const auto result = test(cmd);
-        for (i32 y = 0; y < building->info().size; ++y)
-            for (i32 x = 0; x < building->info().size; ++x)
+        for (i32 y = 0; y < building->size(); ++y)
+            for (i32 x = 0; x < building->size(); ++x)
                 addTileOverlay(overlays, {building->pos.x + x, building->pos.y + y},
                                result.ok ? gfx::rgba(250, 160, 70, 130) : kBad);
         if (ImGui::BeginTooltip()) {
@@ -525,6 +525,7 @@ void App::drawToolbar() {
     const WindowButton windows[] = {
         {"##vehicles", ui::Icon::Bus, &showVehicleList_, {"Vehicles", "All of your buses, trams, trains and ships", "V"}},
         {"##lines", ui::Icon::Link, &showLines_, {"Lines", "Your lines: their stops, vehicles, passengers and profit", "L"}},
+        {"##companies", ui::Icon::Star, &showCompanies_, {"Companies", "The league table, company graphs and performance ratings", "G"}},
         {"##finances", ui::Icon::Coins, &showFinances_, {"Finances", "Income, expenses and your loan", "F"}},
         {"##towns", ui::Icon::Town, &showTownList_, {"Towns", "Every town you have discovered", "T"}},
         {"##citizens", ui::Icon::People, &showCitizens_, {"Citizens", "Inspect a resident's schedule and follow their journey", "C"}},

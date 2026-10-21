@@ -1,0 +1,2 @@
+// Windows resources: the game's icon (GLFW also uses GLFW_ICON for the window).
+GLFW_ICON ICON "transport-poly.ico"

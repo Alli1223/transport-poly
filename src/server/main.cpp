@@ -1,6 +1,6 @@
 // Headless dedicated server.
 //
-//   transport-poly-server [--port N] [--seed N] [--load file] [--name text] [--autosave months]
+//   transport-poly-server [--port N] [--seed N] [--load file] [--name text] [--password text] [--autosave months]
 //
 // Console commands (stdin): status, save <file>, speed <0-16>, say <text>, quit
 
@@ -8,6 +8,7 @@
 #include "core/log.hpp"
 #include "core/version.hpp"
 #include "net/net_server.hpp"
+#include "sim/league.hpp"
 #include "sim/savegame.hpp"
 
 #include <atomic>
@@ -52,6 +53,12 @@ int main(int argc, char** argv) {
         else if (arg == "--seed") settings.seed = std::strtoull(next().c_str(), nullptr, 10);
         else if (arg == "--load") loadPath = next();
         else if (arg == "--name") options.name = next();
+        else if (arg == "--password") options.password = next();
+        else if (arg == "--goal-value") settings.goalValue = std::max<Money>(0, std::atoll(next().c_str()));
+        else if (arg == "--goal-years") {
+            const int years = std::atoi(next().c_str());
+            settings.goalYear = years > 0 ? settings.startYear + years : 0;
+        }
         else if (arg == "--autosave") autosaveMonths = std::atoi(next().c_str());
         else if (arg == "--ai") settings.aiCompetitors = std::clamp(std::atoi(next().c_str()), 0, 3);
         else if (arg == "--inflation") settings.inflation = true;
@@ -78,7 +85,7 @@ int main(int argc, char** argv) {
         else if (arg == "--lakes") settings.terrain.lakes = static_cast<u8>(std::clamp(std::atoi(next().c_str()), 0, kTerrainAmountMax));
         else if (arg == "--rivers") settings.terrain.rivers = static_cast<u8>(std::clamp(std::atoi(next().c_str()), 0, kRiverAmountMax));
         else {
-            std::cerr << "usage: transport-poly-server [--port N] [--seed N] [--load file] [--name text] "
+            std::cerr << "usage: transport-poly-server [--port N] [--seed N] [--load file] [--name text] [--password text] [--goal-value money] [--goal-years N] "
                          "[--autosave months] [--ai 0-3] [--inflation] [--no-recessions]\n"
                          "       [--land continents|mainland|islands|archipelago|island] [--climate temperate|arid|arctic|tropical|varied]\n"
                          "       [--mountains 0-4] [--lakes 0-4] [--rivers 0-3]\n";
@@ -163,8 +170,42 @@ int main(int argc, char** argv) {
                 log::info("Speed {}", server.server().speed());
             } else if (line.rfind("say ", 0) == 0) {
                 server.broadcastChat("Server", line.substr(4));
+            } else if (line == "pause" || line == "unpause") {
+                server.server().setSpeed(line == "pause" ? 0 : 1);
+                if (line == "pause") log::info("Paused");
+                else log::info("Running");
+            } else if (line.rfind("kick ", 0) == 0) {
+                // kick <player id or name> [reason]
+                std::string who = line.substr(5), reason;
+                if (const auto space = who.find(' '); space != std::string::npos) {
+                    reason = who.substr(space + 1);
+                    who = who.substr(0, space);
+                }
+                bool done = false;
+                for (const auto& c : server.clients())
+                    if (std::to_string(c.id) == who || c.name == who) done = server.kick(c.id, reason.empty() ? "Removed by the server" : reason);
+                if (done) log::info("Removed {}", who);
+                else log::info("No player {}", who);
+            } else if (line == "companies") {
+                for (const auto [id, c] : w.companies) {
+                    std::string who;
+                    for (const auto& p : server.clients())
+                        if (p.company == id) who += (who.empty() ? "" : ", ") + p.name;
+                    log::info("  #{} {}  rating {} ({})  value {}  cash {}{}{}", id.value, c.name, c.rating, league::title(c.rating),
+                              formatMoney(league::companyValue(w, id)), formatMoney(c.money), server.companyLocked(id) ? "  [password]" : "",
+                              who.empty() ? std::string() : "  players: " + who);
+                }
+            } else if (line == "password" || line.rfind("password ", 0) == 0) {
+                const std::string password = line.size() > 9 ? line.substr(9) : std::string();
+                server.setPassword(password);
+                if (password.empty()) log::info("The server no longer needs a password");
+                else log::info("New players need the password");
+            } else if (line.rfind("unlock ", 0) == 0) {
+                server.setCompanyPassword(CompanyId(static_cast<u8>(std::atoi(line.substr(7).c_str()))), {});
+                log::info("Company {} unlocked", line.substr(7));
             } else if (!line.empty()) {
-                log::info("Commands: status, save <file>, speed <0-16>, say <text>, quit");
+                log::info("Commands: status, companies, save <file>, speed <0-16>, pause, unpause, say <text>,");
+                log::info("          kick <id or name> [reason], password [text], unlock <company id>, quit");
             }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
