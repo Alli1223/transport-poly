@@ -1,5 +1,5 @@
 ; Windows installer for transport-poly (Inno Setup 6). CI builds it from the installed release build:
-;   iscc /DAppVersion=0.3.0 /DSourceDir=<staged install> /DOutputDir=<packages> installer\transport-poly.iss
+;   iscc /DAppVersion=0.4.0 /DSourceDir=<staged install> /DOutputDir=<packages> installer\transport-poly.iss
 ; It installs for the current user (no administrator rights needed) or, if chosen, for everyone, to a
 ; folder the player picks; adds Start menu and optional desktop shortcuts, and an uninstaller that
 ; preserves saved games and settings. Run with /SILENT it upgrades an existing

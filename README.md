@@ -84,7 +84,7 @@ the font to `build/<preset>/packages/`.
 On Windows, install Inno Setup 6 or 7 and run
 `powershell -File scripts/package-windows.ps1` from a VS developer prompt after
 configuring the Windows preset. This builds the game, portable ZIP, checksums and
-`transport-poly-0.3.0-windows-x64-setup.exe`. The installer lets you choose a folder,
+`transport-poly-0.4.0-windows-x64-setup.exe`. The installer lets you choose a folder,
 install for yourself or everyone, and create shortcuts. Windows Settings or the
 Start menu uninstaller removes the game while preserving saves and settings.
 

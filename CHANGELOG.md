@@ -5,6 +5,50 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-27
+
+### Laying track over the land
+- While laying track, platforms or depots the ground shows its elevation: colours
+  by height, a contour line at every height level and a bold one every five. Track
+  that follows a contour stays level.
+- A gold line marks the height of the track being laid, or before the first click
+  the height of the ground under the pointer.
+- The track plan's tooltip draws its height profile, the track over the ground, so
+  cuttings, embankments and bridges show at a glance.
+- **H** shows or hides the elevation view, with the track tools or at any other
+  time; the choice is remembered (also under Settings, Controls).
+
+### Industries and fish
+- Industries suit the land they stand on: quarries and mines on and around the
+  mountains, cut into the hillside, and logging camps deep in thick woods.
+- Fish farms: floating net pens in lakes and the sea near the shore, within reach
+  of a dock or a quay. Fish is a new refrigerated cargo, sold at the shops.
+
+### Terrain and vegetation
+- Grass, rock, sand and snow shade gradually into one another instead of changing
+  tile by tile, in every world.
+- New worlds have gentler small-scale relief, a snow line that wanders up and down
+  the mountains with scree gathering below it, and woods in stands of oak, birch
+  and pine that mix where they meet, fringed with bushes, with willows by the water
+  and copses across the open country. Older worlds keep their terrain.
+
+### Timetables and vehicle replacement
+- A timetabled wait at any stop, and timing points that hold vehicles so a service
+  leaves evenly spaced: a fixed interval, or the measured round trip shared out
+  between its vehicles. The lines window can space a whole line.
+- Autorenew old vehicles, and replace models with compatible newer ones at their
+  next depot visit, trading the old one in.
+
+### Passengers, roads and subsidies
+- Passenger feedback: rides are scored on the wait, crowding and speed, giving
+  vehicle, line and company satisfaction and a feed of complaints and praise.
+- Subsidies: double pay for a year to the first company to carry passengers between
+  unlinked towns, or an industry's produce to a new place.
+- Private cars drive on any connected road, between towns too, and two intercity
+  coaches join the road vehicles.
+- Save format 30 loads older saves; multiplayer protocol 39 requires matching game
+  versions.
+
 ## [0.3.0] - 2026-10-21
 
 ### Private cars
@@ -134,7 +178,8 @@ Transport Fever, with deterministic lockstep multiplayer.
 - Multiplayer through a dedicated server or a hosted game, with chat, a
   player list and host-controlled pause and speed; save, load and autosave.
 
-[Unreleased]: https://github.com/Alli1223/transport-poly/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Alli1223/transport-poly/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Alli1223/transport-poly/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Alli1223/transport-poly/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Alli1223/transport-poly/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Alli1223/transport-poly/releases/tag/v0.1.0
