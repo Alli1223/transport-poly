@@ -99,6 +99,13 @@ struct Glow {
 
 inline constexpr int kMaxLamps = 24; // matches the shaders' light arrays
 
+// The elevation view, for laying track: the ground tinted by height, with a contour line at every
+// height level and a bold one every five, and optionally one height marked out.
+struct ElevationView {
+    float strength = 0.0f;      // 0 = off, 1 = full
+    float markLevel = -1000.0f; // the height to mark, in levels (none below -1)
+};
+
 // Translucent quad drawn over the terrain (selection, previews). Corners in world coordinates.
 struct OverlayQuad {
     glm::dvec3 corners[4];
@@ -113,6 +120,7 @@ public:
                 double tickFraction, const std::vector<OverlayQuad>& overlays);
 
     RenderSettings settings;
+    ElevationView elevation;
     const RenderStats& stats() const { return stats_; }
     const SkyState& sky() const { return sky_; }
     void invalidateAll() {

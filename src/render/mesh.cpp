@@ -53,6 +53,17 @@ void MeshBuilder::triangleUp(const glm::vec3& a, const glm::vec3& b, const glm::
         triangle(a, c, b, color);
 }
 
+void MeshBuilder::triangleUp(const glm::vec3& a, const glm::vec3& b, const glm::vec3& c, u32 ca, u32 cb, u32 cc) {
+    const bool up = glm::cross(b - a, c - a).y >= 0.0f;
+    const usize first = vertices.size();
+    if (up)
+        triangle(a, b, c, ca);
+    else
+        triangle(a, c, b, ca);
+    vertices[first + 1].color = up ? cb : cc;
+    vertices[first + 2].color = up ? cc : cb;
+}
+
 namespace {
 // Emits a triangle whose (local space) normal faces `dir`.
 void facing(MeshBuilder& mb, const glm::vec3& a, const glm::vec3& b, const glm::vec3& c, u32 color,

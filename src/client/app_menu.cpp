@@ -832,6 +832,8 @@ void App::drawSettings() {
                 changed |= ImGui::SliderInt("Mouse wheel zoom", &preferences_.zoomPercent, 25, 300, "%d%%");
                 ImGui::TextWrapped("WASD / arrows: pan. Q/E: orbit. R/F: tilt. Page Up/Down or mouse wheel: zoom. Right drag: orbit. Middle drag: pan.");
                 ImGui::TextWrapped("1-5: construction toolbars. Space: pause. F5: quicksave. F12: screenshot. Esc: close the current tool or window.");
+                ImGui::TextWrapped("H: show or hide the elevation view (height colours and contour lines).");
+                changed |= ImGui::Checkbox("Elevation view while laying track", &preferences_.trackContours);
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Audio", nullptr, openAudioSettings_ ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None)) {

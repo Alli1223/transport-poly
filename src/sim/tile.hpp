@@ -25,7 +25,10 @@ enum class Ground : u8 {
     Jungle, // lush tropical undergrowth
 };
 
-enum class TreeType : u8 { Deciduous, Conifer, Palm, Cactus, Acacia, Shrub };
+enum class TreeType : u8 {
+    Deciduous, Conifer, Palm, Cactus, Acacia, Shrub,
+    Birch, Pine, Willow, Bush, // from terrain style 2
+};
 
 // Owner values stored in tiles (company ids are 0..kMaxCompanies-1).
 inline constexpr u8 kOwnerNone = 0xFF;
@@ -63,6 +66,8 @@ constexpr bool spanPortal(const Tile& t) {
     return t.span && ((t.index & 0xFFFF) == 0 || (t.index & 0xFFFF) + 1 == (t.index >> 16));
 }
 constexpr bool waterUnderBridge(const Tile& t) { return (t.span & 3) == kSpanBridge && t.ground == Ground::Water; }
+// A building standing in the water (a fish farm's pens): the water stays around it.
+constexpr bool waterUnderBuilding(const Tile& t) { return t.type == TileType::Building && t.ground == Ground::Water; }
 
 static_assert(sizeof(Tile) <= 16, "keep tiles compact");
 

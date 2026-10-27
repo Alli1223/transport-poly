@@ -5,6 +5,7 @@
 #include "sim/world.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <optional>
 
 namespace tp::industries {
@@ -28,23 +29,45 @@ std::optional<Site> siteFor(u64 seed, i32 cx, i32 cy, int index) {
     return Site{at, h};
 }
 
-// The kind of industry that suits a site's land (0 when none does, e.g. at sea).
+// Quarries and mines, cut into the hillside: their sites may slope more steeply.
+constexpr bool extractive(u16 type) { return type == kQuarry || type == kIronMine || type == kCoalMine; }
+
+// The kind of industry that suits a site's land (0 when none does, e.g. on a low shore).
 u16 kindFor(const TerrainGenerator& gen, TilePos at, u32 hash) {
-    i32 lo = 999, hi = -1;
-    for (i32 dy = -6; dy <= 6; dy += 3)
-        for (i32 dx = -6; dx <= 6; dx += 3) {
-            const i32 h = gen.cornerHeight(at.x + dx, at.y + dy);
+    // The ground within six tiles tells how high and steep the site is; a wider look tells
+    // whether mountains rise nearby and whether there is water.
+    i32 lo = 999, hi = -1, peak = -1;
+    bool shore = false;
+    for (i32 dy = -12; dy <= 12; dy += 3)
+        for (i32 dx = -12; dx <= 12; dx += 3) {
+            const i64 raw = gen.rawHeight(at.x + dx, at.y + dy);
+            const i32 h = static_cast<i32>(std::max<i64>(raw, 0) / kHeightOne);
+            peak = std::max(peak, h);
+            if (std::abs(dx) > 6 || std::abs(dy) > 6) continue;
             lo = std::min(lo, h);
             hi = std::max(hi, h);
+            shore = shore || raw < 0;
         }
+    // In lakes and the sea, net pens near the shore (sites far out find none and stay empty).
+    if (gen.rawHeight(at.x, at.y) < 0) return hash % 5 < 2 ? kFishFarm : 0;
+    if (shore) return hash % 4 < 3 ? kFishFarm : 0;
     if (lo <= 0) return 0;
     const i32 level = gen.cornerHeight(at.x, at.y);
     const i32 slope = hi - lo;
-    const bool forest = gen.forestDensity(at.x, at.y) > kHeightOne * 56 / 100;
+    const bool mountains = level >= 18 || slope >= 4 || peak >= std::max(level + 8, 16);
+    const bool highMountains = level >= 22 || slope >= 6 || peak >= 30;
+    const bool hills = mountains || level >= 10 || slope >= 2;
+    // Thick woods: the forest is dense here and all around.
+    i64 forest = gen.forestDensity(at.x, at.y);
+    const bool woods = forest > kHeightOne * 56 / 100;
+    for (const TilePos d : {TilePos{-8, 0}, TilePos{8, 0}, TilePos{0, -8}, TilePos{0, 8}})
+        forest = std::min(forest, gen.forestDensity(at.x + d.x, at.y + d.y));
+    const bool thickWoods = forest > kHeightOne * 60 / 100;
     const Biome biome = gen.biomeAt(at.x, at.y);
     const bool dry = biome == Biome::Desert || biome == Biome::Steppe;
     const bool cold = biome == Biome::Tundra || biome == Biome::Taiga;
     const bool flat = slope <= 3;
+    const bool open = flat && level <= 16 && !thickWoods;
     struct Option {
         u16 kind;
         u32 weight;
@@ -54,17 +77,17 @@ u16 kindFor(const TerrainGenerator& gen, TilePos at, u32 hash) {
     const auto add = [&](u16 kind, u32 weight) {
         if (weight) options[n++] = {kind, weight};
     };
-    add(kLoggingCamp, forest && !dry ? 8 : 0);
-    add(kQuarry, slope >= 4 || level >= 18 ? 5 : (biome == Biome::Desert ? 3 : 1));
-    add(kIronMine, level >= 22 || slope >= 6 ? 4 : 1);
-    add(kCoalMine, level >= 16 || slope >= 5 ? 4 : 1);
-    add(kGrainFarm, flat && level <= 16 && !cold && biome != Biome::Desert && biome != Biome::Jungle ? 6 : 0);
-    add(kSheepFarm, slope <= 5 && biome != Biome::Desert && biome != Biome::Jungle ? 4 : 0);
-    add(kDairyFarm, flat && level <= 16 && !dry ? 4 : 0);
+    add(kLoggingCamp, dry ? 0 : thickWoods ? 14 : woods ? 3 : 0);
+    add(kQuarry, mountains ? 9 : hills ? 2 : (biome == Biome::Desert ? 2 : 0));
+    add(kIronMine, highMountains ? 6 : mountains ? 2 : 0);
+    add(kCoalMine, mountains ? 5 : hills ? 1 : 0);
+    add(kGrainFarm, open && !cold && biome != Biome::Desert && biome != Biome::Jungle ? 6 : 0);
+    add(kSheepFarm, slope <= 5 && !thickWoods && biome != Biome::Desert && biome != Biome::Jungle ? 4 : 0);
+    add(kDairyFarm, open && !dry ? 4 : 0);
     if (flat) {
         add(kCheeseDairy, 2);
         add(kTextileMill, 2);
-        add(kSawmill, 3);
+        add(kSawmill, woods ? 4 : 2);
         add(kBrickworks, 2);
         add(kSteelMill, 2);
         add(kGoodsFactory, 1);
@@ -90,9 +113,22 @@ bool explored(const Map& m, TilePos c, i32 r) {
     return true;
 }
 
-// Open, gently sloping land for a footprint, with a margin of open land around it, clear of
-// towns and of other industries.
-bool fits(const World& w, TilePos pos, i32 size) {
+// Clear of towns and of other countryside industries.
+bool apart(const World& w, TilePos pos, i32 size) {
+    for (const auto [id, t] : w.towns)
+        if (chebyshev(t.centre.x - pos.x, t.centre.y - pos.y) < t.radius + 6 + size) return false;
+    for (i32 dy = -5; dy < size + 5; ++dy)
+        for (i32 dx = -5; dx < size + 5; ++dx) {
+            const Tile* tile = w.map.tile({pos.x + dx, pos.y + dy});
+            if (!tile || tile->type != TileType::Building) continue;
+            if (const Building* b = w.buildings.tryGet(BuildingId(tile->index)); b && isCountryside(b->type)) return false;
+        }
+    return true;
+}
+
+// Open land for a footprint, no more than `relief` levels from its lowest to its highest corner,
+// with a margin of open land around it.
+bool fits(const World& w, TilePos pos, i32 size, i32 relief) {
     for (i32 dy = -1; dy <= size; ++dy)
         for (i32 dx = -1; dx <= size; ++dx) {
             const TilePos t{pos.x + dx, pos.y + dy};
@@ -108,16 +144,28 @@ bool fits(const World& w, TilePos pos, i32 size) {
             lo = std::min(lo, f);
             hi = std::max(hi, f);
         }
-    if (hi - lo > 3 * kSubLevels || lo < kSubLevels) return false;
-    for (const auto [id, t] : w.towns)
-        if (chebyshev(t.centre.x - pos.x, t.centre.y - pos.y) < t.radius + 6 + size) return false;
-    for (i32 dy = -5; dy < size + 5; ++dy)
-        for (i32 dx = -5; dx < size + 5; ++dx) {
+    if (hi - lo > relief * kSubLevels || lo < kSubLevels) return false;
+    return apart(w, pos, size);
+}
+
+// Open water for a fish farm's pens, with a margin of water all round and the shore close by:
+// the edge of a lake or the coast, where a dock or a quay can reach it. Narrow water such as a
+// river, with land close on both sides, stays free for shipping.
+bool fitsWater(const World& w, TilePos pos, i32 size) {
+    for (i32 dy = -1; dy <= size; ++dy)
+        for (i32 dx = -1; dx <= size; ++dx) {
             const Tile* tile = w.map.tile({pos.x + dx, pos.y + dy});
-            if (!tile || tile->type != TileType::Building) continue;
-            if (const Building* b = w.buildings.tryGet(BuildingId(tile->index)); b && isCountryside(b->type)) return false;
+            if (!tile || tile->type != TileType::Water || tile->owner != kOwnerNone || tile->span) return false;
         }
-    return true;
+    i32 land = 0, water = 0;
+    for (i32 dy = -4; dy <= size + 3; ++dy)
+        for (i32 dx = -4; dx <= size + 3; ++dx) {
+            if (dx >= -1 && dx <= size && dy >= -1 && dy <= size) continue;
+            const Tile* tile = w.map.tile({pos.x + dx, pos.y + dy});
+            if (!tile) return false;
+            ++(tile->type == TileType::Water ? water : land);
+        }
+    return land > 0 && water >= 2 * land && apart(w, pos, size);
 }
 
 // Levels the footprint to the whole height level nearest its average.
@@ -146,8 +194,12 @@ BuildingId found(World& w, u16 type, TilePos near, i32 search) {
             for (i32 dx = -r; dx <= r; ++dx) {
                 if (std::max(std::abs(dx), std::abs(dy)) != r) continue;
                 const TilePos pos{near.x + dx - size / 2, near.y + dy - size / 2};
-                if (!fits(w, pos, size)) continue;
-                level(w, pos, size);
+                if (type == kFishFarm) {
+                    if (!fitsWater(w, pos, size)) continue;
+                } else {
+                    if (!fits(w, pos, size, extractive(type) ? 5 : 3)) continue;
+                    level(w, pos, size);
+                }
                 TownId town;
                 i64 best = kTownReach + 1;
                 for (const auto [id, t] : w.towns) {
@@ -184,7 +236,8 @@ void onChunkActivated(World& w, ChunkPos chunk) {
                 // Wait until the land around the site has been explored.
                 if (!explored(w.map, site->at, 18)) continue;
                 w.processedIndustrySites.insert(key);
-                if (const u16 kind = kindFor(w.map.generator(), site->at, site->hash)) found(w, kind, site->at, 12);
+                if (const u16 kind = kindFor(w.map.generator(), site->at, site->hash))
+                    found(w, kind, site->at, kind == kFishFarm || extractive(kind) ? 16 : 12);
             }
 }
 

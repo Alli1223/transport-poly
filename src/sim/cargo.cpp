@@ -1,4 +1,5 @@
 #include "sim/cargo.hpp"
+#include "sim/industries.hpp"
 #include "sim/town.hpp"
 #include "sim/world.hpp"
 #include "core/hash.hpp"
@@ -13,6 +14,9 @@ namespace tp {
 namespace {
 using C = CargoType;
 constexpr C kNone = C::None;
+
+// What every shop sells, whatever its town needs.
+constexpr bool soldInShops(CargoType type) { return type == C::Food || type == C::Goods || type == C::Fish; }
 
 // building, inputs, output, units a day
 constexpr IndustryRecipe kRecipes[] = {
@@ -33,6 +37,7 @@ constexpr IndustryRecipe kRecipes[] = {
     {26, {C::IronOre, C::Coal}, C::Steel, 48},   // steel mill
     {27, {C::Steel, C::Planks}, C::Goods, 40},   // goods factory
     {28, {C::Planks, C::Cloth}, C::Furniture, 36}, // furniture factory
+    {29, {kNone, kNone}, C::Fish, 40},           // fish farm
 };
 } // namespace
 
@@ -61,6 +66,7 @@ std::string_view cargoName(CargoType type) {
     case CargoType::Bricks: return "Bricks";
     case CargoType::Steel: return "Steel";
     case CargoType::Furniture: return "Furniture";
+    case CargoType::Fish: return "Fish";
     default: return "Passengers";
     }
 }
@@ -68,7 +74,7 @@ std::string_view cargoName(CargoType type) {
 CargoClass cargoClass(CargoType type) {
     switch (type) {
     case CargoType::Grain: case CargoType::Stone: case CargoType::IronOre: case CargoType::Coal: return CargoClass::Bulk;
-    case CargoType::Food: case CargoType::Milk: case CargoType::Cheese: return CargoClass::Refrigerated;
+    case CargoType::Food: case CargoType::Milk: case CargoType::Cheese: case CargoType::Fish: return CargoClass::Refrigerated;
     case CargoType::Goods: case CargoType::Wool: case CargoType::Cloth: case CargoType::Furniture: return CargoClass::Piece;
     case CargoType::Logs: case CargoType::Planks: case CargoType::Bricks: case CargoType::Steel: return CargoClass::Flatbed;
     default: return CargoClass::None;
@@ -99,7 +105,7 @@ u32 classQuantity(const std::vector<CargoBatch>& batches, CargoClass c) {
 bool accepts(const World& w, const Building& b, CargoType type) {
     if (const IndustryRecipe* r = recipeFor(b.type)) return type != CargoType::None && (r->inputs[0] == type || r->inputs[1] == type);
     const BuildingCategory cat = b.info().category;
-    if (cat == BuildingCategory::Retail && (type == CargoType::Food || type == CargoType::Goods)) return true;
+    if (cat == BuildingCategory::Retail && soldInShops(type)) return true;
     // Towns take what they need at their shops, offices and civic buildings.
     if (cat == BuildingCategory::Retail || cat == BuildingCategory::Office || cat == BuildingCategory::Civic)
         if (const Town* t = w.towns.tryGet(b.town)) return towns::needs(*t, type);
@@ -200,7 +206,7 @@ void daily(World& w) {
             i.producedThisMonth += n;
         }
         if (b.info().category == BuildingCategory::Retail)
-            for (const CargoType c : {CargoType::Food, CargoType::Goods}) i.stock[static_cast<usize>(c)] -= std::min(i.stock[static_cast<usize>(c)], 16u);
+            for (const CargoType c : {CargoType::Food, CargoType::Goods, CargoType::Fish}) i.stock[static_cast<usize>(c)] -= std::min(i.stock[static_cast<usize>(c)], 16u);
     }
     for (auto [sid, station] : w.stations) {
         std::erase_if(station.cargoWaiting, [&](const CargoBatch& batch) {
@@ -261,7 +267,7 @@ void monthly(World& w) {
                 i.growthProgress -= 100;
                 ++i.level;
                 Building& grown = w.buildings[i.building.id];
-                if (grown.type >= 15 && grown.type <= 28) {
+                if (industries::isCountryside(grown.type)) {
                     grown.variant = static_cast<u8>((i.level - 1) / 3);
                     w.map.touch(grown.pos);
                 }
@@ -305,8 +311,7 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
             if (it != w.industries.end() && target && accepts(w, *target, batch.type) && covered(*s, *target)) {
                 const IndustryRecipe* r = recipeFor(target->type);
                 const bool input = r && (r->inputs[0] == batch.type || r->inputs[1] == batch.type);
-                const bool shop = target->info().category == BuildingCategory::Retail &&
-                                  (batch.type == CargoType::Food || batch.type == CargoType::Goods);
+                const bool shop = target->info().category == BuildingCategory::Retail && soldInShops(batch.type);
                 u32 delivered = batch.quantity;
                 if (input || shop) {
                     auto& stock = it->stock[static_cast<usize>(batch.type)];

@@ -447,7 +447,7 @@ void removeBuilding(World& w, BuildingId id) {
         for (i32 dx = 0; dx < b.size(); ++dx) {
             const TilePos p{b.pos.x + dx, b.pos.y + dy};
             Tile& t = *w.map.tile(p);
-            t.type = TileType::Clear;
+            t.type = t.ground == Ground::Water ? TileType::Water : TileType::Clear;
             t.index = 0;
             t.extra = 0;
             t.owner = kOwnerNone;

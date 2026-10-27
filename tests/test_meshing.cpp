@@ -4,6 +4,7 @@
 #include "render/models.hpp"
 #include "sim/vehicle.hpp"
 #include "sim/buildings.hpp"
+#include "sim/industries.hpp"
 #include <cstring>
 #include <future>
 using namespace tp;
@@ -39,7 +40,7 @@ TEST_CASE("models: every freight and passenger vehicle has geometry") {
     }
 }
 TEST_CASE("models: industry expansion adds geometry within its reserved plot") {
-    for (u16 type = 15; type <= 28; ++type) {
+    for (u16 type = industries::kGrainFarm; type <= industries::kFishFarm; ++type) {
         usize previous = 0;
         for (u8 stage = 0; stage < 3; ++stage) {
             gfx::MeshBuilder mesh;

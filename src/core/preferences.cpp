@@ -52,7 +52,7 @@ bool ClientPreferences::load(const std::filesystem::path& path) {
     std::ifstream in(path);
     ClientPreferences candidate;
     int version = 0;
-    if (!(in >> version) || (version < 1 || version > 9) ||
+    if (!(in >> version) || (version < 1 || version > 10) ||
         !(in >> candidate.shadows >> candidate.vsync >> candidate.daylightOnly >> candidate.viewDistance >>
           candidate.panPercent >> candidate.orbitPercent >> candidate.zoomPercent >> candidate.autosaveMonths >>
           candidate.startYear >> candidate.interestPercent)) return false;
@@ -72,6 +72,7 @@ bool ClientPreferences::load(const std::filesystem::path& path) {
           candidate.lightHalos >> candidate.treeSway >> candidate.waterAnimation)) return false;
     if (version >= 9 && !(in >> candidate.masterVolume >> candidate.musicVolume >> candidate.vehicleVolume >>
           candidate.ambienceVolume >> candidate.interfaceVolume >> candidate.muteUnfocused)) return false;
+    if (version >= 10 && !(in >> candidate.trackContours)) return false;
     candidate.clamp();
     *this = candidate;
     return true;
@@ -80,7 +81,7 @@ bool ClientPreferences::save(const std::filesystem::path& path) const {
     ClientPreferences p = *this;
     p.clamp();
     std::ofstream out(path, std::ios::trunc);
-    out << 9 << '\n' << p.shadows << ' ' << p.vsync << ' ' << p.daylightOnly << ' ' << p.viewDistance << ' '
+    out << 10 << '\n' << p.shadows << ' ' << p.vsync << ' ' << p.daylightOnly << ' ' << p.viewDistance << ' '
         << p.panPercent << ' ' << p.orbitPercent << ' ' << p.zoomPercent << ' ' << p.autosaveMonths << ' '
         << p.startYear << ' ' << p.interestPercent << ' ' << p.inflation << ' ' << p.recessions << ' ' << p.sounds << ' ' << p.aiCompetitors << ' '
         << p.landmass << ' ' << p.mountains << ' ' << p.lakes << ' ' << p.rivers << ' ' << p.climate << ' ' << p.weather << ' ' << p.checkUpdates << ' '
@@ -90,7 +91,8 @@ bool ClientPreferences::save(const std::filesystem::path& path) const {
         << p.fogPercent << ' ' << p.nightFogPercent << ' ' << p.particles << ' ' << p.lightHalos << ' ' << p.treeSway << ' '
         << p.waterAnimation << '\n'
         << p.masterVolume << ' ' << p.musicVolume << ' ' << p.vehicleVolume << ' ' << p.ambienceVolume << ' '
-        << p.interfaceVolume << ' ' << p.muteUnfocused << '\n';
+        << p.interfaceVolume << ' ' << p.muteUnfocused << '\n'
+        << p.trackContours << '\n';
     out.flush();
     return static_cast<bool>(out);
 }

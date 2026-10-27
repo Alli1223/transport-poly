@@ -3,6 +3,7 @@
 
 #include "render/models.hpp"
 #include "sim/buildings.hpp"
+#include "sim/industries.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -609,6 +610,62 @@ void furnitureFactory(MeshBuilder& mb, u8) {
     chimney(mb, -0.6f, -0.5f, 0.6f, 0.25f);
 }
 
+// A floating ring: a flat band between two radii, with its outer and inner sides.
+void collar(MeshBuilder& mb, glm::vec3 c, float r0, float r1, float h, u32 color) {
+    constexpr int kSides = 14;
+    for (int i = 0; i < kSides; ++i) {
+        const float a0 = 6.2831853f * static_cast<float>(i) / kSides, a1 = 6.2831853f * static_cast<float>(i + 1) / kSides;
+        const glm::vec3 d0(std::cos(a0), 0.0f, std::sin(a0)), d1(std::cos(a1), 0.0f, std::sin(a1)), up(0.0f, h, 0.0f);
+        const glm::vec3 out = (d0 + d1) * 0.5f;
+        mb.quadFacing(c + d0 * r0 + up, c + d1 * r0 + up, c + d1 * r1 + up, c + d0 * r1 + up, color, {0, 1, 0});
+        mb.quadFacing(c + d0 * r1, c + d1 * r1, c + d1 * r1 + up, c + d0 * r1 + up, shade(color, 0.9f), out);
+        mb.quadFacing(c + d0 * r0, c + d1 * r0, c + d1 * r0 + up, c + d0 * r0 + up, shade(color, 0.8f), -out);
+    }
+}
+
+// Round net pens floating on the water either side of a pontoon walkway, with a shed and a feed
+// store on a platform at the shore end. Each stage of expansion moors another pair of pens.
+// Everything floats just above the water (the plot is scaled by up to about 1.6).
+void fishFarm(MeshBuilder& mb, u8 variant) {
+    constexpr u32 kFloat = rgba(66, 72, 80), kNet = rgba(30, 58, 64), kRail = rgba(214, 216, 210);
+    constexpr u32 kDeck = rgba(150, 120, 86), kBuoy = rgba(232, 112, 46);
+    constexpr float kTop = 0.0f, kBase = -0.05f;
+    const int pairs = 1 + std::min<int>(variant, 2);
+    for (int p = 0; p < pairs; ++p) {
+        const float x = -0.4f + 1.18f * static_cast<float>(p);
+        for (const float z : {-0.72f, 0.72f}) {
+            // The net hangs below the surface inside a floating collar.
+            mb.prism({x, -0.3f, z}, 0.46f, 0.02f, 12, kNet);
+            collar(mb, {x, kBase, z}, 0.43f, 0.5f, kTop - kBase, kFloat);
+            for (int k = 0; k < 6; ++k) {
+                const float a = static_cast<float>(k) * 1.0471976f + 0.3f;
+                const float px = x + std::cos(a) * 0.47f, pz = z + std::sin(a) * 0.47f;
+                mb.box({px - 0.012f, kTop, pz - 0.012f}, {px + 0.012f, kTop + 0.09f, pz + 0.012f}, kRail);
+            }
+            mb.prism({x, kTop + 0.08f, z}, 0.48f, 0.015f, 12, kRail, false);
+            mb.icosphere({x + 0.3f, kTop, z + (z < 0 ? -0.45f : 0.45f)}, 0.045f, kBuoy);
+        }
+    }
+    // The walkway out to the last pens and the platform at the shore end.
+    const float end = -0.4f + 1.18f * static_cast<float>(pairs - 1) + 0.25f;
+    mb.box({-1.3f, kBase, -0.1f}, {end, kTop, 0.1f}, kDeck);
+    mb.box({-2.35f, kBase, -0.6f}, {-1.25f, kTop, 0.6f}, kDeck);
+    const glm::vec3 mn(-2.2f, kTop, -0.45f), mx(-1.5f, kTop + 0.28f, 0.2f);
+    walls(mb, mn, mx, rgba(86, 128, 150));
+    mb.gableRoofX(mn, mx, mx.y, 0.14f, kRoofSlate, rgba(86, 128, 150), 0.03f);
+    door(mb, -1.85f, mx.z, 0.14f, 0.2f);
+    tank(mb, -1.62f, 0.42f, 0.11f, 0.28f + 0.06f * static_cast<float>(variant), rgba(196, 200, 194));
+    if (variant > 0) {
+        // A feed barge moored by the pens.
+        mb.box({-1.15f, kBase, 1.42f}, {-0.2f, kTop + 0.02f, 1.86f}, rgba(54, 84, 112));
+        silo(mb, -0.68f, 1.64f, 0.14f, 0.36f);
+    }
+    if (variant > 1) {
+        mb.box({end - 0.1f, kBase, -0.25f}, {end + 0.25f, kTop, 0.25f}, kDeck);
+        mb.box({end, kTop, -0.12f}, {end + 0.18f, kTop + 0.16f, 0.12f}, rgba(220, 222, 216));
+    }
+}
+
 // Add separate paddocks, stores and work sheds around the original production building.
 // The uneven arrangement leaves lanes and open corners instead of a single square block.
 void industryGrounds(MeshBuilder& mb, u16 type, u8 variant) {
@@ -684,9 +741,10 @@ void buildBuildingModel(MeshBuilder& mb, u16 type, u8 variant) {
     case 26: steelMill(mb, variant); break;
     case 27: goodsFactory(mb, variant); break;
     case 28: furnitureFactory(mb, variant); break;
+    case 29: fishFarm(mb, variant); break;
     default: house(mb, 0); break;
     }
-    if (type >= 15 && type <= 28) industryGrounds(mb, type, variant);
+    if (industries::isCountryside(type) && type != industries::kFishFarm) industryGrounds(mb, type, variant);
 }
 
 } // namespace tp::gfx

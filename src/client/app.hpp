@@ -153,6 +153,8 @@ private:
     void handleElectrifyTool(std::vector<gfx::OverlayQuad>& overlays);
     bool pickTrackOrder(std::vector<gfx::OverlayQuad>& overlays);
     void drawStationUpgradePreview(std::vector<gfx::OverlayQuad>& overlays);
+    bool elevationTool() const; // a tool that shows the elevation view
+    void updateElevationView(double dt);
 
     // app_menu.cpp
     void drawMainMenu();
@@ -250,6 +252,8 @@ private:
     std::optional<TilePos> dragStart_;
     std::optional<TrackAnchor> trackStart_; // free-form track being laid (start of the next piece)
     std::optional<TrackAnchor> stationStart_; // first end of a station platform being placed
+    bool elevationView_ = false;     // the elevation view turned on (H) outside the track tools
+    float elevationStrength_ = 0.0f; // fades the view in and out
 
     // Open windows / selection.
     DepotId selDepot_;
@@ -374,6 +378,7 @@ private:
     bool previewPassengers_ = false; // automation: occupied coaches and tram with intact roofs
     bool previewDemolition_ = false;
     bool previewStation_ = false;   // automation: show the station tool placing a platform
+    bool previewTrack_ = false;     // automation: show the track tool laying track, in the elevation view
     std::string previewStationUpgradeAction_; // automation: left, right, west or east
     bool previewConsist_ = false;
     bool previewConsistPopup_ = false;

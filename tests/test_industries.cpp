@@ -246,14 +246,99 @@ TEST_CASE("industries: growth progress, footprints and shipment provenance survi
 TEST_CASE("industries: large plots have full catchment and demolish completely") {
     ChainWorld cw;
     cw.w.map.activate({0, 0});
+    std::vector<TileType> before;
+    for (i32 y = 4; y < 10; ++y)
+        for (i32 x = 4; x < 10; ++x) before.push_back(cw.w.map.tile({x, y})->type);
     const BuildingId farm = towns::placeBuilding(cw.w, {}, industries::kSheepFarm, {4, 4}, Dir::S, 0, 6);
     const StationId station = cw.station({9, 9});
     cw.w.stations[station].catchment = 0;
     CHECK(cargo::covers(cw.w, station, cw.w.buildings[farm]));
     CHECK_EQ(cw.w.buildings[farm].centre2().x, 14);
     towns::removeBuilding(cw.w, farm);
+    // The land is left as it was: open ground, or water where the plot reached into a lake.
     for (i32 y = 4; y < 10; ++y)
-        for (i32 x = 4; x < 10; ++x) CHECK(cw.w.map.tile({x, y})->type == TileType::Clear);
+        for (i32 x = 4; x < 10; ++x) CHECK(cw.w.map.tile({x, y})->type == before[static_cast<usize>((y - 4) * 6 + x - 4)]);
+}
+
+TEST_CASE("industries: each kind is founded on land that suits it") {
+    // Quarries and mines in the hills and mountains, logging camps in the woods, fish farms out
+    // on the water near the shore.
+    WorldSettings s;
+    s.seed = 77;
+    s.terrain.mountains = 3;
+    s.terrain.lakes = 3;
+    World w(s);
+    explore(w, 10);
+    const TerrainGenerator& gen = w.map.generator();
+    i64 minesHeight = 0, farmsHeight = 0;
+    int mines = 0, farms = 0, camps = 0;
+    std::vector<BuildingId> fishFarms;
+    for (const auto [id, b] : w.buildings) {
+        if (!industries::isCountryside(b.type)) continue;
+        const TilePos centre{b.pos.x + b.size() / 2, b.pos.y + b.size() / 2};
+        switch (b.type) {
+        case industries::kFishFarm: {
+            fishFarms.push_back(id);
+            for (i32 y = 0; y < b.size(); ++y)
+                for (i32 x = 0; x < b.size(); ++x) CHECK(waterUnderBuilding(*w.map.tile({b.pos.x + x, b.pos.y + y})));
+            bool shore = false;
+            for (i32 y = -4; y < b.size() + 4; ++y)
+                for (i32 x = -4; x < b.size() + 4; ++x)
+                    if (const Tile* t = w.map.tile({b.pos.x + x, b.pos.y + y}); t && t->type != TileType::Water && !waterUnderBuilding(*t))
+                        shore = true;
+            CHECK(shore);
+            break;
+        }
+        case industries::kLoggingCamp:
+            ++camps;
+            CHECK(gen.forestDensity(centre.x, centre.y) > kHeightOne / 2);
+            break;
+        case industries::kQuarry:
+        case industries::kIronMine:
+        case industries::kCoalMine:
+            ++mines;
+            minesHeight += gen.cornerHeight(centre.x, centre.y);
+            break;
+        case industries::kGrainFarm:
+        case industries::kDairyFarm:
+            ++farms;
+            farmsHeight += gen.cornerHeight(centre.x, centre.y);
+            break;
+        default: break;
+        }
+    }
+    std::printf("industries by land: %zu fish farms, %d mines, %d farms, %d logging camps\n", fishFarms.size(), mines, farms, camps);
+    CHECK(!fishFarms.empty());
+    CHECK(mines > 0);
+    CHECK(farms > 0);
+    // On average the quarries and mines stand higher than the farms.
+    CHECK(minesHeight * farms > farmsHeight * mines);
+    // Clearing a fish farm leaves open water.
+    if (!fishFarms.empty()) {
+        const Building b = w.buildings[fishFarms.front()];
+        towns::removeBuilding(w, fishFarms.front());
+        for (i32 y = 0; y < b.size(); ++y)
+            for (i32 x = 0; x < b.size(); ++x) CHECK(w.map.tile({b.pos.x + x, b.pos.y + y})->type == TileType::Water);
+    }
+}
+
+TEST_CASE("freight: fish go to the shops, and saves from before fish have none") {
+    ChainWorld cw;
+    const BuildingId farm = cw.building(industries::kFishFarm, {0, 0});
+    const BuildingId shop = cw.building(5, {20, 0});
+    CHECK(cargo::accepts(cw.w, cw.w.buildings[shop], CargoType::Fish));
+    CHECK(cargoClass(CargoType::Fish) == CargoClass::Refrigerated);
+    Industry entry{cw.w.buildings[farm].ref(farm)};
+    entry.stock[static_cast<usize>(CargoType::Fish)] = 40;
+    entry.stock[static_cast<usize>(CargoType::Furniture)] = 7;
+    cw.w.industries.push_back(entry);
+    World copy;
+    fromBytes(toBytes(cw.w, kSaveVersion), copy, kSaveVersion);
+    CHECK_EQ(copy.industries[0].stock[static_cast<usize>(CargoType::Fish)], 40u);
+    World older;
+    fromBytes(toBytes(cw.w, 29), older, 29);
+    CHECK_EQ(older.industries[0].stock[static_cast<usize>(CargoType::Furniture)], 7u);
+    CHECK_EQ(older.industries[0].stock[static_cast<usize>(CargoType::Fish)], 0u);
 }
 
 TEST_CASE("industries: a steel mill needs both iron ore and coal") {

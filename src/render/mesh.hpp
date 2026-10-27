@@ -46,6 +46,8 @@ public:
     void triangle(const glm::vec3& a, const glm::vec3& b, const glm::vec3& c, u32 color);
     // Triangle oriented so that its normal points up (+Y); for terrain-like surfaces.
     void triangleUp(const glm::vec3& a, const glm::vec3& b, const glm::vec3& c, u32 color);
+    // The same with a colour per corner, blended across the face.
+    void triangleUp(const glm::vec3& a, const glm::vec3& b, const glm::vec3& c, u32 ca, u32 cb, u32 cc);
     // Quad a-b-c-d counter-clockwise.
     void quad(const glm::vec3& a, const glm::vec3& b, const glm::vec3& c, const glm::vec3& d, u32 color);
     // Quad a-b-c-d (any winding) oriented so that its normal faces `dir` (local space).

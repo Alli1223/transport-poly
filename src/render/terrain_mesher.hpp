@@ -39,11 +39,16 @@ struct ChunkGeometry {
 
 // True when the tile at the given (world) position is water. Used for tiles outside the chunk.
 using WaterLookup = std::function<bool(TilePos)>;
+// The explored tile at a (world) position outside the chunk, or nullptr (the generator's tile is
+// used there). Neighbouring tiles blend their ground colours across the chunk's border.
+using TileLookup = std::function<const Tile*(TilePos)>;
 
 // lod 0 = one quad per tile; lod n merges 2^n x 2^n tiles per quad (no trees) for distant chunks.
-// `world` (optional) provides building information for ground colours under buildings.
+// `world` (optional) provides building information for ground colours under buildings, and the
+// tiles around the chunk unless `tilesOutside` does.
 ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen, const WaterLookup& waterOutside,
-                                 int lod = 0, const World* world = nullptr, const std::function<bool(u32)>& residential = {});
+                                 int lod = 0, const World* world = nullptr, const std::function<bool(u32)>& residential = {},
+                                 const TileLookup& tilesOutside = {});
 
 // Triangulation shared by the mesher and picking: true if the tile is split along NE-SW.
 bool tileSplitNESW(const TileCorners& c);

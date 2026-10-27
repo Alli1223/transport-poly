@@ -81,7 +81,25 @@ enum Salt : u32 {
     kHeat = 70,
     kWet,
     kDune,
+    kSnowEdge = 80,
+    kScree = 82,
+    kTreeStand = 86,
+    kCopse = 88,
 };
+
+// Forest noise must exceed this for woods to grow (lower means more trees).
+constexpr i64 forestStartOf(Biome biome, bool natural) {
+    switch (biome) {
+    case Biome::Desert: return kOne * 80 / 100;
+    case Biome::Steppe: return kOne * 70 / 100;
+    case Biome::Savanna: return kOne * 62 / 100;
+    case Biome::Jungle: return kOne * 44 / 100;
+    case Biome::Tundra: return kOne * 66 / 100;
+    case Biome::Taiga: return kOne * 46 / 100;
+    case Biome::Temperate: break;
+    }
+    return natural ? kOne * 52 / 100 : kOne * 56 / 100;
+}
 
 // Per landmass: lattice spacing of the land noise (2^shift tiles), the share of the noise range
 // that is sea, how fast the ground rises from the shore and how far inland hills and
@@ -161,6 +179,10 @@ TerrainGenerator::ClimateSample TerrainGenerator::climateAt(i32 x, i32 y) const 
 Biome TerrainGenerator::biomeAt(i32 x, i32 y) const { return climateAt(x, y).biome; }
 
 TreeType TerrainGenerator::treeFor(TilePos t, i32 level) const {
+    if (natural()) {
+        const Biome biome = biomeAt(t.x, t.y);
+        return naturalTree(t, biome, level, forestDensity(t.x, t.y), forestStartOf(biome, true));
+    }
     const u32 h = hashCoords(seed_, t.x, t.y, kTreeJitter);
     switch (biomeAt(t.x, t.y)) {
     case Biome::Desert: return h % 3 == 0 ? TreeType::Shrub : TreeType::Cactus;
@@ -172,6 +194,55 @@ TreeType TerrainGenerator::treeFor(TilePos t, i32 level) const {
     case Biome::Temperate: break;
     }
     return level >= 14 || (level >= 9 && (h >> 8) % 3 == 0) ? TreeType::Conifer : TreeType::Deciduous;
+}
+
+// Woods grow in stands - oak, birch, pine or mixed - that change slowly across the land and mix
+// where they meet. Bushes fringe the woods, willows grow by the water and conifers take over on
+// high ground.
+TreeType TerrainGenerator::naturalTree(TilePos t, Biome biome, i32 level, i64 forest, i64 forestStart) const {
+    const u32 r = (hashCoords(seed_, t.x, t.y, kTreeJitter) >> 8) % 100;
+    using T = TreeType;
+    switch (biome) {
+    case Biome::Desert: return r < 30 ? T::Shrub : T::Cactus;
+    case Biome::Steppe: return r < 55 ? T::Shrub : T::Acacia;
+    case Biome::Savanna: return r < 20 ? T::Palm : r < 35 ? T::Shrub : T::Acacia;
+    case Biome::Jungle: return r < 30 ? T::Deciduous : r < 45 ? T::Bush : T::Palm;
+    case Biome::Tundra: return r < 35 ? T::Shrub : r < 50 ? T::Birch : T::Conifer;
+    case Biome::Taiga: return r < 55 ? T::Conifer : r < 80 ? T::Pine : T::Birch;
+    case Biome::Temperate: break;
+    }
+    if (level >= 20) return r < 70 ? T::Conifer : T::Pine;
+    if (level <= 1 && r < 50) return T::Willow;
+    if (forest < forestStart + kOne * 3 / 100 && r < 45) return T::Bush;
+    // Stands about 64 tiles across; higher ground leans towards pine.
+    const i64 stand = std::clamp<i64>(valueNoise(seed_, kTreeStand, t.x, t.y, 6) + (level - 6) * kOne / 40, 0, kOne - 1);
+    if (stand < kOne * 28 / 100) return r < 80 ? T::Deciduous : T::Birch;
+    if (stand < kOne * 48 / 100) return r < 65 ? T::Birch : r < 90 ? T::Deciduous : T::Conifer;
+    if (stand < kOne * 70 / 100) return r < 40 ? T::Deciduous : r < 75 ? T::Conifer : T::Birch;
+    return r < 60 ? T::Pine : r < 90 ? T::Conifer : T::Birch;
+}
+
+// Ground that changes gradually rather than tile by tile: a snow line that wanders up and down
+// the mountains and scree gathering below it.
+Ground TerrainGenerator::naturalGround(TilePos t, Biome biome, Ground open, i32 snowLine, const i64 raw[4],
+                                       const u16 fine[4]) const {
+    const i32 lo = std::min(std::min(fine[0], fine[1]), std::min(fine[2], fine[3]));
+    const i32 hi = std::max(std::max(fine[0], fine[1]), std::max(fine[2], fine[3]));
+    const i32 mean = (fine[0] + fine[1] + fine[2] + fine[3]) / 4;
+    // Up to five levels either way, over stretches of a dozen tiles or so.
+    const i64 wander = (2 * valueNoise(seed_, kSnowEdge, t.x, t.y, 4) + valueNoise(seed_, kSnowEdge + 1, t.x, t.y, 2)) / 3;
+    const i32 snowAt = snowLine * kSubLevels + static_cast<i32>((wander - kOne / 2) * 10 * kSubLevels / kOne);
+    if (mean >= snowAt) return Ground::Snow;
+    if (hi - lo >= 2 * kSubLevels + kSubLevels / 2) return Ground::Rock;
+    // Scree in the band below the snow, more of it the higher the ground.
+    constexpr i32 kScreeBand = 7 * kSubLevels;
+    if (mean >= snowAt - kScreeBand) {
+        const i64 scree = (2 * valueNoise(seed_, kScree, t.x, t.y, 3) + valueNoise(seed_, kScree + 1, t.x, t.y, 2)) / 3;
+        if (scree > kOne * 84 / 100 - (mean - (snowAt - kScreeBand)) * (kOne * 36 / 100) / kScreeBand) return Ground::Rock;
+    }
+    if (raw[0] < kOne / 2 || raw[1] < kOne / 2 || raw[2] < kOne / 2 || raw[3] < kOne / 2)
+        return biome == Biome::Tundra || biome == Biome::Taiga ? Ground::Rough : Ground::Sand;
+    return open;
 }
 
 TerrainGenerator::TerrainGenerator(u64 seed, bool waterways, bool smooth, TerrainSettings terrain)
@@ -263,7 +334,10 @@ i64 TerrainGenerator::shapedHeight(i32 x, i32 y) const {
             }
         }
 
-        const i64 detail = mul(3 * valueNoiseAt(seed_, kDetail, px, py, 3) + 2 * valueNoiseAt(seed_, kDetail + 100, px, py, 5), hillMask) / 2;
+        // Small-scale relief; natural terrain keeps it gentle, so the land rolls rather than ripples.
+        const i64 detail = natural()
+            ? mul(valueNoiseAt(seed_, kDetail, px, py, 4) + 2 * valueNoiseAt(seed_, kDetail + 100, px, py, 5), hillMask) / 2
+            : mul(3 * valueNoiseAt(seed_, kDetail, px, py, 3) + 2 * valueNoiseAt(seed_, kDetail + 100, px, py, 5), hillMask) / 2;
         height += mul(detail, std::clamp<i64>(above * 50, 0, kOne));
 
         if (t.climate != Climate::Temperate) {
@@ -435,20 +509,21 @@ Tile TerrainGenerator::generateTile(TilePos t, const i64 raw[4], const u16 fine[
 
     const Biome biome = terrain_.climate == Climate::Temperate ? Biome::Temperate : biomeAt(t.x, t.y);
     i32 snowLine = smooth_ ? kSnowLine + 16 : kSnowLine;
-    // Ground in the open by biome; how dense the woods grow there (forest noise must exceed the
-    // start; lower starts mean more trees).
+    // Ground in the open by biome, and how dense the woods grow there.
     Ground open = Ground::Grass;
-    i64 forestStart = (kOne * 56) / 100;
+    const i64 forestStart = forestStartOf(biome, natural());
     switch (biome) {
-    case Biome::Desert: open = Ground::Desert; snowLine = 200; forestStart = kOne * 80 / 100; break;
-    case Biome::Steppe: open = Ground::Steppe; snowLine = 200; forestStart = kOne * 70 / 100; break;
-    case Biome::Savanna: open = Ground::Steppe; snowLine = 200; forestStart = kOne * 62 / 100; break;
-    case Biome::Jungle: open = Ground::Jungle; snowLine = 200; forestStart = kOne * 44 / 100; break;
-    case Biome::Tundra: open = Ground::Tundra; snowLine = 24; forestStart = kOne * 66 / 100; break;
-    case Biome::Taiga: open = Ground::Grass; snowLine = 32; forestStart = kOne * 46 / 100; break;
+    case Biome::Desert: open = Ground::Desert; snowLine = 200; break;
+    case Biome::Steppe: open = Ground::Steppe; snowLine = 200; break;
+    case Biome::Savanna: open = Ground::Steppe; snowLine = 200; break;
+    case Biome::Jungle: open = Ground::Jungle; snowLine = 200; break;
+    case Biome::Tundra: open = Ground::Tundra; snowLine = 24; break;
+    case Biome::Taiga: open = Ground::Grass; snowLine = 32; break;
     case Biome::Temperate: break;
     }
-    if (lo >= snowLine) {
+    if (natural()) {
+        tile.ground = naturalGround(t, biome, open, snowLine, raw, fine);
+    } else if (lo >= snowLine) {
         tile.ground = Ground::Snow;
     } else if (steep) {
         tile.ground = Ground::Rock;
@@ -471,12 +546,18 @@ Tile TerrainGenerator::generateTile(TilePos t, const i64 raw[4], const u16 fine[
             const i64 dens = (forest - kForestStart) * 12 / kOne; // 0..5
             const i64 count = std::clamp<i64>(dens + static_cast<i64>(treeHash % 3) - 1, 0, 4);
             tile.trees = static_cast<u8>(count);
-        } else if (treeHash % (biome == Biome::Desert ? 23 : 47) == 0) {
+        } else if (const i64 copse = (natural() && biome != Biome::Desert) ? valueNoise(seed_, kCopse, t.x, t.y, 4) : 0;
+                   copse > kOne * 74 / 100) {
+            // Copses and clumps of bushes dot the open country between the woods.
+            tile.trees = static_cast<u8>(std::clamp<i64>((copse - kOne * 74 / 100) * 16 / kOne + treeHash % 2, 1, 3));
+        } else if (treeHash % (biome == Biome::Desert ? 23 : natural() ? 31 : 47) == 0) {
             tile.trees = 1;
         }
         if (biome == Biome::Desert || biome == Biome::Steppe) tile.trees = std::min<u8>(tile.trees, 2);
         if (tile.trees > 0) {
-            if (biome == Biome::Temperate) {
+            if (natural()) {
+                tile.treeType = naturalTree(t, biome, lo, forest, kForestStart);
+            } else if (biome == Biome::Temperate) {
                 const bool conifer = lo >= 14 || (lo >= 9 && (treeHash >> 8) % 3 == 0);
                 tile.treeType = conifer ? TreeType::Conifer : TreeType::Deciduous;
             } else {

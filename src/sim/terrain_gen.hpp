@@ -47,9 +47,12 @@ inline constexpr int kTerrainAmountMax = 4; // mountains and lakes: none, few, n
 inline constexpr int kRiverAmountMax = 3;   // rivers: none, few, normal, many
 
 // How a world's terrain is shaped. `style` 0 is the first smooth terrain (worlds saved before
-// these settings existed); 1 is the current generator, which uses the other settings.
+// these settings existed); 1 is the shaped generator, which uses the other settings; 2 (new
+// worlds) shapes the same land with gentler small-scale relief, natural snow lines and scree,
+// and mixed woods of many kinds of tree.
+inline constexpr u8 kTerrainStyleLatest = 2;
 struct TerrainSettings {
-    u8 style = 1;
+    u8 style = kTerrainStyleLatest;
     Landmass landmass = Landmass::Continents;
     u8 mountains = 2;
     u8 lakes = 2;
@@ -106,6 +109,10 @@ public:
     TreeType treeFor(TilePos t, i32 level) const;
 
 private:
+    // Style 2 and later: softer relief, natural ground and mixed woods.
+    bool natural() const { return smooth_ && terrain_.style >= 2; }
+    Ground naturalGround(TilePos t, Biome biome, Ground open, i32 snowLine, const i64 raw[4], const u16 fine[4]) const;
+    TreeType naturalTree(TilePos t, Biome biome, i32 level, i64 forest, i64 forestStart) const;
     i64 legacyHeight(i32 x, i32 y) const;
     i64 smoothHeight(i32 x, i32 y) const;
     i64 shapedHeight(i32 x, i32 y) const;
