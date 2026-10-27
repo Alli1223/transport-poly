@@ -64,7 +64,11 @@ inline constexpr ModelId kCatenaryWire = kEffectBase + 35; // a wire one tile lo
 inline constexpr ModelId kPantograph = kEffectBase + 36;   // raised pantograph on an electric engine's roof
 inline constexpr ModelId kPrivateCarBase = kEffectBase + 37; // saloon, hatchback, estate
 inline constexpr ModelId kCoachBase = kEffectBase + 40;      // road visuals 8 and up: intercity coaches
-inline constexpr ModelId kCount = kEffectBase + 42;
+inline constexpr ModelId kTreeBirch0 = kEffectBase + 42;     // three variants
+inline constexpr ModelId kTreePine0 = kEffectBase + 45;      // two variants each
+inline constexpr ModelId kTreeWillow0 = kEffectBase + 47;
+inline constexpr ModelId kBush0 = kEffectBase + 49;
+inline constexpr ModelId kCount = kEffectBase + 51;
 
 constexpr ModelId building(u16 type, u8 variant) {
     return static_cast<ModelId>(kBuildingBase + type * kBuildingVariants + variant % kBuildingVariants);

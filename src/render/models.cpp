@@ -1,6 +1,7 @@
 #include "render/models.hpp"
 
 #include "sim/buildings.hpp"
+#include "sim/industries.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -101,6 +102,52 @@ void buildShrub(MeshBuilder& mb, int variant) {
     mb.icosphere({-0.08f, 0.05f, -0.06f}, 0.09f, shade(g, 1.08f), 0, 0.7f);
 }
 
+void buildBirch(MeshBuilder& mb, int variant) {
+    // A slender white trunk with dark bands under a light, narrow crown.
+    const u32 bark = rgba(226, 222, 210), band = rgba(60, 58, 56);
+    const u32 greens[3] = {rgba(150, 186, 84), rgba(132, 176, 78), rgba(170, 192, 92)};
+    const u32 g = greens[variant % 3];
+    const float h = 0.5f + 0.06f * static_cast<float>(variant);
+    mb.prism({0, 0, 0}, 0.035f, h, 5, bark, false);
+    for (const float y : {0.12f, 0.27f, 0.4f}) mb.prism({0, y, 0}, 0.037f, 0.025f, 5, band, false);
+    mb.icosphere({0.02f, h + 0.06f, 0}, 0.2f, g, 0, 1.25f);
+    mb.icosphere({-0.05f, h - 0.1f, 0.03f}, 0.17f, shade(g, 0.92f), 0, 1.1f);
+    if (variant == 1) mb.icosphere({0.06f, h + 0.24f, -0.02f}, 0.12f, shade(g, 1.06f), 0, 1.2f);
+}
+
+void buildPine(MeshBuilder& mb, int variant) {
+    // A tall bare trunk with flat clumps of needles at the top, like a Scots pine.
+    const u32 bark = rgba(150, 90, 58);
+    const u32 g = variant ? rgba(52, 96, 60) : rgba(60, 106, 58);
+    const float h = variant ? 0.8f : 0.7f;
+    mb.frustum({0, 0, 0}, 0.045f, 0.03f, h, 5, bark);
+    mb.icosphere({0.0f, h + 0.04f, 0.0f}, 0.26f, g, 0, 0.45f);
+    mb.icosphere({0.13f, h - 0.1f, 0.06f}, 0.17f, shade(g, 0.92f), 0, 0.5f);
+    mb.icosphere({-0.12f, h - 0.04f, -0.08f}, 0.16f, shade(g, 1.06f), 0, 0.5f);
+}
+
+void buildWillow(MeshBuilder& mb, int variant) {
+    // A short, stout trunk under a broad dome whose fronds hang almost to the ground.
+    const u32 g = variant ? rgba(140, 170, 92) : rgba(124, 160, 84);
+    mb.frustum({0, 0, 0}, 0.07f, 0.05f, 0.3f, 6, kTrunk);
+    mb.icosphere({0, 0.48f, 0}, 0.34f, g, 0, 0.7f);
+    mb.frustum({0, 0.08f, 0}, 0.4f, 0.3f, 0.36f, 9, shade(g, 0.88f));
+}
+
+void buildBush(MeshBuilder& mb, int variant) {
+    // A green, leafy bush; the second flowers in spring colours.
+    const u32 g = variant ? rgba(78, 134, 62) : rgba(92, 146, 66);
+    mb.icosphere({0, 0.11f, 0}, 0.17f, g, 0, 0.75f);
+    mb.icosphere({0.13f, 0.08f, 0.06f}, 0.12f, shade(g, 0.9f), 0, 0.8f);
+    mb.icosphere({-0.1f, 0.08f, -0.09f}, 0.12f, shade(g, 1.08f), 0, 0.8f);
+    if (variant) {
+        const u32 bloom[3] = {rgba(244, 238, 240), rgba(236, 150, 188), rgba(246, 214, 92)};
+        static constexpr float kAt[5][3] = {{0.05f, 0.22f, 0.04f}, {-0.09f, 0.17f, 0.08f}, {0.15f, 0.15f, -0.05f},
+                                            {-0.12f, 0.14f, -0.1f}, {0.0f, 0.19f, -0.12f}};
+        for (int i = 0; i < 5; ++i) mb.icosphere({kAt[i][0], kAt[i][1], kAt[i][2]}, 0.03f, bloom[i % 3]);
+    }
+}
+
 void buildCloud(MeshBuilder& mb, int variant) {
     // A flat-bottomed heap of puffs, about one unit across.
     const u32 white = rgba(250, 251, 255);
@@ -161,6 +208,14 @@ void ModelLibrary::build() {
         make(models::kTreeCactus0, buildCactus);
         make(models::kTreeAcacia0, buildAcacia);
         make(models::kShrub0, buildShrub);
+        make(models::kTreePine0, buildPine);
+        make(models::kTreeWillow0, buildWillow);
+        make(models::kBush0, buildBush);
+    }
+    for (int v = 0; v < 3; ++v) {
+        MeshBuilder mb;
+        buildBirch(mb, v);
+        add(static_cast<ModelId>(models::kTreeBirch0 + v), swaying(mb));
     }
     for (int v = 0; v < 3; ++v) {
         MeshBuilder mb;
@@ -204,7 +259,7 @@ void ModelLibrary::build() {
     for (u16 t = 0; t < types.size() && t < models::kMaxBuildingTypes; ++t) {
         for (u8 v = 0; v < models::kBuildingVariants; ++v) {
             MeshBuilder mb;
-            buildBuildingModel(mb, t, t >= 15 && t <= 28 ? v : static_cast<u8>(v % std::max<u8>(1, types[t].variants)));
+            buildBuildingModel(mb, t, industries::isCountryside(t) ? v : static_cast<u8>(v % std::max<u8>(1, types[t].variants)));
             add(models::building(t, v), mb);
         }
     }

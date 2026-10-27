@@ -47,6 +47,7 @@ struct ClientPreferences {
     bool waterAnimation = true;
     int masterVolume = 75, musicVolume = 55, vehicleVolume = 80, ambienceVolume = 60, interfaceVolume = 75;
     bool muteUnfocused = true;
+    bool trackContours = true; // the elevation view while laying track (H)
     int frameRateLimit() const;
     void graphicsPreset(int quality);
     void clamp();

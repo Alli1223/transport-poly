@@ -9,7 +9,7 @@ namespace {
 using C = BuildingCategory;
 using T = TownClass;
 
-constexpr std::array<BuildingType, 29> kTypes = {{
+constexpr std::array<BuildingType, 30> kTypes = {{
     // name                 category        size res  jobs cust  minClass    zones                        weight var
     {"Cottage",             C::Residential, 1,   3,   0,   0,    T::Village, kZoneInner | kZoneOuter,       14,   3},
     {"House",               C::Residential, 1,   5,   0,   0,    T::Village, kZoneCore | kZoneInner | kZoneOuter, 16, 3},
@@ -41,6 +41,7 @@ constexpr std::array<BuildingType, 29> kTypes = {{
     {"Steel mill",          C::Industrial,  3,   0,   40,  0,    T::Village, 0,                             0,    1},
     {"Goods factory",       C::Industrial,  3,   0,   36,  0,    T::Village, 0,                             0,    1},
     {"Furniture factory",   C::Industrial,  2,   0,   22,  0,    T::Village, 0,                             0,    1},
+    {"Fish farm",           C::Industrial,  3,   0,   10,  0,    T::Village, 0,                             0,    1},
 }};
 
 } // namespace

@@ -165,14 +165,50 @@ in vec3 vNormal;
 in vec3 vColor;
 flat in float vEmission;
 uniform float uExplored;
+// The elevation view (laying track): x: strength (0 = off), y: a height to mark in levels (none
+// below -1), z: world units per height level.
+uniform vec4 uElevation;
 out vec4 fragColor;
+
+// Colours by height, from the lowlands through the hills to the snowy peaks.
+vec3 elevationTint(float level) {
+    const float stops[7] = float[7](0.0, 6.0, 14.0, 24.0, 38.0, 56.0, 80.0);
+    const vec3 tints[7] = vec3[7](vec3(0.27, 0.6, 0.45), vec3(0.47, 0.72, 0.36), vec3(0.8, 0.8, 0.44),
+                                  vec3(0.85, 0.65, 0.36), vec3(0.72, 0.45, 0.33), vec3(0.6, 0.48, 0.55),
+                                  vec3(0.93, 0.93, 0.95));
+    vec3 c = tints[0];
+    for (int i = 1; i < 7; ++i) c = mix(c, tints[i], clamp((level - stops[i - 1]) / (stops[i] - stops[i - 1]), 0.0, 1.0));
+    return toLinear(c);
+}
+// Coverage of a line drawn at every whole value of `v`, about `width` pixels wide. Lines fade
+// out where they would crowd together: far away, or on the steepest slopes.
+float contour(float v, float width) {
+    float fw = max(fwidth(v), 1e-5);
+    float d = abs(fract(v + 0.5) - 0.5) / fw;
+    return (1.0 - smoothstep(width * 0.5, width * 0.5 + 1.0, d)) * (1.0 - smoothstep(0.2, 0.4, fw));
+}
+
 void main() {
     vec3 n = normalize(vNormal);
     vec3 albedo = vColor;
     // Unexplored land is shown desaturated and slightly darker.
     float grey = dot(albedo, vec3(0.3, 0.59, 0.11));
     albedo = mix(vec3(grey), albedo, mix(0.35, 1.0, uExplored)) * mix(0.8, 1.0, uExplored);
+    float level = vWorldPos.y / uElevation.z;
+    bool elevation = uElevation.x > 0.001 && vWorldPos.y > 0.01;
+    if (elevation) albedo = mix(albedo, elevationTint(level) * (grey * 0.6 + 0.55), 0.6 * uElevation.x);
     vec3 c = applyEmission(litColor(albedo, n, vWorldPos), vEmission);
+    if (elevation) {
+        // A fine contour at every height level and a bold one every five: following a contour
+        // keeps track level, crossing them climbs.
+        c = mix(c, c * 0.35, contour(level, 1.0) * 0.6 * uElevation.x);
+        c = mix(c, vec3(0.03, 0.025, 0.02), contour(level / 5.0, 2.2) * 0.8 * uElevation.x);
+        if (uElevation.y > -1.0) {
+            float fw = max(fwidth(level), 1e-5);
+            float mark = 1.0 - smoothstep(1.5, 3.0, abs(level - uElevation.y) / fw);
+            c = mix(c, vec3(1.0, 0.85, 0.25), mark * uElevation.x);
+        }
+    }
     fragColor = vec4(toSrgb(applyFog(c, vWorldPos)), 1.0);
 }
 )"});

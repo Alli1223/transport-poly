@@ -10,6 +10,7 @@
 #include "render/vehicle_pose.hpp"
 #include "render/catenary.hpp"
 #include "render/person_pose.hpp"
+#include "sim/industries.hpp"
 #include "sim/rail.hpp"
 #include "sim/road.hpp"
 
@@ -51,7 +52,7 @@ Frustum extractFrustum(const glm::mat4& m) {
 }
 
 bool tileIsWater(const Map& map, TilePos t) {
-    if (const Tile* tile = map.tile(t)) return tile->type == TileType::Water || waterUnderBridge(*tile);
+    if (const Tile* tile = map.tile(t)) return tile->type == TileType::Water || waterUnderBridge(*tile) || waterUnderBuilding(*tile);
     const TerrainGenerator& g = map.generator();
     return g.rawHeight(t.x, t.y) < 0 && g.rawHeight(t.x + 1, t.y) < 0 && g.rawHeight(t.x + 1, t.y + 1) < 0 &&
            g.rawHeight(t.x, t.y + 1) < 0;
@@ -63,6 +64,10 @@ ModelId treeModel(const TreePlacement& t) {
     case TreeType::Cactus: return static_cast<ModelId>(models::kTreeCactus0 + t.variant % 2);
     case TreeType::Acacia: return static_cast<ModelId>(models::kTreeAcacia0 + t.variant % 2);
     case TreeType::Shrub: return static_cast<ModelId>(models::kShrub0 + t.variant % 2);
+    case TreeType::Willow: return static_cast<ModelId>(models::kTreeWillow0 + t.variant % 2);
+    case TreeType::Bush: return static_cast<ModelId>(models::kBush0 + t.variant % 2);
+    case TreeType::Birch: return static_cast<ModelId>(models::kTreeBirch0 + t.variant % 3);
+    case TreeType::Pine: return t.snowy ? models::kTreeConiferSnow : static_cast<ModelId>(models::kTreePine0 + t.variant % 2);
     default: break;
     }
     if (t.snowy) return models::kTreeConiferSnow;
@@ -404,7 +409,7 @@ void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, Ch
                 const glm::vec3 p(static_cast<float>(b->pos.x - o.x) + size * 0.5f, y,
                                   static_cast<float>(b->pos.y - o.y) + size * 0.5f);
                 items.emplace_back(models::building(b->type, b->variant),
-                                   makeInstance(p, facingYaw(b->facing), b->type >= 15 && b->type <= 28 ? static_cast<float>(size) / (b->info().size + 2) : 1.0f, buildingTint(*b)));
+                                   makeInstance(p, facingYaw(b->facing), industries::isCountryside(b->type) ? static_cast<float>(size) / (b->info().size + 2) : 1.0f, buildingTint(*b)));
                 mesh.maxY = std::max(mesh.maxY, y + 4.6f);
             }
         }
@@ -488,6 +493,7 @@ void WorldRenderer::drawChunks(const DrawLists& lists, const glm::dvec3& origin,
     };
     const Shader& ts = shadowPass ? *shadowStaticShader_ : *terrainShader_;
     ts.use();
+    if (!shadowPass) ts.set("uElevation", glm::vec4(elevation.strength, elevation.markLevel, kHeightStep, 0.0f));
     for (const ChunkMesh* c : lists.terrain) {
         ts.set("uOffset", offsetOf(c));
         if (!shadowPass) ts.set("uExplored", c->active ? 1.0f : 0.0f);
@@ -548,6 +554,7 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
         case CargoType::Bricks: return rgba(178, 76, 58);
         case CargoType::Steel: return rgba(120, 132, 148);
         case CargoType::Furniture: return rgba(150, 104, 70);
+        case CargoType::Fish: return rgba(120, 170, 196);
         default: return rgba(200, 200, 200);
         }
     };
@@ -652,7 +659,7 @@ void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin
             for (const Stack& st : kStacks) {
                 if (st.type != b->type) continue;
                 const float size = b->size();
-                const float scale = b->type >= 15 && b->type <= 28 ? size / (b->info().size + 2) : 1.0f;
+                const float scale = industries::isCountryside(b->type) ? size / (b->info().size + 2) : 1.0f;
                 const glm::dvec3 base(b->pos.x + size * 0.5 + st.x * scale, terrainHeightAt(world.map, b->pos.x + size * 0.5, b->pos.y + size * 0.5),
                                       b->pos.y + size * 0.5 + st.z * scale);
                 fx_.addStack(base + glm::dvec3(0.0, st.top * scale, 0.0), industry.building.id.value * 8u + static_cast<u32>(&st - kStacks));
@@ -1021,16 +1028,23 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
             }
         }
         std::map<TilePos, bool> border;
+        std::map<TilePos, Tile> borderTiles; // explored ones
         for (i32 n = -1; n <= kChunkSize; ++n) {
             for (const auto t : {TilePos{o.x+n,o.y-1}, TilePos{o.x+n,o.y+kChunkSize},
-                                 TilePos{o.x-1,o.y+n}, TilePos{o.x+kChunkSize,o.y+n}}) border[t] = tileIsWater(map,t);
+                                 TilePos{o.x-1,o.y+n}, TilePos{o.x+kChunkSize,o.y+n}}) {
+                border[t] = tileIsWater(map,t);
+                if (const Tile* tile = map.tile(t)) borderTiles[t] = *tile;
+            }
         }
         jobs.emplace(cand.pos.key(), std::async(std::launch::async,
             [snapshot = std::move(snapshot), residential = std::move(residential), border = std::move(border),
-             gen = map.generator(), pos = cand.pos, lod]() mutable {
+             borderTiles = std::move(borderTiles), gen = map.generator(), pos = cand.pos, lod]() mutable {
                 if (!snapshot) { snapshot.emplace(); gen.generateChunk(pos, *snapshot); }
                 return buildChunkGeometry(*snapshot, gen, [&](TilePos t) { return border.at(t); }, lod, nullptr,
-                    [&](u32 id) { return residential.contains(id); });
+                    [&](u32 id) { return residential.contains(id); }, [&](TilePos t) -> const Tile* {
+                        const auto it = borderTiles.find(t);
+                        return it == borderTiles.end() ? nullptr : &it->second;
+                    });
             }));
     }
     DrawLists main, shadow;
@@ -1192,6 +1206,7 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     if (settings.wireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     drawChunks(main, origin, false);
     terrainShader_->use();
+    terrainShader_->set("uElevation", glm::vec4(0.0f, -1000.0f, kHeightStep, 0.0f)); // track itself is not tinted
     stats_.trianglesDrawn += track_.draw(*terrainShader_, origin, cam.target, viewRadius, false);
     modelShader_->use();
     modelShader_->set("uOffset", glm::vec3(0.0f));

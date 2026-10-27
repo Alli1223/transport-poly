@@ -426,6 +426,40 @@ TEST_CASE("terrain: climates grow their own biomes, ground and trees") {
     CHECK_EQ(temperateGround[static_cast<usize>(Ground::Desert)] + temperateGround[static_cast<usize>(Ground::Jungle)], 0);
 }
 
+TEST_CASE("terrain: natural terrain grows mixed woods, and older worlds keep theirs") {
+    const auto species = [](u8 style) {
+        TerrainSettings ts = landOf(Landmass::Mainland, 3);
+        ts.style = style;
+        const TerrainGenerator gen(77, true, true, ts);
+        std::array<int, 16> trees{};
+        for (i32 y = -1024; y < 1024; y += 8)
+            for (i32 x = -1024; x < 1024; x += 8) {
+                const i64 raw[4] = {gen.rawHeight(x, y), gen.rawHeight(x + 1, y), gen.rawHeight(x + 1, y + 1), gen.rawHeight(x, y + 1)};
+                const u16 fine[4] = {gen.cornerFine(x, y), gen.cornerFine(x + 1, y), gen.cornerFine(x + 1, y + 1), gen.cornerFine(x, y + 1)};
+                const Tile t = gen.generateTile({x, y}, raw, fine);
+                if (t.trees) ++trees[static_cast<usize>(t.treeType)];
+            }
+        return trees;
+    };
+    const auto natural = species(kTerrainStyleLatest), shaped = species(1);
+    int kinds = 0;
+    for (const int n : natural) kinds += n > 0;
+    CHECK(kinds >= 5);
+    CHECK(natural[static_cast<usize>(TreeType::Birch)] > 0);
+    CHECK(natural[static_cast<usize>(TreeType::Pine)] > 0);
+    CHECK(natural[static_cast<usize>(TreeType::Bush)] > 0);
+    CHECK_EQ(shaped[static_cast<usize>(TreeType::Birch)] + shaped[static_cast<usize>(TreeType::Pine)] +
+                 shaped[static_cast<usize>(TreeType::Willow)] + shaped[static_cast<usize>(TreeType::Bush)],
+             0);
+    // A world made before keeps its terrain style through saves.
+    WorldSettings s;
+    s.terrain.style = 1;
+    World w(s);
+    World copy;
+    fromBytes(toBytes(w, kSaveVersion), copy, kSaveVersion);
+    CHECK_EQ(copy.settings.terrain.style, 1);
+}
+
 TEST_CASE("terrain: saves from before climates are temperate") {
     WorldSettings s;
     s.terrain.climate = Climate::Arid;

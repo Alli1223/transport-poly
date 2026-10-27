@@ -80,10 +80,16 @@ void Map::setCornerFine(i32 cx, i32 cy, u16 fine) {
 }
 
 void Map::touch(TilePos t) {
-    Chunk* c = chunk(chunkOf(t));
+    const ChunkPos at = chunkOf(t);
+    Chunk* c = chunk(at);
     if (!c) return;
     ++c->revision;
-    const Tile& tile = c->tile(localCoord(t.x), localCoord(t.y));
+    // Ground colours blend across chunk borders: a tile on the edge redraws the chunks beside it.
+    const i32 lx = localCoord(t.x), ly = localCoord(t.y);
+    const i32 dx = lx == 0 ? -1 : lx == kChunkSize - 1 ? 1 : 0, dy = ly == 0 ? -1 : ly == kChunkSize - 1 ? 1 : 0;
+    for (const ChunkPos n : {ChunkPos{at.x + dx, at.y}, ChunkPos{at.x, at.y + dy}, ChunkPos{at.x + dx, at.y + dy}})
+        if (Chunk* beside = n == at ? nullptr : chunk(n)) ++beside->revision;
+    const Tile& tile = c->tile(lx, ly);
     // Free-form track beds follow their own smooth profile and are not snapped.
     if (tile.type == TileType::Clear || tile.type == TileType::Water || tile.type == TileType::Track) return;
     if (tile.type == TileType::Depot && (tile.extra2 & kFreeTrackDepot)) return;

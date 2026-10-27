@@ -514,6 +514,9 @@ bool App::parseArgs(int argc, char** argv) {
             gotoWater_ = true;
         } else if (arg == "--goto-mountain") {
             gotoMountain_ = true;
+        } else if (arg == "--elevation") {
+            // Automation: show the elevation view.
+            elevationView_ = true;
         } else if (arg == "--open") {
             if (const char* v = next()) openWindows_ = v;
         } else if (arg == "--follow") {
@@ -547,6 +550,8 @@ bool App::parseArgs(int argc, char** argv) {
             openWindows_ = "depot";
         } else if (arg == "--preview-station") {
             previewStation_ = true;
+        } else if (arg == "--preview-track") {
+            previewTrack_ = true;
         } else if (arg == "--preview-station-upgrade") {
             if (const char* v = next()) previewStationUpgradeAction_ = v;
             demoStation_ = true;
@@ -1195,6 +1200,15 @@ void App::handleHotkeys() {
     if (ImGui::IsKeyPressed(ImGuiKey_C, false)) showCitizens_ = !showCitizens_;
     if (ImGui::IsKeyPressed(ImGuiKey_P, false)) showFeedback_ = !showFeedback_;
     if (ImGui::IsKeyPressed(ImGuiKey_U, false)) showSubsidies_ = !showSubsidies_;
+    if (ImGui::IsKeyPressed(ImGuiKey_H, false)) {
+        // With a track tool the choice is remembered for next time.
+        if (elevationTool()) {
+            preferences_.trackContours = !preferences_.trackContours;
+            preferences_.save("settings.cfg");
+        } else {
+            elevationView_ = !elevationView_;
+        }
+    }
     // Escape peels back one layer at a time: the active tool (handled by handleTools), the
     // tool flyout, open windows and finally the game menu.
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !escConsumed_) {
@@ -1325,6 +1339,8 @@ int App::run(int argc, char** argv) {
             updatePreview(dt);
             drawMainMenu();
             drawUpdatePanel();
+            renderer_.elevation = {};
+            elevationStrength_ = 0.0f;
             if (preview_) renderer_.render(preview_->world(), camera_, 15.5 * 60.0, timeSeconds_, preview_->tickFraction(), {});
         } else if (!session_->ready()) {
             glViewport(0, 0, camera_.viewportWidth(), camera_.viewportHeight());
@@ -1428,18 +1444,28 @@ int App::run(int argc, char** argv) {
                     demoCrossing_ = false;
                 }
             }
+            if (previewTrack_ && frameCount >= 200) {
+                // Part way through laying track from the camera's target, heading off across the land.
+                previewTrack_ = false;
+                tool_ = Tool::RailTrack;
+                toolGroup_ = ToolGroup::Rail;
+                TrackAnchor a;
+                a.pos = {static_cast<i32>(camera_.target.x * kTrackUnits), static_cast<i32>(camera_.target.z * kTrackUnits)};
+                trackStart_ = a;
+                previewHover_ = glm::dvec3(camera_.target.x + 16.0, 0.0, camera_.target.z + 7.0);
+            }
             if (demoIndustries_ && frameCount >= 200) {
                 // One of every countryside industry around the camera.
                 demoIndustries_ = false;
                 if (auto* local = dynamic_cast<LocalSession*>(session_.get())) {
                     const TilePos c{static_cast<i32>(camera_.target.x), static_cast<i32>(camera_.target.z)};
                     int placed = 0;
-                    for (u16 type = industries::kGrainFarm; type <= industries::kFurnitureFactory; ++type) {
+                    for (u16 type = industries::kGrainFarm; type <= industries::kFishFarm; ++type) {
                         const int k = type - industries::kGrainFarm;
                         const TilePos at{c.x + (k % 5 - 2) * 9, c.y + (k / 5 - 1) * 9};
                         if (industries::found(local->world(), type, at, 14).valid()) ++placed;
                     }
-                    log::info("Demo industries: {} of 14 placed", placed);
+                    log::info("Demo industries: {} of {} placed", placed, industries::kFishFarm - industries::kGrainFarm + 1);
                     renderer_.invalidateAll();
                 }
             }
@@ -1689,6 +1715,7 @@ int App::run(int argc, char** argv) {
             const double minute =
                 daylightOnly_ ? 12.0 * 60.0 :
                 (fixedTimeOfDay_ ? *fixedTimeOfDay_ : world().clock.exactMinuteOfDay(session_->tickFraction()));
+            updateElevationView(dt);
             renderer_.render(world(), camera_, minute, timeSeconds_, session_->tickFraction(), overlays);
         }
         drawSettings();

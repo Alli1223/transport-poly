@@ -49,7 +49,8 @@ public:
     void setCornerHeight(i32 cx, i32 cy, u8 height) { setCornerFine(cx, cy, fineOf(height)); }
     void setCornerFine(i32 cx, i32 cy, u16 fine);
 
-    // Marks the chunk containing the tile as modified (bumps its render revision). Tiles holding
+    // Marks the chunk containing the tile as modified (bumps its render revision, and that of the
+    // chunks beside it for a tile on its edge). Tiles holding
     // a structure get their corners snapped to whole levels, which is what every structure
     // stands on.
     void touch(TilePos t);

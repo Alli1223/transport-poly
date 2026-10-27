@@ -12,10 +12,12 @@ enum class CargoType : u8 {
     Grain, Food, Goods,
     Wool, Milk, Logs, Stone, IronOre, Coal,           // raw materials
     Planks, Cheese, Cloth, Bricks, Steel, Furniture,  // made from them
+    Fish,                                             // from fish farms, for the shops (save version 30)
     Count, None = 255
 };
 inline constexpr usize kCargoTypes = static_cast<usize>(CargoType::Count);
-inline constexpr usize kOriginalCargoTypes = 3; // saves before version 21 know only these
+inline constexpr usize kOriginalCargoTypes = 3;  // saves before version 21 know only these
+inline constexpr usize kCargoTypesBeforeFish = 15; // and saves before version 30 these
 std::string_view cargoName(CargoType type);
 
 // Each cargo travels in one class of wagon, lorry or hold: hoppers take bulk, refrigerated vans
@@ -33,17 +35,20 @@ struct CargoCounts {
     friend bool operator==(const CargoCounts&, const CargoCounts&) = default;
     template <class Ar>
     void serialize(Ar& ar) {
-        if (ar.version == 0 || ar.version >= 21) {
-            ar(n);
-        } else {
-            std::array<u32, kOriginalCargoTypes> old{};
-            if constexpr (!Ar::kReading)
-                for (usize i = 0; i < old.size(); ++i) old[i] = n[i];
-            ar(old);
-            if constexpr (Ar::kReading) {
-                n = {};
-                for (usize i = 0; i < old.size(); ++i) n[i] = old[i];
-            }
+        if (ar.version == 0 || ar.version >= 30) ar(n);
+        else if (ar.version >= 21) first<kCargoTypesBeforeFish>(ar);
+        else first<kOriginalCargoTypes>(ar);
+    }
+    // Only the first `N` types, as older saves have them.
+    template <usize N, class Ar>
+    void first(Ar& ar) {
+        std::array<u32, N> old{};
+        if constexpr (!Ar::kReading)
+            for (usize i = 0; i < old.size(); ++i) old[i] = n[i];
+        ar(old);
+        if constexpr (Ar::kReading) {
+            n = {};
+            for (usize i = 0; i < old.size(); ++i) n[i] = old[i];
         }
     }
 };
@@ -98,7 +103,7 @@ i32 exchangeAtStop(World& w, VehicleId vehicle, StationId station);
 u32 quantity(const std::vector<CargoBatch>& batches, CargoType type);
 // Everything of one class aboard (it shares the class's capacity).
 u32 classQuantity(const std::vector<CargoBatch>& batches, CargoClass c);
-// Whether a building takes a cargo: an industry's inputs, food and goods at shops, and what a
+// Whether a building takes a cargo: an industry's inputs, food, goods and fish at shops, and what a
 // town needs at its shops, offices and civic buildings.
 bool accepts(const World& w, const Building& b, CargoType type);
 // Whether a station's catchment reaches any tile of a building.

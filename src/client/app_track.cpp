@@ -7,6 +7,7 @@
 
 #include "render/track_renderer.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <format>
 #include <unordered_map>
@@ -140,7 +141,55 @@ TDir sideTowards(const TrackNode& n, TPoint towards) {
     return best < 0 ? TDir{0, 0} : n.side(static_cast<u8>(best));
 }
 
-void planTooltip(const TrackPlan& p, float scale) {
+// Height profile of a plan: the ground along it and the track over it, so it shows where the
+// track keeps to the lie of the land and where it needs cuttings, embankments, bridges or tunnels.
+void planProfile(const World& w, const TrackPlan& p, float scale) {
+    if (p.samples.size() < 2) return;
+    std::vector<float> ground(p.samples.size());
+    float lo = 1e9f, hi = -1e9f;
+    for (usize i = 0; i < p.samples.size(); ++i) {
+        ground[i] = static_cast<float>(track::terrainAt(w, p.samples[i].p)) / kSubLevels;
+        const float rail = static_cast<float>(p.samples[i].h) / kSubLevels;
+        lo = std::min({lo, ground[i], rail});
+        hi = std::max({hi, ground[i], rail});
+    }
+    // At least four levels tall, so that gentle slopes look gentle.
+    const float span = std::max(hi - lo, 4.0f) * 1.2f, bottom = (lo + hi - span) * 0.5f;
+    const ImVec2 size{300.0f * scale, 70.0f * scale}, origin = ImGui::GetCursorScreenPos();
+    const float pad = 4.0f * scale;
+    ImGui::Dummy(size);
+    const double length = std::max(1, p.samples.back().s);
+    const auto at = [&](usize i, float h) {
+        return ImVec2(origin.x + pad + static_cast<float>((size.x - 2 * pad) * p.samples[i].s / length),
+                      origin.y + size.y - pad - (size.y - 2 * pad) * (h - bottom) / span);
+    };
+    auto* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + size.y), IM_COL32(12, 22, 30, 255), 4.0f * scale);
+    const float floor = origin.y + size.y - pad;
+    // Side by side slices of ground, without anti-aliased edges that would show as seams.
+    const ImDrawListFlags flags = draw->Flags;
+    draw->Flags &= ~ImDrawListFlags_AntiAliasedFill;
+    for (usize i = 0; i + 1 < p.samples.size(); ++i) {
+        const ImVec2 a = at(i, ground[i]), b = at(i + 1, ground[i + 1]);
+        draw->AddQuadFilled(a, b, ImVec2(b.x, floor), ImVec2(a.x, floor), IM_COL32(112, 92, 64, 255));
+    }
+    draw->Flags = flags;
+    for (usize i = 0; i + 1 < p.samples.size(); ++i)
+        draw->AddLine(at(i, ground[i]), at(i + 1, ground[i + 1]), IM_COL32(150, 190, 96, 255), 1.5f * scale);
+    for (usize i = 0; i + 1 < p.samples.size(); ++i) {
+        const TrackStructure k = track::structureAt(p.spans, (p.samples[i].s + p.samples[i + 1].s) / 2);
+        const ImU32 colour = !p.ok ? IM_COL32(250, 90, 80, 255)
+                           : k == TrackStructure::Bridge ? IM_COL32(110, 175, 255, 255)
+                           : k == TrackStructure::Tunnel ? IM_COL32(196, 140, 255, 255) : IM_COL32(240, 240, 232, 255);
+        draw->AddLine(at(i, p.samples[i].h / static_cast<float>(kSubLevels)),
+                      at(i + 1, p.samples[i + 1].h / static_cast<float>(kSubLevels)), colour, 2.0f * scale);
+    }
+    ui::mutedText(std::format("Height {:.1f} to {:.1f}: the track (light) over the ground (green)",
+                              p.samples.front().h / static_cast<double>(kSubLevels), p.samples.back().h / static_cast<double>(kSubLevels))
+                      .c_str());
+}
+
+void planTooltip(const World& w, const TrackPlan& p, float scale) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * scale, 7.0f * scale));
     if (ImGui::BeginTooltip()) {
         if (p.ok) {
@@ -159,6 +208,7 @@ void planTooltip(const TrackPlan& p, float scale) {
             if (p.levelCrossings) add(std::format("{} level crossing{}", p.levelCrossings, p.levelCrossings == 1 ? "" : "s"));
             if (!structures.empty()) ui::mutedText(structures.c_str());
             if (p.earthworks > 0) ui::mutedText(std::format("including earthworks {}", formatMoney(p.earthworks)).c_str());
+            planProfile(w, p, scale);
         } else {
             ui::iconText(ui::Icon::Warning, ui::col::kRed, p.error.c_str(), ui::col::kRed);
         }
@@ -168,6 +218,26 @@ void planTooltip(const TrackPlan& p, float scale) {
 }
 
 } // namespace
+
+bool App::elevationTool() const { return tool_ == Tool::RailTrack || tool_ == Tool::RailStation || tool_ == Tool::RailDepot; }
+
+// The elevation view is on with the track tools (unless switched off) and whenever H turns it
+// on. It marks out the height of the track being laid - follow the line to keep it level - or
+// before that, the height of the ground under the pointer.
+void App::updateElevationView(double dt) {
+    const bool on = elevationTool() ? preferences_.trackContours : elevationView_;
+    elevationStrength_ += ((on ? 1.0f : 0.0f) - elevationStrength_) * std::min(1.0f, static_cast<float>(dt) * 8.0f);
+    renderer_.elevation.strength = elevationStrength_ < 0.01f ? 0.0f : elevationStrength_;
+    const World& w = world();
+    const std::optional<TrackAnchor>& start = trackStart_ ? trackStart_ : stationStart_;
+    renderer_.elevation.markLevel = -1000.0f;
+    if (start) {
+        const TrackNode* node = start->node.valid() ? w.trackNodes.tryGet(start->node) : nullptr;
+        renderer_.elevation.markLevel = static_cast<float>(node ? node->h : track::terrainAt(w, start->pos)) / kSubLevels;
+    } else if (hover_.hit && !mouseOverUi_) {
+        renderer_.elevation.markLevel = static_cast<float>(hover_.point.y / gfx::kHeightStep);
+    }
+}
 
 void App::drawStationUpgradePreview(std::vector<gfx::OverlayQuad>& overlays) {
     if (!stationUpgradePreview_ || !world().stations.contains(selStation_)) return;
@@ -331,11 +401,10 @@ void App::handleTrackTool(std::vector<gfx::OverlayQuad>& overlays) {
     }
 
     if (!trackStart_) {
-        if (snap.valid()) {
-            ImGui::SetTooltip("Click to continue this track");
-        } else {
-            ImGui::SetTooltip("Click to start a track");
-        }
+        const char* contours = preferences_.trackContours ? "Contour lines join ground of equal height: track that follows one stays "
+                                                            "level.\nThe gold line runs at the pointer's height. H: hide the elevation view"
+                                                          : "H: show the elevation view (height colours and contour lines)";
+        ImGui::SetTooltip("%s\n%s", snap.valid() ? "Click to continue this track" : "Click to start a track", contours);
         if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             TrackAnchor a;
             if (snap.valid()) {
@@ -378,7 +447,7 @@ void App::handleTrackTool(std::vector<gfx::OverlayQuad>& overlays) {
         addRibbon(overlays, {TrackSample{from.pos, track::terrainAt(w, from.pos), 0}, TrackSample{to.pos, track::terrainAt(w, to.pos), 1}},
                   0.08, gfx::rgba(250, 90, 80, 130));
     }
-    planTooltip(plan, uiScale_);
+    planTooltip(w, plan, uiScale_);
 
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && plan.ok) {
         session_->submit(CmdBuildTrack{from, to});
@@ -505,7 +574,7 @@ void App::handleDepotTool(std::vector<gfx::OverlayQuad>& overlays) {
         addTileOverlay(overlays, tileAt(track::depotBuildingPos(plan)),
                        plan.ok ? gfx::rgba(110, 230, 140, 110) : gfx::rgba(250, 90, 80, 120), 0.06);
     }
-    planTooltip(plan, uiScale_);
+    planTooltip(w, plan, uiScale_);
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && plan.ok) session_->submit(CmdBuildTrackDepot{snap});
 }
 

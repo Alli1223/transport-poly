@@ -160,9 +160,12 @@ client, including in multiplayer.
 Building windows and town street lamps light up at dusk and fade back to their
 daytime appearance at dawn.
 
-The land rolls in smooth hills and mountains. The landscaping toolbar's brush
-raises, lowers, levels and smooths it with a soft edge; pick the brush size in
-the tool's panel.
+The land rolls in smooth hills and mountains. Grass, rock, sand and snow shade
+gradually into one another, the snow line wanders up and down the mountains with
+scree gathering below it, and woods grow in stands of oak, birch and pine that mix
+where they meet, fringed with bushes, with willows by the water and copses dotted
+across the open country. The landscaping toolbar's brush raises, lowers, levels
+and smooths the land with a soft edge; pick the brush size in the tool's panel.
 
 A new game's **Terrain** section shows a picture of the land around the start
 and chooses what kind it is: **Continents**, **Mainland** (land almost
@@ -181,7 +184,13 @@ land they were made with.
 
 Railways are free-form, in the style of Transport Fever. With the **Track** tool,
 click to start and click again to lay a curved piece; the next piece carries on
-from its end. Start on a track or station end to continue it (or to branch off
+from its end. While laying track, platforms or depots the ground shows its
+elevation: colours by height, a contour line at every height level and a bold one
+every five. Track that follows a contour stays level, and a gold line marks the
+height of the track being laid (before the first click, the height under the
+pointer). The plan's tooltip draws its height profile, the track over the ground,
+so cuttings, embankments and bridges show at a glance. **H** shows or hides the
+elevation view, with the track tools or at any other time. Start on a track or station end to continue it (or to branch off
 through a switch), and finish on one to join up. The planner keeps to a minimum
 curve radius and a gentle gradient, and shapes the ground under the track into a
 level bed with embankments and cuttings. Where the rails would run high above the
@@ -387,9 +396,10 @@ pass-through and full-load orders apply to freight too.
 ### Countryside industries and town needs
 
 New worlds have industries in the countryside, suited to the land they stand on:
-grain, sheep and dairy farms on open lowland, logging camps in the forests, and
-quarries, iron mines and coal mines in the hills and mountains. Their produce goes
-to processing plants:
+grain, sheep and dairy farms on open lowland, logging camps deep in thick woods,
+quarries, iron mines and coal mines on and around the mountains, and fish farms
+with floating net pens out in the lakes and the sea, near the shore. Fish goes
+straight to the shops; the other produce goes to processing plants:
 
 | Raw material | Plant | Makes |
 | --- | --- | --- |
@@ -404,7 +414,7 @@ to processing plants:
 A raw producer has a production level from 1 to 4; a plant with two inputs works
 only while it has both. Each cargo travels in one class of vehicle, and every cargo
 of the class shares its space: hoppers, grain lorries and bulk coasters take grain,
-stone, coal and ore; refrigerated vehicles take food, milk and cheese; box vans take
+stone, coal and ore; refrigerated vehicles take food, milk, cheese and fish; box vans take
 goods, wool, cloth and furniture; flat wagons, timber lorries and deck cargo
 coasters take logs, planks, bricks and steel. Click an industry to see what it
 makes, its stock, how much of it was transported last month and which stations

@@ -2,6 +2,7 @@
 #include "render/station_style.hpp"
 
 #include "core/hash.hpp"
+#include "core/math.hpp"
 #include "sim/rail.hpp"
 #include "sim/road.hpp"
 #include "sim/station.hpp"
@@ -87,6 +88,23 @@ float seabedY(i64 raw) {
 }
 
 float jitter(u32 h) { return 0.93f + static_cast<float>(h & 0xFF) / 255.0f * 0.12f; }
+// Open ground varies less from face to face: the colours blend between tiles instead.
+float softJitter(u32 h) { return 0.975f + static_cast<float>(h & 0xFF) / 255.0f * 0.05f; }
+
+// Smooth value noise in [0, 1) on a lattice `cell` tiles across, for gentle colour variation.
+float softNoise(u64 seed, u32 salt, i32 x, i32 y, i32 cell) {
+    const i32 ix = floorDiv(x, cell), iy = floorDiv(y, cell);
+    const auto fade = [](float t) { return t * t * (3.0f - 2.0f * t); };
+    const float sx = fade(static_cast<float>(x - ix * cell) / static_cast<float>(cell));
+    const float sy = fade(static_cast<float>(y - iy * cell) / static_cast<float>(cell));
+    const auto v = [&](i32 a, i32 b) { return static_cast<float>(hashCoords(seed, a, b, salt) & 0xFFFF) / 65536.0f; };
+    const float top = v(ix, iy) + (v(ix + 1, iy) - v(ix, iy)) * sx;
+    const float bottom = v(ix, iy + 1) + (v(ix + 1, iy + 1) - v(ix, iy + 1)) * sx;
+    return top + (bottom - top) * sy;
+}
+
+// Open ground: drawn in its own colour, blended with its neighbours' at the corners.
+bool openGround(const Tile& t) { return t.type == TileType::Clear || t.type == TileType::Track; }
 
 // Ground under a building: gardens for homes, paving for everything else.
 u32 buildingGround(const Tile& t, const World* world) {
@@ -268,7 +286,8 @@ void addFoundation(MeshBuilder& mb, const TileCorners& c, float x0, float z0, fl
 } // namespace
 
 ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen, const WaterLookup& waterOutside,
-                                 int lod, const World* world, const std::function<bool(u32)>& residential) {
+                                 int lod, const World* world, const std::function<bool(u32)>& residential,
+                                 const TileLookup& tilesOutside) {
     ChunkGeometry out;
     const TilePos origin = chunkOrigin(chunk.pos);
     const u64 seed = gen.seed();
@@ -281,12 +300,65 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
     for (i32 ly = -1; ly <= kChunkSize; ++ly) {
         for (i32 lx = -1; lx <= kChunkSize; ++lx) {
             const bool inside = lx >= 0 && lx < kChunkSize && ly >= 0 && ly < kChunkSize;
-            const bool w = inside ? (chunk.tile(lx, ly).type == TileType::Water || waterUnderBridge(chunk.tile(lx, ly)))
-                                  : waterOutside(TilePos{origin.x + lx, origin.y + ly});
+            const Tile* t = inside ? &chunk.tile(lx, ly) : nullptr;
+            const bool w = t ? t->type == TileType::Water || waterUnderBridge(*t) || waterUnderBuilding(*t)
+                             : waterOutside(TilePos{origin.x + lx, origin.y + ly});
             water[static_cast<usize>((ly + 1) * kRing + lx + 1)] = w ? 1 : 0;
         }
     }
     const auto isWater = [&](i32 lx, i32 ly) { return water[static_cast<usize>((ly + 1) * kRing + lx + 1)] != 0; };
+
+    // Colours of open ground on the chunk's tiles and the ring around it (0 elsewhere). Each
+    // corner takes the mean of the open tiles around it, so grass, rock, sand and snow shade into
+    // each other rather than changing tile by tile, alike on both sides of a chunk border.
+    std::array<u32, kRing * kRing> openColor{};
+    {
+        constexpr i32 kRingCorners = kRing + 1;
+        std::array<i64, kRingCorners * kRingCorners> raw{};
+        std::array<bool, kRingCorners * kRingCorners> known{};
+        const auto rawAt = [&](i32 lx, i32 ly) {
+            const usize k = static_cast<usize>((ly + 1) * kRingCorners + lx + 1);
+            if (!known[k]) {
+                raw[k] = gen.rawHeight(origin.x + lx, origin.y + ly);
+                known[k] = true;
+            }
+            return raw[k];
+        };
+        for (i32 ly = -1; ly <= kChunkSize; ++ly) {
+            for (i32 lx = -1; lx <= kChunkSize; ++lx) {
+                const bool inside = lx >= 0 && lx < kChunkSize && ly >= 0 && ly < kChunkSize;
+                const TilePos p{origin.x + lx, origin.y + ly};
+                Tile generated;
+                const Tile* t = inside ? &chunk.tile(lx, ly) : tilesOutside ? tilesOutside(p) : world ? world->map.tile(p) : nullptr;
+                if (!t) {
+                    const i64 r[4] = {rawAt(lx, ly), rawAt(lx + 1, ly), rawAt(lx + 1, ly + 1), rawAt(lx, ly + 1)};
+                    u16 f[4];
+                    for (int c = 0; c < 4; ++c)
+                        f[c] = gen.smooth() ? TerrainGenerator::quantiseFine(r[c]) : fineOf(TerrainGenerator::quantise(r[c]));
+                    generated = gen.generateTile(p, r, f);
+                    t = &generated;
+                }
+                openColor[static_cast<usize>((ly + 1) * kRing + lx + 1)] = openGround(*t) ? groundColor(*t) : 0;
+            }
+        }
+    }
+    // Blended colour at a corner of the tile grid, with broad, gentle variation over the land:
+    // lighter and darker stretches, warmer and cooler ones. 0 where no open ground meets.
+    const auto openCorner = [&](i32 lx, i32 ly) -> u32 {
+        glm::vec3 sum(0.0f);
+        int n = 0;
+        for (i32 dy = -1; dy <= 0; ++dy)
+            for (i32 dx = -1; dx <= 0; ++dx)
+                if (const u32 c = openColor[static_cast<usize>((ly + dy + 1) * kRing + lx + dx + 1)]) {
+                    sum += unpackRgb(c);
+                    ++n;
+                }
+        if (n == 0) return 0;
+        const i32 wx = origin.x + lx, wy = origin.y + ly;
+        const float light = 0.95f + 0.1f * softNoise(seed, 0x7E50, wx, wy, 24);
+        const float warm = softNoise(seed, 0x7E51, wx, wy, 48) - 0.5f;
+        return rgbaf(sum / static_cast<float>(n) * light * glm::vec3(1.0f + warm * 0.08f, 1.0f, 1.0f - warm * 0.1f));
+    };
 
     // Visual corner heights on the (possibly coarse) grid; sea floor corners are lowered.
     const i32 gridN = cells + 1;
@@ -309,6 +381,9 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
     out.maxY += kHeightStep;
     const auto cy = [&](i32 i, i32 j) { return cornerY[static_cast<usize>(j * gridN + i)]; };
     const float fs = static_cast<float>(step);
+    std::vector<u32> cornerColor(static_cast<usize>(gridN * gridN));
+    for (i32 j = 0; j < gridN; ++j)
+        for (i32 i = 0; i < gridN; ++i) cornerColor[static_cast<usize>(j * gridN + i)] = openCorner(i * step, j * step);
 
     MeshBuilder ground;
     ground.vertices.reserve(static_cast<usize>(cells * cells) * 6 + static_cast<usize>(cells) * 24);
@@ -326,7 +401,7 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
             const glm::vec3 se(x1, cy(i + 1, j + 1), z1), sw(x0, cy(i, j + 1), z1);
 
             u32 base = groundColor(tile);
-            if (tile.type == TileType::Water) {
+            if (tile.type == TileType::Water || waterUnderBuilding(tile)) {
                 const float depth = std::min((nw.y + ne.y + se.y + sw.y) * 0.25f, 0.0f);
                 base = shade(base, std::max(0.45f, 1.0f + depth * 0.18f));
             } else if (tile.type == TileType::Footpath) {
@@ -356,8 +431,8 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
             const bool rail = tile.type == TileType::Rail;
             const bool dock = tile.type == TileType::Station && static_cast<StopKind>(tile.extra) == StopKind::Dock;
             const bool freeDepot = tile.type == TileType::Depot && (tile.extra2 & kFreeTrackDepot);
-            if (lod == 0 && !freeDepot &&
-                (roadLike || rail || railStation || dock || tile.type == TileType::Building || tile.type == TileType::Depot)) {
+            const bool building = tile.type == TileType::Building && !waterUnderBuilding(tile);
+            if (lod == 0 && !freeDepot && (roadLike || rail || railStation || dock || building || tile.type == TileType::Depot)) {
                 structure = true;
                 top.corners = chunk.corners(lx, ly);
                 const Slope slope = computeSlope(top.corners);
@@ -377,16 +452,31 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 addFoundation(ground, top.corners, x0, z0, static_cast<float>(top.level) * kHeightStep, base);
             } else {
                 const u32 h = hashCoords(seed, wp.x, wp.y, 0x7E44);
-                const u32 c0 = shade(base, jitter(h));
-                const u32 c1 = shade(base, jitter(h >> 8));
                 const FineCorners coarse{{chunk.fine(lx, ly), chunk.fine(lx + step, ly), chunk.fine(lx + step, ly + step),
                                           chunk.fine(lx, ly + step)}};
-                if (!coarse.splitNESW()) {
-                    ground.triangleUp(nw, se, ne, c0);
-                    ground.triangleUp(nw, sw, se, c1);
+                if (openGround(tile)) {
+                    const auto at = [&](i32 ci, i32 cj, float f) {
+                        const u32 c = cornerColor[static_cast<usize>(cj * gridN + ci)];
+                        return shade(c ? c : base, f);
+                    };
+                    const float f0 = softJitter(h), f1 = softJitter(h >> 8);
+                    if (!coarse.splitNESW()) {
+                        ground.triangleUp(nw, se, ne, at(i, j, f0), at(i + 1, j + 1, f0), at(i + 1, j, f0));
+                        ground.triangleUp(nw, sw, se, at(i, j, f1), at(i, j + 1, f1), at(i + 1, j + 1, f1));
+                    } else {
+                        ground.triangleUp(nw, sw, ne, at(i, j, f0), at(i, j + 1, f0), at(i + 1, j, f0));
+                        ground.triangleUp(ne, sw, se, at(i + 1, j, f1), at(i, j + 1, f1), at(i + 1, j + 1, f1));
+                    }
                 } else {
-                    ground.triangleUp(nw, sw, ne, c0);
-                    ground.triangleUp(ne, sw, se, c1);
+                    const u32 c0 = shade(base, jitter(h));
+                    const u32 c1 = shade(base, jitter(h >> 8));
+                    if (!coarse.splitNESW()) {
+                        ground.triangleUp(nw, se, ne, c0);
+                        ground.triangleUp(nw, sw, se, c1);
+                    } else {
+                        ground.triangleUp(nw, sw, ne, c0);
+                        ground.triangleUp(ne, sw, se, c1);
+                    }
                 }
             }
             if (structure && (tile.span & 3) == kSpanBridge) {
@@ -466,7 +556,7 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 addPlatforms(ground, x0, z0, static_cast<float>(top.level) * kHeightStep, tile.rail);
             }
 
-            if (tile.type == TileType::Water || waterUnderBridge(tile)) {
+            if (tile.type == TileType::Water || waterUnderBridge(tile) || waterUnderBuilding(tile)) {
                 const u32 wc = rgba(255, 255, 255);
                 waterMesh.triangleUp({x0, kWaterLevel, z0}, {x1, kWaterLevel, z1}, {x1, kWaterLevel, z0}, wc);
                 waterMesh.triangleUp({x0, kWaterLevel, z0}, {x0, kWaterLevel, z1}, {x1, kWaterLevel, z1}, wc);
