@@ -1215,7 +1215,17 @@ TrackPlan planPlatform(const World& w, CompanyId company, const TrackAnchor& fro
     return p;
 }
 
-StationId buildPlatform(World& w, CompanyId company, const TrackPlan& pl, StationId join) {
+TrackPlan planParallelPlatform(const World& w, CompanyId company, const TrackPlan& first, int index) {
+    if (first.samples.size() < 2) return first;
+    const TPoint a = first.samples.front().p, b = first.samples.back().p;
+    const TDir dir = normalised(static_cast<i64>(b.x) - a.x, static_cast<i64>(b.z) - a.z);
+    const TDir normal{-dir.z, dir.x};
+    TrackAnchor from;
+    from.pos = offset(a, normal, index * 2 * kTrackUnits);
+    return planPlatform(w, company, from, offset(from.pos, dir, first.length));
+}
+
+StationId buildPlatform(World& w, CompanyId company, const TrackPlan& pl, StationId join, StationUse use) {
     const std::vector<TrackEdgeId> edges = build(w, company, pl);
     if (edges.empty()) return {};
     // Join a station of the company with a platform close by, or found a new one.
@@ -1228,6 +1238,7 @@ StationId buildPlatform(World& w, CompanyId company, const TrackPlan& pl, Statio
     for (const auto [id, st] : w.stations) {
         if (sid.valid()) break;
         if (st.owner != company) continue;
+        if (use != StationUse::Both && st.use != use && st.use != StationUse::Both) continue;
         for (const TilePos a : st.tiles) {
             for (const TilePos b : tiles)
                 if (chebyshev(a.x - b.x, a.y - b.y) <= 2) {
@@ -1239,8 +1250,12 @@ StationId buildPlatform(World& w, CompanyId company, const TrackPlan& pl, Statio
         if (sid.valid()) break;
     }
     const TilePos middle = tiles[tiles.size() / 2];
-    if (!sid.valid()) sid = stations::create(w, company, middle, StopKind::Rail);
-    else stations::addTile(w, sid, middle, StopKind::Rail);
+    if (!sid.valid()) {
+        sid = stations::create(w, company, middle, StopKind::Rail);
+        w.stations[sid].use = use;
+    } else {
+        stations::addTile(w, sid, middle, StopKind::Rail);
+    }
     for (const TilePos t : tiles)
         if (t != middle && std::ranges::find(w.stations[sid].tiles, t) == w.stations[sid].tiles.end())
             stations::addTile(w, sid, t, StopKind::Rail);

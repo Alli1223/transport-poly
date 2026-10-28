@@ -31,6 +31,7 @@ private:
     struct EdgeMesh {
         GpuMesh mesh;
         u32 serial = 0; // edge ids are reused; the serial tells edges apart
+        StationUse use = StationUse::Both; // a platform's look follows its station's use
         TilePos anchor;
         glm::dvec2 centre{0.0};
         double extent = 0.0;

@@ -84,13 +84,17 @@ struct CmdBuildTrack {
 };
 
 // A straight, level station platform on free-form track, from an anchor towards a point.
+// A station of `platforms` parallel platforms: the first from `from` towards `to`, the others
+// beside it to its right. Joining an existing station keeps that station's use.
 struct CmdBuildTrackStation {
     TrackAnchor from;
     TPoint to;
     StationId join;
+    StationUse use = StationUse::Both;
+    u8 platforms = 1;
     template <class Ar>
     void serialize(Ar& ar) {
-        ar(from, to, join);
+        ar(from, to, join, use, platforms);
     }
 };
 
@@ -415,6 +419,37 @@ struct CmdSetAutorenew {
     template <class Ar> void serialize(Ar& ar) { ar(enabled); }
 };
 
+// A new line of the given orders, run by `vehicles` (which may be none yet).
+struct CmdCreateLine {
+    VehicleType type = VehicleType::Rail;
+    std::string name;
+    std::vector<Order> orders;
+    std::vector<VehicleId> vehicles;
+    template <class Ar> void serialize(Ar& ar) { ar(type, name, orders, vehicles); }
+};
+// Renames a line and gives it (and every vehicle running it) new orders, or with `remove` deletes
+// the line (its vehicles keep their orders).
+struct CmdEditLine {
+    u32 line = 0;
+    std::string name;
+    std::vector<Order> orders;
+    bool remove = false;
+    template <class Ar> void serialize(Ar& ar) { ar(line, name, orders, remove); }
+};
+// Puts a vehicle on a line: it takes the line's orders and shares them from then on.
+struct CmdAssignLine {
+    VehicleId vehicle;
+    u32 line = 0;
+    template <class Ar> void serialize(Ar& ar) { ar(vehicle, line); }
+};
+
+// Turns a rail station over to passengers, freight or both.
+struct CmdSetStationUse {
+    StationId station;
+    StationUse use = StationUse::Both;
+    template <class Ar> void serialize(Ar& ar) { ar(station, use); }
+};
+
 using CommandPayload =
     std::variant<CmdActivateChunks, CmdCreateCompany, CmdSetLoan, CmdTerraform, CmdClearArea, CmdPlantTrees, CmdBuildRoad,
                  CmdRemoveRoad, CmdBuildRoadStop, CmdBuildRoadDepot, CmdBuyVehicle, CmdSellVehicle, CmdStartStopVehicle,
@@ -423,7 +458,8 @@ using CommandPayload =
                  CmdBuildShipDepot, CmdCloneVehicle, CmdUnshareOrders, CmdEditWater, CmdBuildSpan, CmdRemoveSpan,
                  CmdUpdateCompany, CmdTerraformBrush, CmdBuildTrack, CmdRemoveTrack, CmdBuildTrackStation,
                  CmdBuildTrackDepot, CmdTrackSignal, CmdReorderConsist, CmdStationEntrance, CmdAddPlatform, CmdExtendPlatform,
-                 CmdDemolishBuilding, CmdElectrifyTrack, CmdSetAutoreplace, CmdSetAutorenew>;
+                 CmdDemolishBuilding, CmdElectrifyTrack, CmdSetAutoreplace, CmdSetAutorenew, CmdSetStationUse,
+                 CmdCreateLine, CmdEditLine, CmdAssignLine>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

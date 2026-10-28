@@ -30,7 +30,7 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 30;
+inline constexpr u32 kSaveVersion = 31;
 inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
@@ -113,6 +113,7 @@ public:
     bool competitionOver = false;
     std::deque<Feedback> feedback;  // passengers' comments, oldest first
     std::vector<Subsidy> subsidies; // on offer and awarded
+    std::map<u32, ServiceLine> lines; // lines made in the lines window, by order group
 
     Money inflated(Money base) const { return base / 10'000 * economy.priceIndex + (base % 10'000 * economy.priceIndex + 5000) / 10'000; }
     Money fareIncome(Money base) const { return inflated(base) * (economy.recessionMonths > 0 ? 70 : 100) / 100; }
@@ -158,6 +159,7 @@ public:
         if (ar.version == 0 || ar.version >= 21) ar(processedIndustrySites);
         if (ar.version == 0 || ar.version >= 26) ar(competitionWinner, competitionOver);
         if (ar.version == 0 || ar.version >= 29) ar(feedback, subsidies);
+        if (ar.version == 0 || ar.version >= 31) ar(lines);
         if constexpr (Ar::kReading) {
             for (auto [id, c] : companies)
                 if (!c.thisMonth.month) {

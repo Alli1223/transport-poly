@@ -29,6 +29,16 @@ constexpr u32 kConcreteUnder = rgba(104, 100, 94);
 constexpr u32 kStone = rgba(138, 132, 124);
 constexpr u32 kPortalDark = rgba(18, 18, 20);
 constexpr u32 kCrossingDeck = rgba(86, 88, 92);
+// Freight stations: concrete loading docks with timber edges, a goods shed, cranes and floodlights.
+constexpr u32 kDock = rgba(170, 166, 158);
+constexpr u32 kDockSide = rgba(132, 128, 120);
+constexpr u32 kDockJoint = rgba(140, 136, 128);
+constexpr u32 kDockEdge = rgba(112, 84, 58);
+constexpr u32 kShedWall = rgba(150, 78, 60);
+constexpr u32 kShedRoof = rgba(86, 92, 100);
+constexpr u32 kCrane = rgba(226, 182, 44);
+constexpr u32 kCrate = rgba(176, 132, 82);
+constexpr u32 kContainer[3] = {rgba(52, 110, 160), rgba(176, 64, 52), rgba(70, 136, 84)};
 
 constexpr float kBallastTop = -0.035f; // relative to the nominal rail height
 constexpr float kSleeperTop = -0.027f;
@@ -60,6 +70,11 @@ void orientedBox(MeshBuilder& out, glm::vec3 c, glm::vec2 fwd, glm::vec2 left, f
         out.quadFacing(p(-halfAlong, sa * halfAcross, y0), p(halfAlong, sa * halfAcross, y0), p(halfAlong, sa * halfAcross, y1),
                        p(-halfAlong, sa * halfAcross, y1), colour, glm::vec3(left.x * sa, 0.0f, left.y * sa));
     }
+}
+
+StationUse useOf(const World& world, const TrackEdge& edge) {
+    const Station* s = edge.kind == TrackKind::Platform ? world.stations.tryGet(edge.station) : nullptr;
+    return s ? s->use : StationUse::Both;
 }
 
 } // namespace
@@ -220,7 +235,108 @@ void buildTrackMesh(const World& world, const TrackEdge& edge, TilePos anchor, M
                            glm::vec3(fwd.x * outward, 0.0f, fwd.y * outward));
         }
     }
-    if (edge.kind == TrackKind::Platform) {
+    if (edge.kind == TrackKind::Platform && useOf(world, edge) == StationUse::Freight) {
+        // Loading docks either side of the track at wagon floor height, a goods shed along the
+        // left one, crates and containers on the right, floodlights and a gantry crane.
+        constexpr float kInner = 0.33f, kOuter = 1.0f, kTop = 0.07f, kFoot = -0.16f;
+        const float platformLength = static_cast<float>(edge.length) / kTrackUnits;
+        for (usize i = 0; i + 1 < frames.size(); ++i) {
+            const Frame& a = frames[i];
+            const Frame& b = frames[i + 1];
+            for (const float side : {-1.0f, 1.0f}) {
+                const auto quadTop = [&](float in, float outer, float dy, u32 c) {
+                    out.triangleUp(at(a, side * in, dy), at(b, side * outer, dy), at(b, side * in, dy), c);
+                    out.triangleUp(at(a, side * in, dy), at(a, side * outer, dy), at(b, side * outer, dy), c);
+                };
+                quadTop(kInner, kOuter, kTop, kDock);
+                quadTop(kInner, kInner + 0.045f, kTop + 0.003f, kDockEdge);
+                for (const float edgeOff : {kInner, kOuter}) {
+                    const float facing = edgeOff == kInner ? -side : side;
+                    out.quadFacing(at(a, side * edgeOff, kFoot), at(b, side * edgeOff, kFoot), at(b, side * edgeOff, kTop),
+                                   at(a, side * edgeOff, kTop), kDockSide, glm::vec3(a.left.x * facing, 0.0f, a.left.y * facing));
+                }
+            }
+        }
+        // Slab joints every tile.
+        for (float s = 1.0f; s < platformLength; s += 1.0f) {
+            const auto f = frameAt(s * kTrackUnits);
+            const glm::vec2 forward(-f.left.y, f.left.x);
+            for (const float side : {-1.0f, 1.0f})
+                orientedBox(out, at(f, side * 0.65f, 0), forward, f.left, 0.006f, 0.27f, f.p.y + kTop + 0.001f,
+                            f.p.y + kTop + 0.004f, kDockJoint, kDockJoint);
+        }
+        // The goods shed: an open front on posts, a back wall, closed ends and a pitched roof.
+        const float s0 = platformLength >= 6.0f ? 1.2f : platformLength * 0.25f;
+        const float s1 = platformLength >= 6.0f ? platformLength - 1.0f : platformLength * 0.75f;
+        {
+            const auto f = frameAt((s0 + s1) * 0.5f * kTrackUnits);
+            const glm::vec2 forward(-f.left.y, f.left.x);
+            const float half = (s1 - s0) * 0.5f, y = f.p.y;
+            orientedBox(out, at(f, -0.9f, 0), forward, f.left, half, 0.03f, y + kTop, y + 0.5f, kShedWall, kShedWall);
+            for (const float end : {-half, half}) {
+                const glm::vec3 c = at(f, -0.69f, 0) + glm::vec3(forward.x * end, 0.0f, forward.y * end);
+                orientedBox(out, c, forward, f.left, 0.03f, 0.24f, y + kTop, y + 0.5f, kShedWall, kShedWall);
+            }
+            for (float s = s0; s <= s1 + 0.01f; s += 1.0f) {
+                const auto p = frameAt(s * kTrackUnits);
+                orientedBox(out, at(p, -0.47f, 0), forward, p.left, 0.02f, 0.02f, p.p.y + kTop, p.p.y + 0.5f, kPost, kPost);
+            }
+            // Two roof slopes meeting at a ridge over the middle of the dock.
+            const auto corner = [&](float along, float across, float height) {
+                const glm::vec3 c = at(f, across, height);
+                return glm::vec3(c.x + forward.x * along, c.y, c.z + forward.y * along);
+            };
+            const float lo = 0.5f, ridge = 0.62f, h = half + 0.06f;
+            out.quadFacing(corner(-h, -0.42f, lo), corner(h, -0.42f, lo), corner(h, -0.69f, ridge), corner(-h, -0.69f, ridge),
+                           kShedRoof, glm::vec3(f.left.x * 0.4f, 1.0f, f.left.y * 0.4f));
+            out.quadFacing(corner(-h, -0.69f, ridge), corner(h, -0.69f, ridge), corner(h, -0.96f, lo), corner(-h, -0.96f, lo),
+                           shade(kShedRoof, 0.88f), glm::vec3(-f.left.x * 0.4f, 1.0f, -f.left.y * 0.4f));
+            for (const float end : {-h, h})
+                out.quadFacing(corner(end, -0.42f, lo), corner(end, -0.96f, lo), corner(end, -0.69f, ridge), corner(end, -0.69f, ridge),
+                               kShedWall, glm::vec3(forward.x * end, 0.0f, forward.y * end));
+        }
+        // Freight waiting on the open dock, and floodlights along its back.
+        for (float s = 0.8f; s < platformLength - 0.4f; s += 1.6f) {
+            const auto f = frameAt(s * kTrackUnits);
+            const glm::vec2 forward(-f.left.y, f.left.x);
+            const int pick = static_cast<int>(s * 7.0f) % 3;
+            const float y = f.p.y + kTop;
+            if (pick == 0) {
+                orientedBox(out, at(f, 0.66f, 0), forward, f.left, 0.2f, 0.12f, y, y + 0.16f, kContainer[static_cast<int>(s) % 3],
+                            shade(kContainer[static_cast<int>(s) % 3], 1.1f));
+            } else {
+                // Crates side by side, the third stacked on top.
+                for (int crate = 0; crate < 1 + pick; ++crate) {
+                    const float base = y + 0.11f * static_cast<float>(crate / 2);
+                    orientedBox(out, at(f, 0.6f + 0.13f * static_cast<float>(crate % 2), 0), forward, f.left, 0.055f, 0.055f, base,
+                                base + 0.11f, shade(kCrate, 0.9f), kCrate);
+                }
+            }
+        }
+        for (float s = 0.5f; s < platformLength; s += 4.0f) {
+            const auto f = frameAt(s * kTrackUnits);
+            const glm::vec2 forward(-f.left.y, f.left.x);
+            orientedBox(out, at(f, 0.89f, 0), forward, f.left, 0.014f, 0.014f, f.p.y + kTop, f.p.y + 0.85f, kPost, kPost);
+            orientedBox(out, at(f, 0.84f, 0), forward, f.left, 0.06f, 0.06f, f.p.y + 0.82f, f.p.y + 0.86f, kPost, kPlatformLamp);
+        }
+        // A gantry crane straddling the track and both docks.
+        if (platformLength >= 4.0f) {
+            const auto f = frameAt(platformLength * 0.5f * kTrackUnits);
+            const glm::vec2 forward(-f.left.y, f.left.x);
+            const float y = f.p.y;
+            for (const float side : {-0.97f, 0.97f})
+                for (const float along : {-0.12f, 0.12f}) {
+                    const glm::vec3 c = at(f, side, 0) + glm::vec3(forward.x * along, 0.0f, forward.y * along);
+                    orientedBox(out, c, forward, f.left, 0.025f, 0.025f, y + kTop, y + 0.9f, kCrane, kCrane);
+                }
+            for (const float along : {-0.12f, 0.12f}) {
+                const glm::vec3 c = f.p + glm::vec3(forward.x * along, 0.0f, forward.y * along);
+                orientedBox(out, c, forward, f.left, 0.03f, 1.0f, y + 0.88f, y + 0.95f, kCrane, kCrane);
+            }
+            orientedBox(out, at(f, 0.45f, 0), forward, f.left, 0.1f, 0.07f, y + 0.8f, y + 0.88f, kPost, kPost);
+            orientedBox(out, at(f, 0.45f, 0), forward, f.left, 0.006f, 0.006f, y + 0.55f, y + 0.8f, kPost, kPost);
+        }
+    } else if (edge.kind == TrackKind::Platform) {
         // Platforms either side of the track, with an edge line and a canopy on posts.
         constexpr float kInner = 0.33f, kOuter = 0.93f, kTop = 0.05f, kFoot = -0.16f;
         constexpr float kRoofIn = 0.42f, kRoofOut = 0.88f, kRoof = 0.46f;
@@ -428,6 +544,7 @@ void TrackRenderer::sync(const World& world) {
     revision_ = world.trackRevision;
     concourses_.clear();
     for (const auto [sid, station] : world.stations) {
+        if (!station.takesPassengers()) continue; // freight docks have no footbridge
         const auto stairs = walking::stationConcourse(world, sid);
         if (stairs.empty()) continue;
         auto& m = concourses_[sid.value];
@@ -443,12 +560,13 @@ void TrackRenderer::sync(const World& world) {
     // Drop meshes of removed edges, build those of new ones (edges never change once built).
     std::erase_if(meshes_, [&](const auto& kv) {
         const TrackEdge* e = world.trackEdges.tryGet(TrackEdgeId{kv.first});
-        return !e || e->serial != kv.second.serial;
+        return !e || e->serial != kv.second.serial || useOf(world, *e) != kv.second.use;
     });
     for (const auto [id, e] : world.trackEdges) {
         if (meshes_.contains(id.value) || e.samples.empty()) continue;
         EdgeMesh& m = meshes_[id.value];
         m.serial = e.serial;
+        m.use = useOf(world, e);
         m.anchor = tileAt(e.samples.front().p);
         MeshBuilder mb;
         buildTrackMesh(world, e, m.anchor, mb);

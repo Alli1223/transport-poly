@@ -120,9 +120,12 @@ Graph freightGraph(const World& w, CargoType type) {
         if (v.stopped || v.cargoCapacity(type) == 0) continue;
         std::vector<Order> stops;
         for (const auto& o : v.orders)
-            if (o.kind == OrderKind::Station && !o.passThrough() && w.stations.contains(o.station)) stops.push_back(o);
+            if (o.kind == OrderKind::Station && !o.passThrough() && w.stations.contains(o.station) &&
+                w.stations[o.station].takesFreight())
+                stops.push_back(o);
+        // Only where the cargo may be picked up, to the next stop if it is dropped off there.
         for (usize i = 0; i < stops.size(); ++i)
-            if (!(stops[i].flags & (kOrderNoLoading | kOrderUnloadOnly)))
+            if (stops[i].loads(type) && stops[(i + 1) % stops.size()].unloads(type))
                 graph[stops[i].station].push_back(stops[(i + 1) % stops.size()].station);
     }
     for (auto& [at, edges] : graph) std::sort(edges.begin(), edges.end());
@@ -229,7 +232,7 @@ void daily(World& w) {
         for (const auto [sid, s] : w.stations) {
             u32 waiting = 0;
             for (const auto& batch : s.cargoWaiting) waiting += batch.quantity;
-            if (!covered(s, b) || s.cargoWaiting.size() >= 256 || waiting >= s.waitingCapacity()) continue;
+            if (!s.takesFreight() || !covered(s, b) || s.cargoWaiting.size() >= 256 || waiting >= s.waitingCapacity()) continue;
             if (!graphs.contains(type)) graphs.emplace(type, freightGraph(w, type));
             const auto key = std::pair{type, sid};
             if (!reach.contains(key)) reach.emplace(key, firstHops(graphs[type], sid));
@@ -240,7 +243,7 @@ void daily(World& w) {
                 const auto& target = *building(w, dest.building);
                 if (!accepts(w, target, type)) continue;
                 for (const auto [tid, t] : w.stations) {
-                    if (tid == sid || !reachable.contains(tid) || !covered(t, target)) continue;
+                    if (tid == sid || !t.takesFreight() || !reachable.contains(tid) || !covered(t, target)) continue;
                     const u32 dispatch = std::max<u32>(128, recipe->rate * source.level / 2);
                     const u32 n = std::min({stock, dispatch, static_cast<u32>(s.waitingCapacity()) - waiting});
                     w.stations[sid].cargoWaiting.push_back({type, n, sid, tid, dest.building, w.clock.tick, source.building});
@@ -284,7 +287,7 @@ void monthly(World& w) {
 i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
     auto& v = w.vehicles[vid];
     auto* s = w.stations.tryGet(sid);
-    if (!s) return 0;
+    if (!s || !s->takesFreight()) return 0;
     const auto* order = v.currentOrder();
     if (order && order->passThrough()) return 0;
     StationId next;
@@ -305,7 +308,9 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
     for (const auto& batch : s->cargoWaiting) waitingUnits += batch.quantity;
     std::vector<CargoBatch> remaining;
     for (const auto& batch : v.cargo) {
-        if (batch.destination == sid) {
+        if (order && !order->unloads(batch.type)) {
+            remaining.push_back(batch);
+        } else if (batch.destination == sid) {
             auto it = std::ranges::find_if(w.industries, [&](const Industry& i) { return i.building == batch.receiver; });
             const auto* target = building(w, batch.receiver);
             if (it != w.industries.end() && target && accepts(w, *target, batch.type) && covered(*s, *target)) {
@@ -354,7 +359,7 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
     if (order && (order->flags & (kOrderNoLoading | kOrderUnloadOnly))) return finish();
     if (!next.valid()) return finish();
     for (auto& batch : s->cargoWaiting) {
-        if (!batch.quantity || nextHop(w, sid, batch.destination, batch.type) != next) continue;
+        if (!batch.quantity || (order && !order->loads(batch.type)) || nextHop(w, sid, batch.destination, batch.type) != next) continue;
         // The vehicle's space for this class of cargo is shared by everything of the class.
         const u32 cap = v.cargoCapacity(batch.type), load = classQuantity(v.cargo, cargoClass(batch.type));
         const u32 n = std::min(batch.quantity, cap > load ? cap - load : 0);

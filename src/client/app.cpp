@@ -552,6 +552,15 @@ bool App::parseArgs(int argc, char** argv) {
             previewStation_ = true;
         } else if (arg == "--preview-track") {
             previewTrack_ = true;
+        } else if (arg == "--demo-freight") {
+            demoFreight_ = true;
+        } else if (arg == "--station-use") {
+            // Automation: the station tool's choices (passengers|freight, 1-4 platforms, a fixed length).
+            if (const char* v = next()) stationUse_ = std::string_view(v) == "freight" ? StationUse::Freight : StationUse::Passengers;
+        } else if (arg == "--station-platforms") {
+            if (const char* v = next()) stationPlatforms_ = std::clamp(std::atoi(v), 1, kMaxStationPlatforms);
+        } else if (arg == "--station-length") {
+            if (const char* v = next()) stationFixedLength_ = std::clamp(std::atoi(v), 0, 16);
         } else if (arg == "--preview-station-upgrade") {
             if (const char* v = next()) previewStationUpgradeAction_ = v;
             demoStation_ = true;
@@ -1414,6 +1423,7 @@ int App::run(int argc, char** argv) {
                             // Show the station tool part way through placing a platform beside the line.
                             const TPoint p{at->x, at->z + 7 * kTrackUnits};
                             tool_ = Tool::RailStation;
+                            toolGroup_ = ToolGroup::Rail;
                             TrackAnchor a;
                             a.pos = p;
                             stationStart_ = a;
@@ -1442,6 +1452,21 @@ int App::run(int argc, char** argv) {
                         log::warn("No site found for the demo level crossing");
                     }
                     demoCrossing_ = false;
+                }
+            }
+            if (demoFreight_ && frameCount >= 200) {
+                // A freight station of three platforms beside the camera's target, with a train in it.
+                demoFreight_ = false;
+                if (auto* local = dynamic_cast<LocalSession*>(session_.get())) {
+                    World& w = local->world();
+                    Command c;
+                    c.company = local->localCompany();
+                    w.companies[c.company].money = 50'000'000;
+                    TrackAnchor a;
+                    a.pos = {static_cast<i32>((camera_.target.x - 5.0) * kTrackUnits), static_cast<i32>(camera_.target.z * kTrackUnits)};
+                    c.payload = CmdBuildTrackStation{a, offset(a.pos, TDir{kDirOne, 0}, 10 * kTrackUnits), {}, StationUse::Freight, 3};
+                    if (const CommandResult r = executeCommand(w, c); !r.ok) log::warn("Freight demo: {}", r.error);
+                    renderer_.invalidateAll();
                 }
             }
             if (previewTrack_ && frameCount >= 200) {
@@ -1538,6 +1563,14 @@ int App::run(int argc, char** argv) {
                 if (wants("finances")) showFinances_ = true;
                 if (wants("vehicles")) showVehicleList_ = true;
                 if (wants("lines")) showLines_ = true;
+                if (wants("lineeditor"))
+                    // A new line with the stops of the first vehicle.
+                    for (const auto [id, v] : w.vehicles) {
+                        lineEditor_ = LineEditor{};
+                        lineEditor_->type = v.info().type;
+                        lineEditor_->orders = v.orders;
+                        break;
+                    }
                 if (wants("feedback")) showFeedback_ = true;
                 if (wants("subsidies")) showSubsidies_ = true;
                 if (wants("replace")) showReplace_ = true;

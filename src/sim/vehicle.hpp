@@ -94,8 +94,16 @@ struct Order {
     // previous vehicle of the service (0: the round trip shared out between its vehicles).
     u16 waitMinutes = 0;
     u16 intervalMinutes = 0;
+    // Freight at this stop, a bit per cargo type (0: every kind): what may be picked up here and
+    // what is dropped off here, delivered or left for another service.
+    u32 loadCargo = 0;
+    u32 unloadCargo = 0;
 
     bool passThrough() const { return kind == OrderKind::Via || (kind == OrderKind::Station && (flags & kOrderNonStop)); }
+    bool loads(CargoType t) const {
+        return !passThrough() && !(flags & (kOrderNoLoading | kOrderUnloadOnly)) && (!loadCargo || (loadCargo >> static_cast<u32>(t) & 1));
+    }
+    bool unloads(CargoType t) const { return !unloadCargo || (unloadCargo >> static_cast<u32>(t) & 1); }
 
     friend bool operator==(const Order&, const Order&) = default;
     template <class Ar>
@@ -104,6 +112,21 @@ struct Order {
         if (ar.version == 0 || ar.version >= 9) ar(waypoint);
         if (ar.version == 0 || ar.version >= 16) ar(platform);
         if (ar.version == 0 || ar.version >= 29) ar(waitMinutes, intervalMinutes);
+        if (ar.version == 0 || ar.version >= 31) ar(loadCargo, unloadCargo);
+    }
+};
+inline constexpr u32 kAllCargo = (1u << kCargoTypes) - 1;
+
+// A line made in the lines window: a named list of orders that its vehicles share (their order
+// group is the line's id). It keeps its stops while no vehicle runs it.
+struct ServiceLine {
+    CompanyId owner;
+    VehicleType type = VehicleType::Rail;
+    std::string name;
+    std::vector<Order> orders;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(owner, type, name, orders);
     }
 };
 

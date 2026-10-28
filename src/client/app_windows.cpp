@@ -261,6 +261,7 @@ void App::drawWindows() {
     drawPersonWindow();
     drawPersonLabels();
     drawLinesWindow();
+    drawLineEditor();
     drawCompaniesWindow();
     drawFinanceWindow();
     drawVehicleList();
@@ -645,7 +646,26 @@ void App::drawDepotWindow() {
                     ImGui::PopID();
                 }
                 ImGui::EndChild();
-                ui::mutedText(std::format("{} vehicles | {} seats | Engines may push from the rear", v.cars.size(),v.capacity()).c_str());
+                const double trainTiles = trains::consistLength(v) / static_cast<double>(kTrackUnits);
+                ui::mutedText(std::format("{} vehicles | {:.1f} tiles long | {} seats | Engines may push from the rear",
+                                          v.cars.size(), trainTiles, v.capacity()).c_str());
+                // The platform each stop will use (or the longest at the station), against the train.
+                for (const Order& o : v.orders) {
+                    const Station* stop = o.kind == OrderKind::Station ? w.stations.tryGet(o.station) : nullptr;
+                    if (!stop) continue;
+                    i32 platform = 0;
+                    for (const auto& chain : track::platformsOf(w, o.station)) {
+                        i32 length = 0;
+                        for (const TrackEdgeId e : chain) length += w.trackEdges[e].length;
+                        const bool chosen = (o.flags & kOrderPlatform) && track::platformNear(w, o.station, o.platform).valid() &&
+                                            std::ranges::find(chain, track::platformNear(w, o.station, o.platform)) != chain.end();
+                        if (chosen) { platform = length; break; }
+                        platform = std::max(platform, length);
+                    }
+                    if (platform > 0 && trains::consistLength(v) > platform)
+                        ui::iconText(ui::Icon::Warning, ui::col::kAccent,
+                                     std::format("Longer than its platform at {} ({:.0f} tiles)", stop->name, platform / double(kTrackUnits)).c_str());
+                }
                 if (!consistVehicle_.valid() && !v.cars.empty()) { consistVehicle_ = id; consistCar_ = 0; }
                 if (consistVehicle_ == id && consistCar_ >= v.cars.size()) consistCar_ = 0;
                 if (consistVehicle_ == id && consistCar_ < v.cars.size()) {
@@ -688,7 +708,7 @@ void App::drawVehicleWindow() {
     Vehicle* v = w.vehicles.tryGet(selVehicle_);
     if (!v) {
         selVehicle_ = {};
-        if (tool_ == Tool::PickOrder) tool_ = Tool::None;
+        if (tool_ == Tool::PickOrder && !pickForLine_) tool_ = Tool::None;
         return;
     }
     const float s = uiScale_;
@@ -806,6 +826,26 @@ void App::drawVehicleWindow() {
         }
 
         ui::sectionHeader("Orders");
+        {
+            // The line it runs: choosing one gives it the line's orders, shared from then on.
+            const auto current = w.lines.find(v->orderGroup);
+            std::string preview = current != w.lines.end() ? current->second.name : std::string("No line");
+            if (current != w.lines.end() && preview.empty()) preview = "Unnamed line";
+            ImGui::BeginDisabled(!mine);
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::BeginCombo("##runsLine", std::format("Line: {}", preview).c_str())) {
+                if (ImGui::Selectable("No line", current == w.lines.end()) && current != w.lines.end())
+                    session_->submit(CmdUnshareOrders{selVehicle_});
+                for (const auto& [id, line] : w.lines) {
+                    if (line.owner != v->owner || line.type != v->info().type) continue;
+                    const std::string label = std::format("{}##line{}", line.name.empty() ? "Unnamed line" : line.name, id);
+                    if (ImGui::Selectable(label.c_str(), id == v->orderGroup) && id != v->orderGroup)
+                        session_->submit(CmdAssignLine{selVehicle_, id});
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::EndDisabled();
+        }
         if (v->orderGroup != 0) {
             int sharing = 0;
             for (const auto [oid, o] : w.vehicles)
@@ -922,6 +962,18 @@ void App::drawVehicleWindow() {
                         changed = true;
                     }
                 }
+                // Which freight it picks up and drops off here.
+                if (std::ranges::any_of(std::array{CargoClass::Bulk, CargoClass::Refrigerated, CargoClass::Piece, CargoClass::Flatbed},
+                                        [&](CargoClass k) {
+                                            for (usize t = 0; t < kCargoTypes; ++t)
+                                                if (cargoClass(static_cast<CargoType>(t)) == k && v->cargoCapacity(static_cast<CargoType>(t)))
+                                                    return true;
+                                            return false;
+                                        })) {
+                    changed |= cargoChoice("##load", "Picks up", o.loadCargo, !o.passThrough() && !(o.flags & (kOrderNoLoading | kOrderUnloadOnly)));
+                    ImGui::SameLine();
+                    changed |= cargoChoice("##unload", "Drops off", o.unloadCargo, true);
+                }
                 drawOrderTimetable(selVehicle_, i, o, changed);
                 ImGui::EndDisabled();
             }
@@ -942,15 +994,17 @@ void App::drawVehicleWindow() {
             ImGui::Checkbox("Via waypoint (road / track / water tile)", &pickViaOrder_);
             if (ui::button(picking ? "Click a platform, station or depot - Esc when done" : "Add stop or depot",
                            picking ? ui::Icon::Target : ui::Icon::Plus, picking ? ui::Btn::Primary : ui::Btn::Secondary,
-                           ImVec2(-1.0f, 0.0f)))
+                           ImVec2(-1.0f, 0.0f))) {
                 tool_ = picking ? Tool::None : Tool::PickOrder;
+                pickForLine_ = false;
+            }
         }
     }
     ui::endPanel();
     if (!open) {
         if (followVehicle_ == selVehicle_) followVehicle_ = {};
         selVehicle_ = {};
-        if (tool_ == Tool::PickOrder) tool_ = Tool::None;
+        if (tool_ == Tool::PickOrder && !pickForLine_) tool_ = Tool::None;
     }
 }
 
@@ -985,6 +1039,19 @@ void App::drawStationWindow() {
         facility(kFacilityTram, "Tram", ui::col::kTram);
         facility(kFacilityRail, "Rail", ui::col::kRail);
         facility(kFacilityDock, "Dock", ui::col::kWater);
+        if (st->facilities & kFacilityRail) {
+            // Passenger and freight stations each handle only their own; older stations take both.
+            ui::fieldLabel("Station for");
+            static constexpr ui::Segment kUses[] = {
+                {"Both", ui::Icon::None, "Passengers and freight, with a passenger station's platforms"},
+                {"Passengers", ui::Icon::People, "Platforms with canopies, benches and footbridges; passengers only"},
+                {"Freight", ui::Icon::Briefcase, "Loading docks, a goods shed and a crane; freight only, reaching the industries "
+                                                 "around its platforms"}};
+            ImGui::BeginDisabled(st->owner != session_->localCompany());
+            if (const int clicked = ui::segmented("##stationuse", kUses, static_cast<int>(st->use)); clicked >= 0)
+                session_->submit(CmdSetStationUse{selStation_, static_cast<StationUse>(clicked)});
+            ImGui::EndDisabled();
+        }
         ImGui::Dummy(ImVec2(0, 2.0f * s));
         const float cw = ui::columnWidth(3);
         const std::string waiting = std::format("{}", st->waitingCount());
@@ -1016,14 +1083,18 @@ void App::drawStationWindow() {
         if (!platforms.empty()) {
             ui::sectionHeader("Station layout and road access");
             const bool mine = st->owner == session_->localCompany();
-            ui::statRow("Road entrances",std::format("{}",st->entrances.size()).c_str());
-            if (st->entrances.empty()) ImGui::TextWrapped("Connect this station to a road so passengers can walk here.");
             ImGui::BeginDisabled(!mine);
-            if (ImGui::Button("Add road entrance")) tool_ = Tool::StationEntrance;
-            ui::itemTooltip({"Road entrance","Click a nearby surface road or a cleared plot beside it. A gate and paved approach connect it to a platform."});
-            if (!st->entrances.empty()) {
-                ImGui::SameLine();
-                if (ImGui::Button("Remove entrances")) session_->submit(CmdStationEntrance{selStation_,{},true});
+            if (st->takesPassengers()) {
+                ui::statRow("Road entrances",std::format("{}",st->entrances.size()).c_str());
+                if (st->entrances.empty()) ImGui::TextWrapped("Connect this station to a road so passengers can walk here.");
+                if (ImGui::Button("Add road entrance")) tool_ = Tool::StationEntrance;
+                ui::itemTooltip({"Road entrance","Click a nearby surface road or a cleared plot beside it. A gate and paved approach connect it to a platform."});
+                if (!st->entrances.empty()) {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Remove entrances")) session_->submit(CmdStationEntrance{selStation_,{},true});
+                }
+            } else {
+                ImGui::TextWrapped("%s", std::format("Industries within {} tiles of the platforms load and unload here.", st->catchment).c_str());
             }
             if (ImGui::Button("Clear building for access")) { tool_=Tool::DemolishBuilding;toolGroup_=ToolGroup::Road; }
             ui::itemTooltip({"Clear space","Preview the cost and click a building to clear room for an entrance or road."});

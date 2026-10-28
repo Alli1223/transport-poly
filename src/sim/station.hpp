@@ -60,9 +60,14 @@ struct Station {
     i32 boardedThisMonth = 0;
     i32 boardedLastMonth = 0;
     i32 rating = 175;       // 0-255, OpenTTD style service rating
+    StationUse use = StationUse::Both;
 
+    bool takesPassengers() const { return use != StationUse::Freight; }
+    bool takesFreight() const { return use != StationUse::Passengers; }
+    // A passenger station's catchment is its road entrances once it has them; a freight
+    // station's is its platforms, so the industries beside them are in reach.
     std::vector<TilePos> catchmentTiles() const {
-        if ((facilities & kFacilityRail) && !entrances.empty()) {
+        if ((facilities & kFacilityRail) && !entrances.empty() && use != StationUse::Freight) {
             std::vector<TilePos> out; for (const auto& entry : entrances) out.push_back(entry.road); return out;
         }
         return tiles;
@@ -84,6 +89,7 @@ struct Station {
            boardedLastMonth, rating);
         if (ar.version == 0 || ar.version >= 17) ar(cargoWaiting);
         if (ar.version == 0 || ar.version >= 18) ar(entrances);
+        if (ar.version == 0 || ar.version >= 31) ar(use);
     }
 };
 

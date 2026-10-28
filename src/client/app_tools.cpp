@@ -343,38 +343,33 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
         break;
     case Tool::PickOrder: {
         const Tile* t = w.map.tile(hover_.tile);
-        Vehicle* v = w.vehicles.tryGet(selVehicle_);
-        if (!v) {
+        std::vector<Order> orders;
+        VehicleType type = VehicleType::Road;
+        if (!pickTarget(orders, type)) {
             tool_ = Tool::None;
+            pickForLine_ = false;
             return;
         }
         if (pickTrackOrder(overlays)) return;
         addTileOverlay(overlays, hover_.tile, t && (pickViaOrder_ || t->type == TileType::Station || t->type == TileType::Depot) ? kOk : kBad);
+        Order o;
         if (pickViaOrder_ && t) {
-            std::vector<Order> orders = v->orders;
-            Order o;
             o.kind = OrderKind::Via;
             o.waypoint = hover_.tile;
-            orders.push_back(o);
-            cmd = CmdSetOrders{selVehicle_, orders};
         } else if (t && t->type == TileType::Station) {
-            std::vector<Order> orders = v->orders;
-            Order o;
             o.station = StationId(t->index);
-            orders.push_back(o);
-            cmd = CmdSetOrders{selVehicle_, orders};
         } else if (t && t->type == TileType::Depot) {
-            std::vector<Order> orders = v->orders;
-            Order o;
             o.kind = OrderKind::Depot;
             o.depot = DepotId(t->index);
-            orders.push_back(o);
-            cmd = CmdSetOrders{selVehicle_, orders};
         } else {
             ImGui::SetTooltip("Click a station, depot, or enable Via waypoint to choose track / road / water");
             return;
         }
-        break;
+        orders.push_back(o);
+        const CommandResult r = testPickedOrders(orders);
+        showResult(r);
+        if (r.ok && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) commitPickedOrders(orders);
+        return;
     }
     default: break;
     }
@@ -582,6 +577,47 @@ void App::drawToolbar() {
             for (int i = 0; i < 4; ++i)
                 if (brushRadius_ == kRadii[i]) current = i;
             if (const int clicked = ui::segmented("##brush", kSizes, current); clicked >= 0) brushRadius_ = kRadii[clicked];
+            ImGui::EndGroup();
+        }
+        if (tool_ == Tool::RailStation && !stationEditTarget_.valid()) {
+            // What the new station is for, how many platforms it has and how long they are.
+            ImGui::SameLine(0, 14.0f * s);
+            ImGui::BeginGroup();
+            ImGui::Dummy(ImVec2(0, 6.0f * s));
+            ui::fieldLabel("Station for");
+            static constexpr ui::Segment kUses[] = {
+                {"Passengers", ui::Icon::People, "Platforms with canopies, benches and footbridges; passengers only"},
+                {"Freight", ui::Icon::Briefcase, "Loading docks, a goods shed and a crane; freight only"}};
+            if (const int clicked = ui::segmented("##use", kUses, stationUse_ == StationUse::Freight ? 1 : 0); clicked >= 0)
+                stationUse_ = clicked ? StationUse::Freight : StationUse::Passengers;
+            ImGui::EndGroup();
+            ImGui::SameLine(0, 14.0f * s);
+            ImGui::BeginGroup();
+            ImGui::Dummy(ImVec2(0, 6.0f * s));
+            ui::fieldLabel("Platforms");
+            static constexpr ui::Segment kCounts[] = {{"1", ui::Icon::None, "One platform"},
+                                                      {"2", ui::Icon::None, "Two platforms side by side"},
+                                                      {"3", ui::Icon::None, "Three platforms side by side"},
+                                                      {"4", ui::Icon::None, "Four platforms side by side"}};
+            if (const int clicked = ui::segmented("##platforms", kCounts, stationPlatforms_ - 1); clicked >= 0)
+                stationPlatforms_ = clicked + 1;
+            ImGui::EndGroup();
+            ImGui::SameLine(0, 14.0f * s);
+            ImGui::BeginGroup();
+            ImGui::Dummy(ImVec2(0, 6.0f * s));
+            ui::fieldLabel("Length");
+            static constexpr ui::Segment kLengths[] = {{"Drag", ui::Icon::None, "As far as you drag, 2 to 16 tiles"},
+                                                       {"4", ui::Icon::None, "4 tiles"},
+                                                       {"6", ui::Icon::None, "6 tiles"},
+                                                       {"8", ui::Icon::None, "8 tiles"},
+                                                       {"10", ui::Icon::None, "10 tiles"},
+                                                       {"12", ui::Icon::None, "12 tiles"},
+                                                       {"16", ui::Icon::None, "16 tiles"}};
+            static constexpr i32 kTiles[] = {0, 4, 6, 8, 10, 12, 16};
+            int current = 0;
+            for (int i = 0; i < 7; ++i)
+                if (stationFixedLength_ == kTiles[i]) current = i;
+            if (const int clicked = ui::segmented("##length", kLengths, current); clicked >= 0) stationFixedLength_ = kTiles[clicked];
             ImGui::EndGroup();
         }
         hintBottom = ImGui::GetWindowPos().y - 10.0f * s;

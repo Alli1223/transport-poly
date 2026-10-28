@@ -100,6 +100,12 @@ struct TrackNode {
     }
 };
 
+// What a rail station is built for: passengers (platforms with canopies, benches and
+// footbridges) or freight (loading docks, goods sheds and cranes). Other stops, and stations
+// saved before version 31, take both.
+enum class StationUse : u8 { Both, Passengers, Freight };
+inline constexpr int kMaxStationPlatforms = 4; // built at once with a new station
+
 enum class TrackKind : u8 { Plain, Platform, Depot };
 
 // What carries the rails along a stretch of track.
@@ -229,8 +235,13 @@ i32 halfWidthOf(TrackKind kind);
 
 // A straight, level station platform from `from` towards `to` (snapped onto the start's line).
 TrackPlan planPlatform(const World& w, CompanyId company, const TrackAnchor& from, TPoint to);
-// Builds a planned platform and adds it to a nearby station of the company (or a new one).
-StationId buildPlatform(World& w, CompanyId company, const TrackPlan& plan, StationId join = {});
+// The next of a new station's parallel platforms: beside `first`, two tiles further to its right
+// for each `index`, and as long.
+TrackPlan planParallelPlatform(const World& w, CompanyId company, const TrackPlan& first, int index);
+// Builds a planned platform and adds it to `join`, or to a nearby station of the company that
+// takes the same (with `use` Both: any nearby station), or to a new station for `use`.
+StationId buildPlatform(World& w, CompanyId company, const TrackPlan& plan, StationId join = {},
+                        StationUse use = StationUse::Both);
 struct PlatformEnd { TrackNodeId node; TDir outward; TrackEdgeId edge; };
 std::vector<PlatformEnd> platformEnds(const World& w, TrackEdgeId platform);
 // A depot at the open end (side) of a node.

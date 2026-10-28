@@ -142,6 +142,15 @@ private:
 
     // app_lines.cpp
     void drawLinesWindow();
+    void drawLineEditor();
+    // A button summing up which kinds of freight a stop picks up or drops off; it opens a list to
+    // choose them. True when the choice changed.
+    bool cargoChoice(const char* id, const char* label, u32& mask, bool enabled);
+    // Picking stops on the map adds to the selected vehicle's orders or, while the line editor
+    // asks for it, to the line's.
+    bool pickTarget(std::vector<Order>& orders, VehicleType& type);
+    CommandResult testPickedOrders(const std::vector<Order>& orders);
+    void commitPickedOrders(const std::vector<Order>& orders);
     void drawLineRoutes(std::vector<gfx::OverlayQuad>& overlays, bool all);
 
     // app_track.cpp
@@ -229,6 +238,18 @@ private:
     bool showChat_ = false;
     bool showClients_ = false;
     bool pickViaOrder_ = false;
+    // The line editor: a line being made (line 0, its stops kept here until it is created) or one
+    // being changed (its stops are the world's).
+    struct LineEditor {
+        u32 line = 0;
+        VehicleType type = VehicleType::Rail;
+        char name[64] = {};
+        std::vector<Order> orders;
+        u32 awaiting = 0; // asked to create the line: it is the company's first line above this id
+        VehicleId lead;   // ... or the line this vehicle ends up running
+    };
+    std::optional<LineEditor> lineEditor_;
+    bool pickForLine_ = false;
     bool cameraPlaced_ = false;
     std::deque<std::string> chatLines_;
     i32 lastAutosaveMonth_ = -1;
@@ -244,6 +265,11 @@ private:
     ToolGroup toolGroup_ = ToolGroup::None;
     StationId stationEditTarget_;
     i32 stationPlatformLength_ = 6;
+    // The station tool's choices: what a new station is for, how many platforms it has, and a
+    // fixed platform length in tiles (0: as far as the pointer is dragged).
+    StationUse stationUse_ = StationUse::Passengers;
+    int stationPlatforms_ = 1;
+    i32 stationFixedLength_ = 0;
     std::optional<CommandPayload> stationUpgradePreview_; // hovered station action, cleared every frame
     std::string stationUpgradeLabel_;
     i32 brushRadius_ = 3;      // terraform brush size, tiles
@@ -368,6 +394,7 @@ private:
     bool gotoMountain_ = false; // automation: start near high ground
     std::optional<std::string> gotoIndustry_; // automation: look at the nearest industry (whose name contains this)
     bool demoIndustries_ = false;            // automation: found one of every industry near the camera
+    bool demoFreight_ = false;               // automation: build a freight station at the camera
     double gotoTownDistance_ = 0.0; // > 0: jump to the biggest town at this zoom (automation)
     bool demoNetwork_ = false;      // automation: build a demo bus line in the biggest town
     bool demoRail_ = false;         // automation: build a demo railway next to the biggest town

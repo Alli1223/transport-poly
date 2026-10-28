@@ -31,10 +31,12 @@ namespace {
 constexpr i64 kWaitReviewTicks = 3 * kTicksPerHour;
 constexpr i64 kDwellEstimate = 4 * kTicksPerMinute;
 
+// The stations a vehicle stops at that take passengers (freight stations are passed by).
 std::vector<StationId> stationOrders(const World& w, const Vehicle& v) {
     std::vector<StationId> list;
     for (const Order& o : v.orders) {
         if (o.kind != OrderKind::Station || o.passThrough() || !w.stations.contains(o.station)) continue;
+        if (!w.stations[o.station].takesPassengers()) continue;
         if (!list.empty() && list.back() == o.station) continue;
         list.push_back(o.station);
     }
@@ -386,13 +388,14 @@ void updateRouting(World& w) {
 void accessStations(const World& w, TilePos centre2, std::vector<StationId>& out) {
     const TilePos tile{floorDiv(centre2.x, 2), floorDiv(centre2.y, 2)};
     stations::stationsCovering(w, tile, out);
+    std::erase_if(out, [&](StationId s) { return !w.stations[s].takesPassengers(); });
     const auto* surface = w.map.tile(tile);
     const auto* building = surface && surface->type == TileType::Building
                                ? w.buildings.tryGet(BuildingId(surface->index))
                                : nullptr;
     if (!building || !w.towns.contains(building->town)) return;
     for (const auto [sid, station] : w.stations)
-        if (station.town == building->town && (station.facilities & kFacilityRail) &&
+        if (station.town == building->town && (station.facilities & kFacilityRail) && station.takesPassengers() &&
             std::ranges::find(out, sid) == out.end())
             out.push_back(sid);
 }

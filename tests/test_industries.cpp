@@ -413,3 +413,89 @@ TEST_CASE("industries: saves from before industries keep without them") {
     CHECK_EQ(copy.industries.size(), w.industries.size());
     CHECK_EQ(copy.stateHash(), w.stateHash());
 }
+
+TEST_CASE("freight: each stop picks up and drops off only the goods it is told to") {
+    ChainWorld cw;
+    World& w = cw.w;
+    cw.building(industries::kLoggingCamp, {0, 0});
+    const BuildingId mill = cw.building(industries::kSawmill, {20, 0});
+    const StationId a = cw.station({0, 2}), b = cw.station({20, 2});
+    const u16 timber = modelNamed("Timber Lorry");
+    REQUIRE(timber != 0);
+    const VehicleId lorry = cw.lorry(timber, {a, b});
+    // Told to pick up only planks at the logging camp: no service carries its logs, so none go.
+    w.vehicles[lorry].orders[0].loadCargo = 1u << static_cast<u32>(CargoType::Planks);
+    cargo::daily(w);
+    CHECK_EQ(cargo::quantity(w.stations[a].cargoWaiting, CargoType::Logs), 0u);
+    // Picking up logs but dropping off only planks at the sawmill: still nothing goes.
+    w.vehicles[lorry].orders[0].loadCargo = 1u << static_cast<u32>(CargoType::Logs);
+    w.vehicles[lorry].orders[1].unloadCargo = 1u << static_cast<u32>(CargoType::Planks);
+    cargo::daily(w);
+    CHECK_EQ(cargo::quantity(w.stations[a].cargoWaiting, CargoType::Logs), 0u);
+    // Dropping off logs there too: the logs travel and are delivered.
+    w.vehicles[lorry].orders[1].unloadCargo |= 1u << static_cast<u32>(CargoType::Logs);
+    cargo::daily(w);
+    REQUIRE(cargo::quantity(w.stations[a].cargoWaiting, CargoType::Logs) > 0);
+    CHECK(cargo::exchangeAtStop(w, lorry, a) > 0);
+    w.vehicles[lorry].orderIndex = 1;
+    cargo::exchangeAtStop(w, lorry, b);
+    CHECK(cw.industry(mill).stock[static_cast<usize>(CargoType::Logs)] > 0);
+}
+
+TEST_CASE("lines: made before any vehicle runs them, then shared by their vehicles") {
+    ChainWorld cw;
+    World& w = cw.w;
+    const StationId a = cw.station({0, 2}), b = cw.station({20, 2});
+    for (const StationId s : {a, b}) {
+        w.stations[s].owner = cw.company;
+        w.stations[s].facilities = kFacilityBus;
+        w.map.activate({0, 0});
+        Tile& t = *w.map.tile(w.stations[s].sign);
+        t.type = TileType::Station;
+        t.extra = static_cast<u8>(StopKind::Bus);
+        t.index = s.value;
+    }
+    const auto run = [&](CommandPayload p) {
+        Command c;
+        c.company = cw.company;
+        c.payload = std::move(p);
+        return executeCommand(w, c);
+    };
+    Order oa, ob;
+    oa.station = a;
+    ob.station = b;
+    ob.unloadCargo = 1u << static_cast<u32>(CargoType::Logs);
+    const CommandResult made = run(CmdCreateLine{VehicleType::Road, "Mill run", {oa, ob}, {}});
+    REQUIRE(made.ok);
+    const u32 line = static_cast<u32>(made.createdId);
+    REQUIRE(w.lines.contains(line));
+    CHECK_EQ(w.lines[line].name, std::string("Mill run"));
+    CHECK_EQ(w.lines[line].orders.size(), 2u);
+    // Vehicles joining it take its orders; changing the line changes theirs.
+    const VehicleId first = cw.lorry(modelNamed("Timber Lorry"), {});
+    const VehicleId second = cw.lorry(modelNamed("Timber Lorry"), {});
+    REQUIRE(run(CmdAssignLine{first, line}).ok);
+    REQUIRE(run(CmdAssignLine{second, line}).ok);
+    CHECK(w.vehicles[first].orders == w.lines[line].orders);
+    CHECK(!run(CmdAssignLine{first, line}).ok);
+    REQUIRE(run(CmdEditLine{line, "Mill run", {ob, oa}}).ok);
+    CHECK(w.vehicles[second].orders[0].station == b);
+    // ... and changing one vehicle's shared orders changes the line.
+    REQUIRE(run(CmdSetOrders{first, {oa, ob, oa, ob}}).ok);
+    CHECK_EQ(w.lines[line].orders.size(), 4u);
+    CHECK_EQ(w.vehicles[second].orders.size(), 4u);
+    // A line of stops this kind of vehicle cannot use is refused.
+    CHECK(!run(CmdCreateLine{VehicleType::Ship, "", {oa, ob}, {}}).ok);
+    // Lines survive saves; older saves have none.
+    World copy;
+    fromBytes(toBytes(w, kSaveVersion), copy, kSaveVersion);
+    REQUIRE(copy.lines.contains(line));
+    CHECK(copy.lines[line].orders == w.lines[line].orders);
+    World older;
+    fromBytes(toBytes(w, 30), older, 30);
+    CHECK(older.lines.empty());
+    // Deleting the line leaves its vehicles their orders.
+    REQUIRE(run(CmdEditLine{line, {}, {}, true}).ok);
+    CHECK(!w.lines.contains(line));
+    CHECK_EQ(w.vehicles[first].orders.size(), 4u);
+}

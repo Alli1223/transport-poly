@@ -96,6 +96,10 @@ std::string_view commandName(const CommandPayload& payload) {
                           [](const CmdUpdateCompany&) { return std::string_view("Company details"); },
                           [](const CmdSetAutoreplace&) { return std::string_view("Autoreplace"); },
                           [](const CmdSetAutorenew&) { return std::string_view("Autorenew"); },
+                          [](const CmdSetStationUse&) { return std::string_view("Station use"); },
+                          [](const CmdCreateLine&) { return std::string_view("Create line"); },
+                          [](const CmdEditLine&) { return std::string_view("Edit line"); },
+                          [](const CmdAssignLine&) { return std::string_view("Assign line"); },
                       },
                       payload);
 }

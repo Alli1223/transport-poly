@@ -248,6 +248,19 @@ through-passengers keeping their seats. People already on the platform can board
 while others enter the station; approaching pedestrians do not keep extending the
 train's stop.
 
+The **Station** tool's panel chooses what a new station is for, how many platforms
+it has and how long they are. **Passengers** stations have the canopies, benches
+and footbridges above and handle passengers only; **Freight** stations have
+concrete loading docks, a goods shed, cranes and floodlights, handle freight only,
+and reach the industries around their platforms without a road entrance. One to
+four platforms are built side by side in one go, two tiles apart. **Length** is
+either **Drag** (as far as the pointer goes) or a fixed 4 to 16 tiles, so stations
+can be built to the same length for trains made to fit them. While placing, a mark
+at every tile and a label show the length, and the tooltip says the longest train
+it takes. A station's window changes what it is for; stations from earlier saves
+take both. A train's depot window shows how many tiles long it is, and warns when
+it is longer than the platform at one of its stops.
+
 Bus and tram stops within four tiles of a train station's road entrance can act
 as interchanges when pavements join them. Passengers walk between the stops,
 wait for the feeder service, and ride toward home or work. Trip choices favour
@@ -352,6 +365,14 @@ line. The window shows each line's vehicles, passengers carried and profit, how
 full it is, a diagram of its stops with its vehicles between them, and the
 passengers waiting at each stop; the chosen line is drawn on the map along the
 track or roads it uses.
+
+**New line** makes a line before any vehicle runs it: choose the kind of vehicle,
+name it if you like, click its stops on the map, and **Create line**. **Edit line**
+changes a line's stops for every vehicle on it, and adds vehicles to it or takes
+them off; a vehicle's window can also put it on a line. Each stop of a line, or
+of a freight vehicle's orders, sets what it **picks up** and **drops off** there:
+all goods, or only the kinds chosen. Freight is only sent with a service that will
+drop it off where it is going.
 
 Press **C** or open **Citizens** in the dock to inspect residents. Filter by town,
 search by name or ID, and follow a citizen between home, work, shopping and transit.

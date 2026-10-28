@@ -476,67 +476,148 @@ bool freeTrackAt(const World& w, TilePos t) {
 
 } // namespace
 
-CommandResult handle(World& w, const Command& c, const CmdSetOrders& x, bool exec) {
-    Vehicle* v = ownedVehicle(w, c, x.vehicle);
-    if (!v) return CommandResult::failure("No such vehicle");
-    if (x.orders.size() > 64) return CommandResult::failure("Too many orders");
-    const VehicleType type = v->info().type;
-    for (const Order& o : x.orders) {
+namespace {
+
+// What is wrong with a list of orders for vehicles of `type` (empty when nothing is).
+std::string orderProblem(const World& w, CompanyId company, VehicleType type, const std::vector<Order>& orders) {
+    if (orders.size() > 64) return "Too many orders";
+    for (const Order& o : orders) {
         if (o.flags & ~(kOrderNonStop | kOrderFullLoad | kOrderUnloadOnly | kOrderNoLoading | kOrderPlatform | kOrderTimingPoint))
-            return CommandResult::failure("Unknown order flags");
+            return "Unknown order flags";
+        if ((o.loadCargo | o.unloadCargo) & ~kAllCargo) return "Unknown cargo in orders";
         if (o.waitMinutes > kMaxTimetableMinutes || o.intervalMinutes > kMaxTimetableMinutes)
-            return CommandResult::failure("Timetable times can be at most a day");
+            return "Timetable times can be at most a day";
         if ((o.waitMinutes || o.intervalMinutes || (o.flags & kOrderTimingPoint)) &&
             (o.kind != OrderKind::Station || o.passThrough()))
-            return CommandResult::failure("Only stops can be timetabled");
+            return "Only stops can be timetabled";
         if ((o.flags & kOrderPlatform) &&
             (o.kind != OrderKind::Station || type != VehicleType::Rail || !track::platformNear(w, o.station, o.platform).valid()))
-            return CommandResult::failure("That platform is not part of the station");
+            return "That platform is not part of the station";
         if ((o.flags & kOrderFullLoad) && (o.flags & (kOrderNonStop | kOrderUnloadOnly | kOrderNoLoading)))
-            return CommandResult::failure("Full load requires a stopping order that permits loading");
+            return "Full load requires a stopping order that permits loading";
         if (o.kind == OrderKind::Station) {
             const Station* s = w.stations.tryGet(o.station);
-            if (!s || s->owner != c.company) return CommandResult::failure("Invalid station in orders");
+            if (!s || s->owner != company) return "Invalid station in orders";
             bool ok = type == VehicleType::Rail && track::hasPlatform(w, o.station);
             for (const TilePos t : s->tiles) {
                 const Tile* tile = w.map.tile(t);
                 if (tile && tile->type == TileType::Station && stopKindMatches(type, static_cast<StopKind>(tile->extra)))
                     ok = true;
             }
-            if (!ok) return CommandResult::failure(std::format("{} has no stop for this vehicle", s->name));
+            if (!ok) return std::format("{} has no stop for this vehicle", s->name);
         } else if (o.kind == OrderKind::Via) {
             const Tile* tile = w.map.tile(o.waypoint);
             const bool ok = tile && (type == VehicleType::Ship ? isWaterTile(w, o.waypoint)
                 : type == VehicleType::Rail ? (tile->rail != 0 || freeTrackAt(w, o.waypoint)) && tile->type != TileType::Depot
                 : drivablePieces(w, o.waypoint, type, DepotId{}) != 0 && tile->type != TileType::Depot);
-            if (!ok) return CommandResult::failure("Waypoint needs navigable infrastructure for this vehicle");
+            if (!ok) return "Waypoint needs navigable infrastructure for this vehicle";
         } else if (o.kind == OrderKind::Depot) {
             const Depot* d = w.depots.tryGet(o.depot);
-            if (!d || d->owner != c.company || !depotKindMatches(type, d->kind))
-                return CommandResult::failure("Invalid depot in orders");
+            if (!d || d->owner != company || !depotKindMatches(type, d->kind))
+                return "Invalid depot in orders";
         } else {
-            return CommandResult::failure("Unknown order kind");
+            return "Unknown order kind";
         }
     }
+    return {};
+}
+
+// Gives a vehicle new orders: it heads for the first and measures its timetable afresh.
+void applyOrders(World& w, Vehicle& o, const std::vector<Order>& orders) {
+    // A vehicle waiting for its old timetable reconsiders under the new one.
+    if (const Order* old = o.currentOrder();
+        o.state == VehicleState::Loading && (o.holdingSince >= 0 || (old && old->waitMinutes)))
+        o.loadingUntil = std::min(o.loadingUntil, w.clock.tick + 1);
+    o.orders = orders;
+    if (o.orderIndex >= o.orders.size()) o.orderIndex = 0;
+    o.path.clear();
+    o.pathIndex = 0;
+    // A new timetable starts afresh: departures and round trips are measured again.
+    o.departures.clear();
+    o.holdingSince = -1;
+    o.heldTicks = 0;
+    o.cycleTicks = 0;
+}
+
+// Gives every vehicle of an order group (and its line) new orders.
+void applyGroupOrders(World& w, u32 group, CompanyId owner, const std::vector<Order>& orders) {
+    for (auto [id, o] : w.vehicles)
+        if (group != 0 && o.orderGroup == group && o.owner == owner) applyOrders(w, o, orders);
+    if (const auto line = w.lines.find(group); line != w.lines.end() && line->second.owner == owner) line->second.orders = orders;
+    passengers::markDirty(w);
+}
+
+} // namespace
+
+CommandResult handle(World& w, const Command& c, const CmdSetOrders& x, bool exec) {
+    Vehicle* v = ownedVehicle(w, c, x.vehicle);
+    if (!v) return CommandResult::failure("No such vehicle");
+    if (const std::string why = orderProblem(w, c.company, v->info().type, x.orders); !why.empty())
+        return CommandResult::failure(why);
     if (exec) {
-        const u32 group = v->orderGroup;
-        const CompanyId owner = v->owner;
-        for (auto [id, o] : w.vehicles) {
-            if (id != x.vehicle && (group == 0 || o.orderGroup != group || o.owner != owner)) continue;
-            // A vehicle waiting for its old timetable reconsiders under the new one.
-            if (const Order* old = o.currentOrder();
-                o.state == VehicleState::Loading && (o.holdingSince >= 0 || (old && old->waitMinutes)))
-                o.loadingUntil = std::min(o.loadingUntil, w.clock.tick + 1);
-            o.orders = x.orders;
-            if (o.orderIndex >= o.orders.size()) o.orderIndex = 0;
-            o.path.clear();
-            o.pathIndex = 0;
-            // A new timetable starts afresh: departures and round trips are measured again.
-            o.departures.clear();
-            o.holdingSince = -1;
-            o.heldTicks = 0;
-            o.cycleTicks = 0;
+        if (v->orderGroup) {
+            applyGroupOrders(w, v->orderGroup, v->owner, x.orders);
+        } else {
+            applyOrders(w, *v, x.orders);
+            passengers::markDirty(w);
         }
+    }
+    return CommandResult::success();
+}
+
+CommandResult handle(World& w, const Command& c, const CmdCreateLine& x, bool exec) {
+    if (!w.companies.contains(c.company)) return CommandResult::failure("Only companies run lines");
+    if (x.name.size() > 64) return CommandResult::failure("That name is too long");
+    if (const std::string why = orderProblem(w, c.company, x.type, x.orders); !why.empty()) return CommandResult::failure(why);
+    u32 shared = 0;
+    for (const VehicleId id : x.vehicles) {
+        const Vehicle* v = ownedVehicle(w, c, id);
+        if (!v || v->info().type != x.type) return CommandResult::failure("Those vehicles can't run this line");
+        if (id == x.vehicles.front()) shared = v->orderGroup;
+        else if (v->orderGroup != shared) shared = 0;
+    }
+    if (!exec) return CommandResult::success();
+    // Vehicles already sharing their orders keep their group, which becomes the line.
+    const u32 id = shared && !w.lines.contains(shared) ? shared : ++w.nextSerial;
+    ServiceLine& line = w.lines[id];
+    line.owner = c.company;
+    line.type = x.type;
+    line.name = x.name;
+    line.orders = x.orders;
+    for (const VehicleId v : x.vehicles) w.vehicles[v].orderGroup = id;
+    applyGroupOrders(w, id, c.company, x.orders);
+    CommandResult r = CommandResult::success();
+    r.createdId = id;
+    return r;
+}
+
+CommandResult handle(World& w, const Command& c, const CmdEditLine& x, bool exec) {
+    const auto it = w.lines.find(x.line);
+    if (it == w.lines.end() || it->second.owner != c.company) return CommandResult::failure("No such line");
+    if (x.remove) {
+        if (exec) w.lines.erase(it);
+        return CommandResult::success();
+    }
+    if (x.name.size() > 64) return CommandResult::failure("That name is too long");
+    if (const std::string why = orderProblem(w, c.company, it->second.type, x.orders); !why.empty())
+        return CommandResult::failure(why);
+    if (exec) {
+        it->second.name = x.name;
+        if (it->second.orders != x.orders) applyGroupOrders(w, x.line, c.company, x.orders);
+    }
+    return CommandResult::success();
+}
+
+CommandResult handle(World& w, const Command& c, const CmdAssignLine& x, bool exec) {
+    Vehicle* v = ownedVehicle(w, c, x.vehicle);
+    if (!v) return CommandResult::failure("No such vehicle");
+    const auto it = w.lines.find(x.line);
+    if (it == w.lines.end() || it->second.owner != c.company) return CommandResult::failure("No such line");
+    if (v->info().type != it->second.type) return CommandResult::failure("This vehicle can't run that line");
+    if (v->orderGroup == x.line) return CommandResult::failure("The vehicle runs this line already");
+    if (exec) {
+        v->orderGroup = x.line;
+        applyOrders(w, *v, it->second.orders);
         passengers::markDirty(w);
     }
     return CommandResult::success();

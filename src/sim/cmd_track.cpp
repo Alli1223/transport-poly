@@ -6,6 +6,7 @@
 #include "sim/world.hpp"
 
 #include <cstdlib>
+#include <format>
 #include <unordered_set>
 
 namespace tp::cmd {
@@ -78,14 +79,28 @@ CommandResult handle(World& w, const Command& c, const CmdBuildTrackStation& x, 
         for (const auto tile : station->tiles) if (distance(tileCentre(tile),x.from.pos) <= 8*kTrackUnits) nearby = true;
         if (!nearby) return CommandResult::failure("New platforms must be near the station");
     }
+    if (x.platforms < 1 || x.platforms > kMaxStationPlatforms)
+        return CommandResult::failure(std::format("Choose 1 to {} platforms", kMaxStationPlatforms));
+    // Every platform must fit before any is built; they are planned again as they are built, as
+    // each one changes the ground for the next.
     const TrackPlan plan = track::planPlatform(w, c.company, x.from, x.to);
     if (!plan.ok) return CommandResult::failure(plan.error);
-    for (const TilePos t : plan.tiles)
-        if (const std::string why = towns::authorityRefusal(w, c.company, t, kRatingRefuseBuild); !why.empty())
-            return CommandResult::failure(why);
-    CommandResult r = CommandResult::success(plan.cost, Expense::Construction);
+    Money cost = 0;
+    for (int k = 0; k < x.platforms; ++k) {
+        const TrackPlan p = k == 0 ? plan : track::planParallelPlatform(w, c.company, plan, k);
+        if (!p.ok) return CommandResult::failure(x.platforms > 1 ? std::format("Platform {}: {}", k + 1, p.error) : p.error);
+        for (const TilePos t : p.tiles)
+            if (const std::string why = towns::authorityRefusal(w, c.company, t, kRatingRefuseBuild); !why.empty())
+                return CommandResult::failure(why);
+        cost += p.cost;
+    }
+    CommandResult r = CommandResult::success(cost, Expense::Construction);
     if (exec) {
-        const StationId sid = track::buildPlatform(w, c.company, plan, x.join);
+        const StationId sid = track::buildPlatform(w, c.company, plan, x.join, x.use);
+        for (int k = 1; k < x.platforms && sid.valid(); ++k) {
+            const TrackPlan p = track::planParallelPlatform(w, c.company, plan, k);
+            if (p.ok) track::buildPlatform(w, c.company, p, sid);
+        }
         if (sid.valid()) r.createdId = sid.value;
     }
     return r;

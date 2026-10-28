@@ -518,36 +518,88 @@ void App::handleStationTool(std::vector<gfx::OverlayQuad>& overlays) {
         }
         return;
     }
-    const TrackPlan plan = track::planPlatform(w, company, *stationStart_, cursor);
-    // The ground levelled for it, then the station itself: platforms either side of the track.
-    if (plan.ok) addEarthworks(overlays, w.map, plan.terrain);
-    if (!plan.samples.empty()) {
-        addRibbon(overlays, plan.samples, 0.95, plan.ok ? gfx::rgba(120, 200, 255, 120) : gfx::rgba(250, 90, 80, 130));
-        addRibbon(overlays, plan.samples, 0.33, plan.ok ? gfx::rgba(70, 90, 110, 150) : gfx::rgba(150, 50, 45, 150), 0.08);
-        addRibbon(overlays, plan.samples, 0.08, plan.ok ? gfx::rgba(255, 255, 255, 200) : gfx::rgba(250, 90, 80, 200), 0.09);
+    // A fixed length runs that far from the start towards the pointer.
+    TPoint to = cursor;
+    if (stationFixedLength_ > 0) {
+        TDir dir = normalised(static_cast<i64>(cursor.x) - stationStart_->pos.x, static_cast<i64>(cursor.z) - stationStart_->pos.z);
+        if (const TrackNode* n = stationStart_->node.valid() ? w.trackNodes.tryGet(stationStart_->node) : nullptr)
+            dir = n->side(n->count(0) == 0 ? 0 : 1);
+        if (!dir.isZero()) to = offset(stationStart_->pos, dir, stationFixedLength_ * kTrackUnits);
+    }
+    const Station* editing = w.stations.tryGet(stationEditTarget_);
+    const StationUse use = editing ? editing->use : stationUse_;
+    const int platforms = editing ? 1 : stationPlatforms_;
+    Command command;
+    command.company = company;
+    command.payload = CmdBuildTrackStation{*stationStart_, to, stationEditTarget_, use, static_cast<u8>(platforms)};
+    const CommandResult result = testCommand(w, command);
+    const TrackPlan plan = track::planPlatform(w, company, *stationStart_, to);
+    std::vector<TrackPlan> plans{plan};
+    for (int k = 1; k < platforms && plan.ok; ++k) plans.push_back(track::planParallelPlatform(w, company, plan, k));
+    // The ground levelled for it, then the station itself: platforms either side of each track.
+    const bool ok = result.ok && plan.ok;
+    for (const TrackPlan& p : plans) {
+        if (p.ok) addEarthworks(overlays, w.map, p.terrain);
+        if (p.samples.empty()) continue;
+        addRibbon(overlays, p.samples, 0.95, ok ? gfx::rgba(120, 200, 255, 120) : gfx::rgba(250, 90, 80, 130));
+        addRibbon(overlays, p.samples, 0.33, ok ? gfx::rgba(70, 90, 110, 150) : gfx::rgba(150, 50, 45, 150), 0.08);
+        addRibbon(overlays, p.samples, 0.08, ok ? gfx::rgba(255, 255, 255, 200) : gfx::rgba(250, 90, 80, 200), 0.09);
     }
     addRing(overlays, toWorld(stationStart_->pos, plan.samples.empty() ? 0 : plan.samples.front().h, 0.09), 0.32,
             gfx::rgba(120, 240, 140, 230));
+    const i32 tiles = (plan.length + kTrackUnits / 2) / kTrackUnits;
+    if (plan.samples.size() >= 2) {
+        // A mark at every tile along the first platform, and its length beside the far end.
+        const TrackSample& a = plan.samples.front();
+        const TrackSample& b = plan.samples.back();
+        const glm::dvec2 along = glm::normalize(glm::dvec2(b.p.x - a.p.x, b.p.z - a.p.z));
+        const glm::dvec2 across(-along.y, along.x);
+        for (i32 t = 0; t <= tiles; ++t) {
+            const glm::dvec3 c = toWorld(a.p, a.h, 0.11) + glm::dvec3(along.x * t, 0.0, along.y * t);
+            const double half = t % 4 == 0 ? 1.05 : 0.8, thick = t % 4 == 0 ? 0.05 : 0.03;
+            overlays.push_back({{c + glm::dvec3(across.x * half - along.x * thick, 0.0, across.y * half - along.y * thick),
+                                 c + glm::dvec3(across.x * half + along.x * thick, 0.0, across.y * half + along.y * thick),
+                                 c + glm::dvec3(-across.x * half + along.x * thick, 0.0, -across.y * half + along.y * thick),
+                                 c + glm::dvec3(-across.x * half - along.x * thick, 0.0, -across.y * half - along.y * thick)},
+                                gfx::rgba(255, 255, 255, 220)});
+        }
+        if (const auto screen = worldToScreen(toWorld(b.p, b.h, 0.6) + glm::dvec3(along.x * 0.8, 0.0, along.y * 0.8))) {
+            ui::FontScope f(ui::fonts().body);
+            const std::string label = std::format("{} tiles", tiles);
+            const ImVec2 size = ImGui::CalcTextSize(label.c_str());
+            const ImVec2 pos{screen->x - size.x / 2, screen->y - size.y};
+            auto* draw = ImGui::GetBackgroundDrawList();
+            draw->AddRectFilled(ImVec2(pos.x - 7, pos.y - 4), ImVec2(pos.x + size.x + 7, pos.y + size.y + 4), IM_COL32(15, 25, 35, 225), 6);
+            draw->AddText(pos, ok ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 130, 110, 255), label.c_str());
+        }
+    }
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * uiScale_, 7.0f * uiScale_));
     if (ImGui::BeginTooltip()) {
-        if (plan.ok) {
-            ui::iconText(ui::Icon::Station, ui::col::kBlue,
-                         std::format("Station platform, {} tiles", plan.length / kTrackUnits).c_str());
-            ui::iconText(ui::Icon::Coins, ui::col::kAccent, std::format("Cost {}", formatMoney(plan.cost)).c_str());
+        if (ok) {
+            const char* kind = use == StationUse::Freight ? "Freight station" : use == StationUse::Passengers ? "Passenger station" : "Station";
+            const std::string what = editing ? std::format("New platform for {}, {} tiles", editing->name, tiles)
+                                   : platforms > 1 ? std::format("{}: {} platforms of {} tiles", kind, platforms, tiles)
+                                                   : std::format("{}: a platform of {} tiles", kind, tiles);
+            ui::iconText(ui::Icon::Station, ui::col::kBlue, what.c_str());
+            ui::iconText(ui::Icon::Coins, ui::col::kAccent, std::format("Cost {}", formatMoney(result.cost)).c_str());
             ui::FontScope f(ui::fonts().small);
-            if (plan.earthworks > 0)
-                ui::mutedText(std::format("including levelling the ground: {}", formatMoney(plan.earthworks)).c_str());
+            ui::mutedText(std::format("Takes trains up to {} tiles long", tiles).c_str());
+            Money earthworks = 0;
+            for (const TrackPlan& p : plans) earthworks += p.earthworks;
+            if (earthworks > 0)
+                ui::mutedText(std::format("including levelling the ground: {}", formatMoney(earthworks)).c_str());
             else
                 ui::mutedText("The ground here is already level");
-            ui::mutedText("Click to build, right-click to cancel");
+            ui::mutedText(stationFixedLength_ > 0 ? "Fixed length: point the way the platform should run. Click to build"
+                                                   : "Click to build, right-click to cancel");
         } else {
-            ui::iconText(ui::Icon::Warning, ui::col::kRed, plan.error.c_str(), ui::col::kRed);
+            ui::iconText(ui::Icon::Warning, ui::col::kRed, plan.ok ? result.error.c_str() : plan.error.c_str(), ui::col::kRed);
         }
         ImGui::EndTooltip();
     }
     ImGui::PopStyleVar();
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && plan.ok) {
-        session_->submit(CmdBuildTrackStation{*stationStart_, cursor, stationEditTarget_});
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ok) {
+        session_->submit(command.payload);
         stationStart_.reset();
     }
 }
@@ -607,8 +659,9 @@ void App::handleSignalTool(std::vector<gfx::OverlayQuad>& overlays) {
 // depot, or with "via" a waypoint on the track. False when the pointer is not on such track.
 bool App::pickTrackOrder(std::vector<gfx::OverlayQuad>& overlays) {
     World& w = world();
-    const Vehicle* v = w.vehicles.tryGet(selVehicle_);
-    if (!v || v->info().type != VehicleType::Rail || !hover_.hit || mouseOverUi_) return false;
+    std::vector<Order> orders;
+    VehicleType type = VehicleType::Road;
+    if (!pickTarget(orders, type) || type != VehicleType::Rail || !hover_.hit || mouseOverUi_) return false;
     const TPoint cursor = toTrack(hover_.point);
     const TrackEdgeId id = track::edgeNear(w, cursor, kPlatformHalfWidth + 16);
     if (!id.valid()) return false;
@@ -640,12 +693,8 @@ bool App::pickTrackOrder(std::vector<gfx::OverlayQuad>& overlays) {
     } else {
         return false;
     }
-    std::vector<Order> orders = v->orders;
     orders.push_back(o);
-    Command c;
-    c.company = session_->localCompany();
-    c.payload = CmdSetOrders{selVehicle_, orders};
-    const CommandResult r = testCommand(w, c);
+    const CommandResult r = testPickedOrders(orders);
     for (const TrackEdgeId h : highlight)
         addRibbon(overlays, w.trackEdges[h].samples, halfWidth, r.ok ? gfx::rgba(120, 240, 140, 130) : gfx::rgba(250, 90, 80, 130));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * uiScale_, 7.0f * uiScale_));
@@ -662,7 +711,7 @@ bool App::pickTrackOrder(std::vector<gfx::OverlayQuad>& overlays) {
         ImGui::EndTooltip();
     }
     ImGui::PopStyleVar();
-    if (r.ok && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) session_->submit(CmdSetOrders{selVehicle_, orders});
+    if (r.ok && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) commitPickedOrders(orders);
     return true;
 }
 

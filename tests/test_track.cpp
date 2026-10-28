@@ -2,6 +2,7 @@
 
 #include "core/serialize.hpp"
 #include "sim/commands.hpp"
+#include "sim/passengers.hpp"
 #include "sim/town.hpp"
 #include "sim/track.hpp"
 #include "sim/world.hpp"
@@ -618,4 +619,64 @@ TEST_CASE("track: trains on free track pass through waypoints") {
     Order nowhere = via;
     nowhere.waypoint = {26, 40};
     CHECK(!line.tw.run(CmdSetOrders{id, {stopAt(line.a), nowhere}}).ok);
+}
+
+TEST_CASE("track: stations are built for passengers or freight, with several platforms at once") {
+    TrackWorld tw;
+    // A freight station of three 8-tile platforms, side by side two tiles apart.
+    const CommandResult built = tw.run(CmdBuildTrackStation{freeAnchor(at(8, 10)), at(16, 10), {}, StationUse::Freight, 3});
+    REQUIRE(built.ok);
+    const StationId freight(built.createdId);
+    REQUIRE(tw.w.stations.contains(freight));
+    CHECK(tw.w.stations[freight].use == StationUse::Freight);
+    const auto platforms = track::platformsOf(tw.w, freight);
+    REQUIRE(platforms.size() == 3u);
+    for (const auto& chain : platforms) {
+        i32 length = 0;
+        for (const TrackEdgeId e : chain) length += tw.w.trackEdges[e].length;
+        CHECK(std::abs(length - 8 * kTrackUnits) < 8);
+    }
+    CHECK(!tw.w.stations[freight].takesPassengers());
+    CHECK(tw.w.stations[freight].takesFreight());
+    // Freight stations have no passenger entrances; passengers do not walk to them.
+    CHECK(!tw.run(CmdStationEntrance{freight, {12, 14}, false}).ok);
+    std::vector<StationId> reach;
+    passengers::accessStations(tw.w, {2 * 12 + 1, 2 * 13 + 1}, reach);
+    CHECK(std::ranges::find(reach, freight) == reach.end());
+    // A passenger platform built beside it starts a station of its own rather than joining.
+    const CommandResult beside = tw.run(CmdBuildTrackStation{freeAnchor(at(8, 18)), at(14, 18), {}, StationUse::Passengers, 1});
+    REQUIRE(beside.ok);
+    CHECK(StationId(beside.createdId) != freight);
+    CHECK(tw.w.stations[StationId(beside.createdId)].use == StationUse::Passengers);
+    // Too many platforms, and a station turned over to both.
+    CHECK(!tw.run(CmdBuildTrackStation{freeAnchor(at(30, 10)), at(36, 10), {}, StationUse::Freight, 5}).ok);
+    REQUIRE(tw.run(CmdSetStationUse{freight, StationUse::Both}).ok);
+    CHECK(tw.w.stations[freight].takesPassengers());
+    // The use survives saves; stations saved before it existed take both.
+    tw.w.stations[freight].use = StationUse::Freight;
+    World copy;
+    fromBytes(toBytes(tw.w, kSaveVersion), copy, kSaveVersion);
+    CHECK(copy.stations[freight].use == StationUse::Freight);
+    World older;
+    fromBytes(toBytes(tw.w, 30), older, 30);
+    CHECK(older.stations[freight].use == StationUse::Both);
+}
+
+TEST_CASE("track: a station's platforms run side by side whichever way it points") {
+    TrackWorld tw;
+    // Pointing south-east: every platform runs the same way, two tiles beside the last.
+    const CommandResult built = tw.run(CmdBuildTrackStation{freeAnchor(at(10, 10)), at(16, 16), {}, StationUse::Passengers, 3});
+    REQUIRE(built.ok);
+    const auto platforms = track::platformsOf(tw.w, StationId(built.createdId));
+    REQUIRE(platforms.size() == 3u);
+    std::vector<std::pair<TPoint, TPoint>> ends;
+    for (const auto& chain : platforms)
+        ends.push_back({tw.w.trackEdges[chain.front()].samples.front().p, tw.w.trackEdges[chain.back()].samples.back().p});
+    for (usize k = 1; k < ends.size(); ++k) {
+        const i64 ax = ends[0].second.x - ends[0].first.x, az = ends[0].second.z - ends[0].first.z;
+        const i64 bx = ends[k].second.x - ends[k].first.x, bz = ends[k].second.z - ends[k].first.z;
+        CHECK(std::abs(ax * bz - az * bx) < 8 * kTrackUnits * kTrackUnits / 100); // parallel
+        const double gap = std::hypot(double(ends[k].first.x - ends[0].first.x), double(ends[k].first.z - ends[0].first.z));
+        CHECK(std::abs(gap - 2.0 * kTrackUnits * static_cast<double>(k)) < kTrackUnits / 4.0);
+    }
 }

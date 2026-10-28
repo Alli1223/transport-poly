@@ -1,5 +1,7 @@
-// Lines: vehicles that share a route are grouped into numbered, coloured lines. The lines window
-// lists each line's stops, vehicles, load and profit with a diagram of where its vehicles are, and
+// Lines: vehicles that share a route are grouped into numbered, coloured lines, and lines made in
+// the lines window keep their stops before any vehicle runs them. The lines window lists each
+// line's stops, vehicles, load and profit with a diagram of where its vehicles are; the line
+// editor makes and changes lines, their stops and what freight each stop picks up and drops off;
 // the lines map layer draws every line along the track, road or water it runs on.
 
 #include "client/app.hpp"
@@ -43,6 +45,7 @@ constexpr ImU32 kLinePalette[12] = {
 
 struct Line {
     u32 key = 0;
+    u32 defined = 0; // the line made in the lines window, if it is one
     int number = 0;
     VehicleType type = VehicleType::Road;
     CompanyId owner;
@@ -84,12 +87,25 @@ ui::Icon typeIcon(VehicleType t) {
 
 glm::dvec2 stationXZ(const Station& s) { return {s.sign.x + 0.5, s.sign.y + 0.5}; }
 
+u32 definedKey(u32 line) { return (line * 2654435761u) | 1u; }
+
 std::vector<Line> collectLines(const World& w) {
     std::unordered_map<u32, usize> index;
     std::vector<Line> lines;
+    for (const auto& [id, def] : w.lines) {
+        index.emplace(definedKey(id), lines.size());
+        Line l;
+        l.key = definedKey(id);
+        l.defined = id;
+        l.type = def.type;
+        l.owner = def.owner;
+        for (const Order& o : def.orders)
+            if (o.kind == OrderKind::Station && !o.passThrough()) l.stops.push_back(o.station);
+        lines.push_back(std::move(l));
+    }
     for (const auto [id, v] : w.vehicles) {
         std::vector<StationId> stops = stopsOf(v);
-        if (stops.size() < 2) continue;
+        if (stops.size() < 2 && !w.lines.contains(v.orderGroup)) continue;
         const auto [it, fresh] = index.try_emplace(lineKey(v), lines.size());
         if (fresh) {
             Line l;
@@ -127,9 +143,24 @@ std::vector<Line> collectLines(const World& w) {
                     far = st;
                 }
             }
-        l.name = first && far ? std::format("{} - {}", first->name, far->name) : std::string("(stops removed)");
+        l.name = first && far ? std::format("{} - {}", first->name, far->name) : std::string("(no stops yet)");
+        if (const auto def = w.lines.find(l.defined); l.defined && def != w.lines.end() && !def->second.name.empty())
+            l.name = def->second.name;
     }
     return lines;
+}
+
+// The name of a stop in an order list.
+std::string orderName(const World& w, const Order& o) {
+    const Station* st = o.kind == OrderKind::Station ? w.stations.tryGet(o.station) : nullptr;
+    std::string name = o.kind == OrderKind::Station ? (st ? st->name : std::string("(removed)"))
+                     : o.kind == OrderKind::Via   ? std::format("Via {}, {}", o.waypoint.x, o.waypoint.y)
+                                                  : std::string("Service at depot");
+    if (st && (o.flags & kOrderPlatform)) {
+        const int number = track::platformNumber(w, o.station, o.platform);
+        name += number > 0 ? std::format(" - platform {}", number) : std::string(" - platform removed");
+    }
+    return name;
 }
 
 constexpr double kRouteLift = 0.07;
@@ -260,6 +291,276 @@ void App::drawLineRoutes(std::vector<gfx::OverlayQuad>& overlays, bool all) {
     }
 }
 
+bool App::cargoChoice(const char* id, const char* label, u32& mask, bool enabled) {
+    std::string summary;
+    int kinds = 0;
+    for (usize t = 0; t < kCargoTypes; ++t)
+        if (mask >> t & 1) {
+            if (++kinds <= 2) summary += (summary.empty() ? "" : ", ") + std::string(cargoName(static_cast<CargoType>(t)));
+        }
+    if (!enabled) summary = "nothing";
+    else if (mask == 0) summary = "all goods";
+    else if (kinds > 2) summary = std::format("{} kinds of goods", kinds);
+    bool changed = false;
+    ImGui::PushID(id);
+    ImGui::BeginDisabled(!enabled);
+    if (ImGui::Button(std::format("{}: {}", label, summary).c_str())) ImGui::OpenPopup("##cargo");
+    ImGui::EndDisabled();
+    if (ImGui::BeginPopup("##cargo")) {
+        ui::mutedText(std::format("{} at this stop", label).c_str());
+        bool all = mask == 0;
+        if (ImGui::Checkbox("Every kind of goods", &all)) {
+            mask = all ? 0 : kAllCargo;
+            changed = true;
+        }
+        ImGui::Separator();
+        for (usize t = 0; t < kCargoTypes; ++t) {
+            bool on = mask == 0 || (mask >> t & 1);
+            if (ImGui::Checkbox(cargoName(static_cast<CargoType>(t)).data(), &on)) {
+                const u32 bits = (mask ? mask : kAllCargo) & ~(1u << t);
+                mask = on ? (bits | (1u << t)) : bits;
+                // Every kind (or none at all) is the same as taking anything.
+                if (mask == kAllCargo || mask == 0) mask = 0;
+                changed = true;
+            }
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
+    return changed;
+}
+
+bool App::pickTarget(std::vector<Order>& orders, VehicleType& type) {
+    if (pickForLine_ && lineEditor_) {
+        type = lineEditor_->type;
+        if (lineEditor_->line == 0) {
+            orders = lineEditor_->orders;
+            return lineEditor_->awaiting == 0;
+        }
+        const auto it = world().lines.find(lineEditor_->line);
+        if (it == world().lines.end()) return false;
+        orders = it->second.orders;
+        return true;
+    }
+    const Vehicle* v = world().vehicles.tryGet(selVehicle_);
+    if (!v) return false;
+    orders = v->orders;
+    type = v->info().type;
+    return true;
+}
+
+CommandResult App::testPickedOrders(const std::vector<Order>& orders) {
+    Command c;
+    c.company = session_->localCompany();
+    if (pickForLine_ && lineEditor_)
+        c.payload = lineEditor_->line ? CommandPayload{CmdEditLine{lineEditor_->line, lineEditor_->name, orders}}
+                                      : CommandPayload{CmdCreateLine{lineEditor_->type, lineEditor_->name, orders, {}}};
+    else
+        c.payload = CmdSetOrders{selVehicle_, orders};
+    return testCommand(world(), c);
+}
+
+void App::commitPickedOrders(const std::vector<Order>& orders) {
+    if (pickForLine_ && lineEditor_) {
+        if (lineEditor_->line) session_->submit(CmdEditLine{lineEditor_->line, lineEditor_->name, orders});
+        else lineEditor_->orders = orders;
+        return;
+    }
+    session_->submit(CmdSetOrders{selVehicle_, orders});
+}
+
+void App::drawLineEditor() {
+    if (!lineEditor_) {
+        if (pickForLine_ && tool_ == Tool::PickOrder) tool_ = Tool::None;
+        pickForLine_ = false;
+        return;
+    }
+    World& w = world();
+    const float s = uiScale_;
+    const CompanyId company = session_->localCompany();
+    LineEditor& ed = *lineEditor_;
+    // A line asked for: once it exists, carry on editing it.
+    if (ed.awaiting || ed.lead.valid()) {
+        u32 made = 0;
+        if (const Vehicle* lead = w.vehicles.tryGet(ed.lead); lead && w.lines.contains(lead->orderGroup)) made = lead->orderGroup;
+        for (const auto& [id, line] : w.lines)
+            if (ed.awaiting && id > ed.awaiting && line.owner == company && !made) made = id;
+        if (made) {
+            ed = LineEditor{};
+            ed.line = made;
+            ed.type = w.lines[made].type;
+            std::snprintf(ed.name, sizeof(ed.name), "%s", w.lines[made].name.c_str());
+            selLine_ = definedKey(made);
+        }
+    }
+    const auto def = w.lines.find(ed.line);
+    if (ed.line && def == w.lines.end()) {
+        lineEditor_.reset();
+        return;
+    }
+    std::vector<Order> orders = ed.line ? def->second.orders : ed.orders;
+    bool open = true;
+    ui::PanelSpec spec;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    spec.pos = ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f + 310.0f * s, vp->WorkPos.y + 80.0f * s);
+    spec.width = 440.0f;
+    spec.accent = ui::col::kTeal;
+    const std::string subtitle = ed.line ? std::string("Changes apply to every vehicle on the line") : std::string("Choose its stops, then create it");
+    spec.subtitle = subtitle.c_str();
+    if (ui::beginPanel("###lineEditor", ed.line ? "Edit line" : "New line", ui::Icon::Link, &open, spec)) {
+        if (!ed.line) {
+            ui::fieldLabel("Run by");
+            static constexpr ui::Segment kTypes[] = {{"Buses", ui::Icon::Bus, "Buses and lorries"},
+                                                     {"Trams", ui::Icon::Tram, "Trams"},
+                                                     {"Trains", ui::Icon::Train, "Trains"},
+                                                     {"Ships", ui::Icon::Ship, "Ships"}};
+            static constexpr VehicleType kTypeOf[] = {VehicleType::Road, VehicleType::Tram, VehicleType::Rail, VehicleType::Ship};
+            int current = 0;
+            for (int i = 0; i < 4; ++i)
+                if (kTypeOf[i] == ed.type) current = i;
+            if (const int clicked = ui::segmented("##lineType", kTypes, current); clicked >= 0 && kTypeOf[clicked] != ed.type) {
+                ed.type = kTypeOf[clicked];
+                ed.orders.clear(); // stops differ between kinds of vehicle
+                orders.clear();
+            }
+        }
+        ui::fieldLabel("Name");
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputTextWithHint("##lineName", "Named after its stops", ed.name, sizeof(ed.name));
+        if (ed.line && ImGui::IsItemDeactivatedAfterEdit()) session_->submit(CmdEditLine{ed.line, ed.name, orders});
+
+        ui::sectionHeader("Stops");
+        bool changed = false;
+        int remove = -1, moveUp = -1;
+        for (usize i = 0; i < orders.size(); ++i) {
+            Order& o = orders[i];
+            ImGui::PushID(static_cast<int>(i));
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(std::format("{}.  {}", i + 1, orderName(w, o)).c_str());
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - ImGui::GetFrameHeight() * 2.0f - 6.0f * s);
+            if (i > 0) {
+                if (ui::miniButton("##up", ui::Icon::ArrowUp, ui::col::kTextMuted, "Move up")) moveUp = static_cast<int>(i);
+            } else {
+                ImGui::Dummy(ImVec2(ImGui::GetFrameHeight() * 0.85f, 1));
+            }
+            ImGui::SameLine(0, 2.0f * s);
+            if (ui::miniButton("##rm", ui::Icon::Trash, ui::col::kRed, "Remove")) remove = static_cast<int>(i);
+            if (o.kind == OrderKind::Station) {
+                int mode = (o.flags & kOrderNonStop) ? 4 : (o.flags & kOrderUnloadOnly) ? 2 : (o.flags & kOrderNoLoading) ? 3
+                         : (o.flags & kOrderFullLoad) ? 1 : 0;
+                ImGui::SetNextItemWidth(-1.0f);
+                if (ImGui::Combo("##mode", &mode, "Stop normally\0Full load\0Unload all, no loading\0No loading\0Pass through\0")) {
+                    constexpr u8 flags[] = {0, kOrderFullLoad, kOrderUnloadOnly, kOrderNoLoading, kOrderNonStop};
+                    o.flags = static_cast<u8>(flags[mode] | (o.flags & (kOrderPlatform | kOrderTimingPoint)));
+                    if (mode == 4) o.flags = static_cast<u8>(o.flags & ~kOrderTimingPoint);
+                    changed = true;
+                }
+                if (const auto platforms = ed.type == VehicleType::Rail ? track::platformsOf(w, o.station)
+                                                                         : std::vector<std::vector<TrackEdgeId>>{};
+                    platforms.size() > 1 || (o.flags & kOrderPlatform)) {
+                    std::string items = "Any free platform";
+                    items.push_back('\0');
+                    for (usize k = 0; k < platforms.size(); ++k) {
+                        items += std::format("Platform {}", k + 1);
+                        items.push_back('\0');
+                    }
+                    int chosen = (o.flags & kOrderPlatform) ? track::platformNumber(w, o.station, o.platform) : 0;
+                    ImGui::SetNextItemWidth(-1.0f);
+                    if (ImGui::Combo("##platform", &chosen, items.c_str())) {
+                        if (chosen == 0) {
+                            o.flags = static_cast<u8>(o.flags & ~kOrderPlatform);
+                            o.platform = {};
+                        } else {
+                            o.flags = static_cast<u8>(o.flags | kOrderPlatform);
+                            o.platform = track::platformPoint(w, platforms[static_cast<usize>(chosen - 1)]);
+                        }
+                        changed = true;
+                    }
+                }
+                if (!o.passThrough()) {
+                    changed |= cargoChoice("##load", "Picks up", o.loadCargo, !(o.flags & (kOrderNoLoading | kOrderUnloadOnly)));
+                    ImGui::SameLine();
+                    changed |= cargoChoice("##unload", "Drops off", o.unloadCargo, true);
+                }
+            }
+            ImGui::Dummy(ImVec2(0, 3.0f * s));
+            ImGui::PopID();
+        }
+        if (orders.empty()) ui::emptyState(ui::Icon::Station, "No stops yet - add them on the map");
+        if (remove >= 0) {
+            orders.erase(orders.begin() + remove);
+            changed = true;
+        }
+        if (moveUp > 0) {
+            std::swap(orders[static_cast<usize>(moveUp)], orders[static_cast<usize>(moveUp - 1)]);
+            changed = true;
+        }
+        if (changed) {
+            if (ed.line) session_->submit(CmdEditLine{ed.line, ed.name, orders});
+            else ed.orders = orders;
+        }
+        {
+            const bool picking = tool_ == Tool::PickOrder && pickForLine_;
+            ImGui::Checkbox("Via waypoint (road / track / water tile)", &pickViaOrder_);
+            if (ui::button(picking ? "Click a platform, station or depot - Esc when done" : "Add stops on the map",
+                           picking ? ui::Icon::Target : ui::Icon::Plus, picking ? ui::Btn::Primary : ui::Btn::Secondary,
+                           ImVec2(-1.0f, 0.0f))) {
+                tool_ = picking ? Tool::None : Tool::PickOrder;
+                pickForLine_ = !picking;
+            }
+        }
+        if (!ed.line) {
+            const usize stops = static_cast<usize>(std::ranges::count_if(orders, [](const Order& o) {
+                return o.kind == OrderKind::Station && !o.passThrough();
+            }));
+            Command test;
+            test.company = company;
+            test.payload = CmdCreateLine{ed.type, ed.name, orders, {}};
+            const CommandResult r = testCommand(w, test);
+            ImGui::BeginDisabled(stops < 2 || !r.ok || ed.awaiting);
+            if (ui::button(ed.awaiting ? "Creating the line..." : "Create line", ui::Icon::Check, ui::Btn::Primary, ImVec2(-1.0f, 0.0f))) {
+                u32 newest = 0;
+                for (const auto& [id, line] : w.lines) newest = std::max(newest, id);
+                ed.awaiting = std::max(newest, w.nextSerial);
+                session_->submit(CmdCreateLine{ed.type, ed.name, orders, {}});
+                if (pickForLine_ && tool_ == Tool::PickOrder) tool_ = Tool::None;
+            }
+            ImGui::EndDisabled();
+            if (stops < 2) ui::mutedText("A line needs at least two stops.");
+            else if (!r.ok) ui::iconText(ui::Icon::Warning, ui::col::kRed, r.error.c_str(), ui::col::kRed);
+        } else {
+            // Vehicles: those running the line, and others of the kind that could.
+            ui::sectionHeader("Vehicles");
+            int running = 0;
+            for (const auto [id, v] : w.vehicles) {
+                if (v.owner != company || v.info().type != ed.type) continue;
+                const bool on = v.orderGroup == ed.line;
+                running += on;
+                ImGui::PushID(static_cast<int>(id.value));
+                ImGui::AlignTextToFramePadding();
+                if (ImGui::Selectable(std::format("{}  {}", vehicleName(v), on ? "runs this line" : vehicleStatus(v)).c_str(),
+                                      selVehicle_ == id, 0, ImVec2(ImGui::GetContentRegionAvail().x - 90.0f * s, 0)))
+                    selVehicle_ = id;
+                ImGui::SameLine();
+                if (on && ui::button("Take off", ui::Icon::Minus, ui::Btn::Ghost, ImVec2(86.0f * s, 0)))
+                    session_->submit(CmdUnshareOrders{id});
+                else if (!on && ui::button("Add", ui::Icon::Plus, ui::Btn::Secondary, ImVec2(86.0f * s, 0)))
+                    session_->submit(CmdAssignLine{id, ed.line});
+                ImGui::PopID();
+            }
+            if (running == 0) ui::mutedText("No vehicle runs this line yet: add one, or buy one in a depot and add it here.");
+            ImGui::Dummy(ImVec2(0, 4.0f * s));
+            if (ui::button("Delete line", ui::Icon::Trash, ui::Btn::Danger, ImVec2(-1.0f, 0.0f))) {
+                session_->submit(CmdEditLine{ed.line, {}, {}, true});
+                open = false;
+            }
+            ui::mutedText("Its vehicles keep their orders.");
+        }
+    }
+    ui::endPanel();
+    if (!open) lineEditor_.reset();
+}
+
 void App::drawLinesWindow() {
     if (!showLines_) return;
     World& w = world();
@@ -275,11 +576,16 @@ void App::drawLinesWindow() {
     spec.accent = ui::col::kTeal;
     spec.subtitle = sub.c_str();
     if (ui::beginPanel("###linesPanel", "Lines", ui::Icon::Link, &showLines_, spec)) {
+        if (session_->localCompany().valid() &&
+            ui::button("New line", ui::Icon::Plus, ui::Btn::Primary, ImVec2(-1.0f, 0.0f))) {
+            lineEditor_ = LineEditor{};
+            if (const Line* l = lines.empty() ? nullptr : &lines.front()) lineEditor_->type = l->type;
+        }
         if (lines.empty()) {
             ui::emptyState(ui::Icon::Link, "No lines yet");
             ui::FontScope f(ui::fonts().small);
-            ui::mutedText("Give a vehicle orders with two or more stops; vehicles");
-            ui::mutedText("sharing orders or calling at the same stops form a line.");
+            ui::mutedText("Make one with New line, or give a vehicle orders with two or more stops;");
+            ui::mutedText("vehicles sharing orders or calling at the same stops form a line.");
         } else {
             if (std::ranges::none_of(lines, [&](const Line& l) { return l.key == selLine_; })) selLine_ = lines.front().key;
             ImGui::BeginChild("##lineList", ImVec2(0, std::min(6.0f, static_cast<float>(lines.size())) * 30.0f * s + 8.0f * s),
@@ -305,6 +611,25 @@ void App::drawLinesWindow() {
 
             const Line& l = *std::ranges::find_if(lines, [&](const Line& x) { return x.key == selLine_; });
             ui::sectionHeader(std::format("Line {}: {}", l.number, l.name).c_str());
+            if (l.owner == session_->localCompany()) {
+                if (l.defined) {
+                    if (ui::button("Edit line", ui::Icon::Wrench, ui::Btn::Secondary, ImVec2(-1.0f, 0.0f))) {
+                        lineEditor_ = LineEditor{};
+                        lineEditor_->line = l.defined;
+                        lineEditor_->type = l.type;
+                        std::snprintf(lineEditor_->name, sizeof(lineEditor_->name), "%s", w.lines[l.defined].name.c_str());
+                    }
+                } else if (const Vehicle* lead = w.vehicles.tryGet(l.vehicles.front())) {
+                    // A line formed by vehicles alone becomes one of the lines window's own.
+                    if (ui::button("Edit line", ui::Icon::Wrench, ui::Btn::Secondary, ImVec2(-1.0f, 0.0f))) {
+                        session_->submit(CmdCreateLine{l.type, {}, lead->orders, l.vehicles});
+                        lineEditor_ = LineEditor{};
+                        lineEditor_->type = l.type;
+                        lineEditor_->lead = l.vehicles.front();
+                        lineEditor_->awaiting = ~0u;
+                    }
+                }
+            }
             const float cw = ui::columnWidth(3);
             const std::string vehicles = std::format("{}", l.vehicles.size());
             const std::string carried = std::format("{}", l.passengersThisYear);
@@ -336,7 +661,7 @@ void App::drawLinesWindow() {
 
             // Timetable: a timing point holds the line's vehicles so they leave evenly spaced.
             ui::sectionHeader("Timetable");
-            if (const Vehicle* lead = w.vehicles.tryGet(l.vehicles.front())) {
+            if (const Vehicle* lead = l.vehicles.empty() ? nullptr : w.vehicles.tryGet(l.vehicles.front())) {
                 const bool mine = l.owner == session_->localCompany();
                 const auto timing = std::ranges::find_if(lead->orders, [](const Order& o) { return o.flags & kOrderTimingPoint; });
                 const bool together = std::ranges::all_of(l.vehicles, [&](VehicleId id) {
@@ -395,6 +720,8 @@ void App::drawLinesWindow() {
             // The line diagram: its stops in order, the way back drawn as the return to the first,
             // and each vehicle placed between the stop it left and the one it is heading for.
             ui::sectionHeader("Stops and vehicles");
+            if (l.stops.empty()) ui::mutedText("No stops yet: edit the line to add them.");
+            if (!l.stops.empty()) {
             const ImVec2 origin = ImGui::GetCursorScreenPos();
             const float width = ImGui::GetContentRegionAvail().x;
             const float y = origin.y + 26.0f * s;
@@ -449,6 +776,7 @@ void App::drawLinesWindow() {
                 }
             }
             ImGui::Dummy(ImVec2(width, 56.0f * s));
+            }
 
             ui::sectionHeader("Stops");
             for (const StationId sid : l.stops) {

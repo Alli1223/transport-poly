@@ -84,6 +84,7 @@ CommandResult handle(World& w, const Command& c, const CmdStationEntrance& x, bo
     }
     auto& station = w.stations[x.station];
     if (!track::hasPlatform(w, x.station)) return CommandResult::failure("A rail platform is required");
+    if (!station.takesPassengers()) return CommandResult::failure("Freight stations have no passenger entrance");
     const auto surfaceRoad = [&](TilePos p) {
         const auto* tile = w.map.tile(p);
         return tile && (tile->type == TileType::Road || tile->type == TileType::Station) &&
@@ -193,6 +194,22 @@ CommandResult handle(World& w, const Command& c, const CmdStationEntrance& x, bo
         passengers::markDirty(w);
     }
     return CommandResult::success(cost);
+}
+CommandResult handle(World& w, const Command& c, const CmdSetStationUse& x, bool exec) {
+    if (!ours(w, x.station, c.company)) return CommandResult::failure("Not your station");
+    Station& station = w.stations[x.station];
+    if (!(station.facilities & kFacilityRail)) return CommandResult::failure("Only rail stations have a use");
+    if (station.use == x.use) return CommandResult::failure("The station is used for that already");
+    if (exec) {
+        station.use = x.use;
+        // Passengers find other ways to travel and freight left waiting is lost.
+        if (!station.takesFreight()) station.cargoWaiting.clear();
+        if (!station.takesPassengers()) stations::removeEntrances(w, x.station);
+        stations::rebuildIndex(w);
+        passengers::markDirty(w);
+        ++w.trackRevision;
+    }
+    return CommandResult::success(0);
 }
 CommandResult handle(World& w, const Command& c, const CmdAddPlatform& x, bool exec) {
     if (!ours(w, x.station, c.company)) return CommandResult::failure("Not your station");
