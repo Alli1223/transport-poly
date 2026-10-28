@@ -395,6 +395,8 @@ private:
     std::optional<std::string> gotoIndustry_; // automation: look at the nearest industry (whose name contains this)
     bool demoIndustries_ = false;            // automation: found one of every industry near the camera
     bool demoFreight_ = false;               // automation: build a freight station at the camera
+    // Command line choices (terrain, competitors, ground detail), applied over the saved preferences.
+    std::vector<std::function<void(ClientPreferences&)>> preferenceArgs_;
     double gotoTownDistance_ = 0.0; // > 0: jump to the biggest town at this zoom (automation)
     bool demoNetwork_ = false;      // automation: build a demo bus line in the biggest town
     bool demoRail_ = false;         // automation: build a demo railway next to the biggest town

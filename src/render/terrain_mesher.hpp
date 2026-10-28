@@ -29,10 +29,22 @@ struct TreePlacement {
     bool snowy;
 };
 
+// Grass, flowers and other small plants and stones on open ground, drawn near the camera.
+enum class Cover : u8 { Grass, Flowers, Fern, Reeds, Heather, Pebbles };
+struct CoverPlacement {
+    glm::vec3 pos; // chunk local
+    float yaw;
+    float scale;
+    Cover kind;
+    u8 variant;
+    u32 tint; // the ground's colour where it grows, for its blades
+};
+
 struct ChunkGeometry {
     std::vector<Vertex> ground;
     std::vector<Vertex> water;
     std::vector<TreePlacement> trees;
+    std::vector<CoverPlacement> cover;
     float minY = 0.0f;
     float maxY = 0.0f;
 };
@@ -45,10 +57,11 @@ using TileLookup = std::function<const Tile*(TilePos)>;
 
 // lod 0 = one quad per tile; lod n merges 2^n x 2^n tiles per quad (no trees) for distant chunks.
 // `world` (optional) provides building information for ground colours under buildings, and the
-// tiles around the chunk unless `tilesOutside` does.
+// tiles around the chunk unless `tilesOutside` does. `cover` (lod 0 only) scatters ground cover
+// on open ground: 1 as much as the land grows, less for fewer plants, 0 for none.
 ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen, const WaterLookup& waterOutside,
                                  int lod = 0, const World* world = nullptr, const std::function<bool(u32)>& residential = {},
-                                 const TileLookup& tilesOutside = {});
+                                 const TileLookup& tilesOutside = {}, float cover = 0.0f);
 
 // Triangulation shared by the mesher and picking: true if the tile is split along NE-SW.
 bool tileSplitNESW(const TileCorners& c);

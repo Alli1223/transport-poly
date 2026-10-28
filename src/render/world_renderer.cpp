@@ -58,6 +58,24 @@ bool tileIsWater(const Map& map, TilePos t) {
            g.rawHeight(t.x, t.y + 1) < 0;
 }
 
+ModelId coverModel(const CoverPlacement& c) {
+    switch (c.kind) {
+    case Cover::Grass: return static_cast<ModelId>(models::kGrass0 + c.variant % 3);
+    case Cover::Flowers: return static_cast<ModelId>(models::kFlowers0 + c.variant % 4);
+    case Cover::Fern: return static_cast<ModelId>(models::kFern0 + c.variant % 2);
+    case Cover::Reeds: return static_cast<ModelId>(models::kReeds0 + c.variant % 2);
+    case Cover::Heather: return static_cast<ModelId>(models::kHeather0 + c.variant % 2);
+    case Cover::Pebbles: return static_cast<ModelId>(models::kPebbles0 + c.variant % 2);
+    }
+    return models::kGrass0;
+}
+
+// Ground cover grows on chunks this close to the camera's target (tiles), as densely as the
+// setting asks; it fades out between these distances from the eye.
+constexpr double coverRadius(int detail) { return detail >= 2 ? 56.0 : 40.0; }
+constexpr float coverDensity(int detail) { return detail >= 2 ? 1.0f : detail == 1 ? 0.5f : 0.0f; }
+constexpr float kCoverFadeStart = 26.0f, kCoverFadeEnd = 50.0f;
+
 ModelId treeModel(const TreePlacement& t) {
     switch (t.type) {
     case TreeType::Palm: return static_cast<ModelId>(models::kTreePalm0 + t.variant % 2);
@@ -368,7 +386,8 @@ void WorldRenderer::ensureShadowTarget() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
-void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, ChunkMesh& mesh, const ChunkGeometry* prepared) {
+void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, ChunkMesh& mesh, const ChunkGeometry* prepared,
+                                   float cover) {
     const Map& map = world.map;
     const Chunk* active = map.chunk(pos);
     const Chunk* source = active;
@@ -379,7 +398,7 @@ void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, Ch
     }
     ChunkGeometry generatedGeo;
     if (!prepared) generatedGeo = buildChunkGeometry(
-        *source, map.generator(), [&](TilePos t) { return tileIsWater(map, t); }, lod, &world);
+        *source, map.generator(), [&](TilePos t) { return tileIsWater(map, t); }, lod, &world, {}, {}, cover);
     const ChunkGeometry& geo = prepared ? *prepared : generatedGeo;
     mesh.pos = pos;
     mesh.lod = lod;
@@ -392,6 +411,11 @@ void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, Ch
     items.reserve(geo.trees.size());
     for (const TreePlacement& t : geo.trees) items.emplace_back(treeModel(t), makeInstance(t.pos, t.yaw, t.scale));
     mesh.trees.upload(items);
+    items.clear();
+    items.reserve(geo.cover.size());
+    for (const CoverPlacement& c : geo.cover) items.emplace_back(coverModel(c), makeInstance(c.pos, c.yaw, c.scale, c.tint));
+    mesh.cover.upload(items);
+    mesh.coverDensity = cover;
 
     items.clear();
     if (active) {
@@ -514,6 +538,16 @@ void WorldRenderer::drawChunks(const DrawLists& lists, const glm::dvec3& origin,
         c->buildings.draw(models_);
         if (!shadowPass) stats_.buildingsDrawn += c->buildings.total;
     }
+    // Ground cover casts no shadows of its own.
+    if (shadowPass || lists.cover.empty()) return;
+    ms.set("uGroundCover", glm::vec2(kCoverFadeStart, kCoverFadeEnd));
+    glDisable(GL_CULL_FACE); // its blades and petals are single faces, seen from both sides
+    for (const ChunkMesh* c : lists.cover) {
+        ms.set("uOffset", offsetOf(c));
+        c->cover.draw(models_);
+        stats_.coverDrawn += c->cover.total;
+    }
+    glEnable(GL_CULL_FACE);
 }
 
 void WorldRenderer::collectVehicles(const World& world, const glm::dvec3& origin, const glm::dvec3& focus,
@@ -974,6 +1008,12 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
     const double shadowRadius = std::min(viewRadius, cam.distance * 1.1 + 24.0);
     const auto lodFor = [&](double d) { return d < 150.0 * settings.detailScale ? 0 : (d < 300.0 * settings.detailScale ? 1 : 2); };
     const double treeRadius = std::min<double>(viewRadius, settings.treeDistance);
+    // How densely a chunk this far away (at this level of detail) grows ground cover, with some
+    // slack before a chunk that has it loses it.
+    const auto coverFor = [&](double dist, int lod, const ChunkMesh* built) {
+        const double reach = coverRadius(settings.groundDetail) + (built && built->coverDensity > 0.0f ? 16.0 : 0.0);
+        return lod == 0 && dist < reach ? coverDensity(settings.groundDetail) : 0.0f;
+    };
     const double buildingRadius = std::min(viewRadius, 420.0);
     const Frustum frustum = extractFrustum(viewProj);
     struct Candidate {
@@ -1011,7 +1051,10 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
         int lod = lodFor(dist);
         if (cached != meshes_.end() && cached->second.lod != lod &&
             (lodFor(dist + 16) == cached->second.lod || lodFor(dist - 16) == cached->second.lod)) lod = cached->second.lod;
-        if (cached != meshes_.end() && cached->second.revision == wanted && cached->second.lod == lod) continue;
+        const float cover = coverFor(dist, lod, cached != meshes_.end() ? &cached->second : nullptr);
+        if (cached != meshes_.end() && cached->second.revision == wanted && cached->second.lod == lod &&
+            cached->second.coverDensity == cover)
+            continue;
         const auto o = chunkOrigin(cand.pos);
         const float minY = cached != meshes_.end() ? cached->second.minY : -4.0f;
         const float maxY = cached != meshes_.end() ? cached->second.maxY : 30.0f;
@@ -1038,13 +1081,13 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
         }
         jobs.emplace(cand.pos.key(), std::async(std::launch::async,
             [snapshot = std::move(snapshot), residential = std::move(residential), border = std::move(border),
-             borderTiles = std::move(borderTiles), gen = map.generator(), pos = cand.pos, lod]() mutable {
+             borderTiles = std::move(borderTiles), gen = map.generator(), pos = cand.pos, lod, cover]() mutable {
                 if (!snapshot) { snapshot.emplace(); gen.generateChunk(pos, *snapshot); }
                 return buildChunkGeometry(*snapshot, gen, [&](TilePos t) { return border.at(t); }, lod, nullptr,
                     [&](u32 id) { return residential.contains(id); }, [&](TilePos t) -> const Tile* {
                         const auto it = borderTiles.find(t);
                         return it == borderTiles.end() ? nullptr : &it->second;
-                    });
+                    }, cover);
             }));
     }
     DrawLists main, shadow;
@@ -1067,13 +1110,14 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
         if (it != meshes_.end() && it->second.lod != lod &&
             (lodFor(dist + 16.0) == it->second.lod || lodFor(dist - 16.0) == it->second.lod))
             lod = it->second.lod;
-        if ((it == meshes_.end() || it->second.revision != wanted || it->second.lod != lod) &&
+        const float cover = coverFor(dist, lod, it != meshes_.end() ? &it->second : nullptr);
+        if ((it == meshes_.end() || it->second.revision != wanted || it->second.lod != lod || it->second.coverDensity != cover) &&
             jobs.contains(cand.pos.key())) {
             ChunkMesh& mesh = meshes_[cand.pos.key()];
             const auto waitStart = std::chrono::steady_clock::now();
             const auto geometry = jobs.at(cand.pos.key()).get();
             stats_.meshWaitMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-waitStart).count();
-            buildChunkMesh(world, cand.pos, lod, mesh, &geometry);
+            buildChunkMesh(world, cand.pos, lod, mesh, &geometry, cover);
             ++builds;
             it = meshes_.find(cand.pos.key());
         }
@@ -1086,6 +1130,13 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
             main.terrain.push_back(&mesh);
             if (trees) main.trees.push_back(&mesh);
             if (buildings) main.buildings.push_back(&mesh);
+            // Ground cover only where some of it is still standing: close enough to the eye.
+            if (mesh.cover.total > 0) {
+                const double ex = std::clamp(cam.eye().x, static_cast<double>(o.x), static_cast<double>(o.x + kChunkSize)) - cam.eye().x;
+                const double ez = std::clamp(cam.eye().z, static_cast<double>(o.y), static_cast<double>(o.y + kChunkSize)) - cam.eye().z;
+                const double ey = std::max(0.0, cam.eye().y - mesh.maxY);
+                if (ex * ex + ez * ez + ey * ey < kCoverFadeEnd * kCoverFadeEnd) main.cover.push_back(&mesh);
+            }
         }
         if (caster) {
             shadow.terrain.push_back(&mesh);

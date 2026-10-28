@@ -164,8 +164,14 @@ The land rolls in smooth hills and mountains. Grass, rock, sand and snow shade
 gradually into one another, the snow line wanders up and down the mountains with
 scree gathering below it, and woods grow in stands of oak, birch and pine that mix
 where they meet, fringed with bushes, with willows by the water and copses dotted
-across the open country. The landscaping toolbar's brush raises, lowers, levels
-and smooths the land with a soft edge; pick the brush size in the tool's panel.
+across the open country. Zoom in and the ground comes alive with what grows there:
+meadows thick with grass and drifts of buttercups, daisies, poppies and violets,
+ferns under the trees, reeds along the shores, heather on the heath and the tundra,
+dry tufts and stones in the steppe and the desert, and bare snow on the peaks. It
+bends in the wind and fades as the camera pulls back; **Ground detail** in the
+graphics settings sets how much grows, or turns it off. The landscaping toolbar's
+brush raises, lowers, levels and smooths the land with a soft edge; pick the brush
+size in the tool's panel.
 
 A new game's **Terrain** section shows a picture of the land around the start
 and chooses what kind it is: **Continents**, **Mainland** (land almost
@@ -312,7 +318,7 @@ are liquidated, stops and depots close, and remaining routes become public.
 Returning to a non-negative balance resets the debt-quarter counter.
 
 Open **Settings > Graphics** for fullscreen and monitor selection, VSync, frame
-rate limits, anti-aliasing, brightness, shadow resolution, terrain detail, view and
+rate limits, anti-aliasing, brightness, shadow resolution, terrain and ground detail, view and
 tree distances, clouds, mist, and individual visual effects. **Alt+Enter** switches
 fullscreen on or off. Low, Balanced and High presets provide starting points;
 individual controls can then be adjusted. Anti-aliasing takes effect after saving

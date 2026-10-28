@@ -739,6 +739,7 @@ void App::applyPreferences() {
     renderer_.settings.maxViewDistance = static_cast<float>(preferences_.viewDistance);
     renderer_.settings.shadowMapSize = 512 << preferences_.shadowQuality;
     renderer_.settings.treeDistance = static_cast<float>(preferences_.treeDistance);
+    renderer_.settings.groundDetail = preferences_.groundDetail;
     constexpr float detail[] = {0.65f, 1.0f, 1.5f};
     renderer_.settings.detailScale = detail[preferences_.detailQuality];
     renderer_.settings.brightness = preferences_.brightnessPercent / 100.0f;
@@ -804,6 +805,8 @@ void App::drawSettings() {
                     changed |= ImGui::Combo("Terrain detail", &preferences_.detailQuality, "Low\0" "Balanced\0" "High\0");
                     changed |= ImGui::SliderInt("View distance", &preferences_.viewDistance, 120, 900, "%d tiles");
                     changed |= ImGui::SliderInt("Tree draw distance", &preferences_.treeDistance, 60, 500, "%d tiles");
+                    changed |= ImGui::Combo("Ground detail", &preferences_.groundDetail, "Off\0" "Some\0" "Lush\0");
+                    ui::itemTooltip({"Ground detail", "Grass, flowers, ferns, reeds and stones on the ground when zoomed in"});
                     ui::sectionHeader("Atmosphere");
                     changed |= ImGui::Checkbox("Weather effects", &preferences_.weather);
                     ImGui::BeginDisabled(!preferences_.weather);

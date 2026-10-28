@@ -68,7 +68,15 @@ inline constexpr ModelId kTreeBirch0 = kEffectBase + 42;     // three variants
 inline constexpr ModelId kTreePine0 = kEffectBase + 45;      // two variants each
 inline constexpr ModelId kTreeWillow0 = kEffectBase + 47;
 inline constexpr ModelId kBush0 = kEffectBase + 49;
-inline constexpr ModelId kCount = kEffectBase + 51;
+// Ground cover near the camera. Grass blades, stems and fronds take the instance colour (the
+// ground's); flower heads, reeds, heather and stones keep their own.
+inline constexpr ModelId kGrass0 = kEffectBase + 51;   // three tufts
+inline constexpr ModelId kFlowers0 = kEffectBase + 54; // white, yellow, violet and red
+inline constexpr ModelId kFern0 = kEffectBase + 58;    // two each from here
+inline constexpr ModelId kReeds0 = kEffectBase + 60;
+inline constexpr ModelId kHeather0 = kEffectBase + 62;
+inline constexpr ModelId kPebbles0 = kEffectBase + 64;
+inline constexpr ModelId kCount = kEffectBase + 66;
 
 constexpr ModelId building(u16 type, u8 variant) {
     return static_cast<ModelId>(kBuildingBase + type * kBuildingVariants + variant % kBuildingVariants);

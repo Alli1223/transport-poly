@@ -106,6 +106,76 @@ float softNoise(u64 seed, u32 salt, i32 x, i32 y, i32 cell) {
 // Open ground: drawn in its own colour, blended with its neighbours' at the corners.
 bool openGround(const Tile& t) { return t.type == TileType::Clear || t.type == TileType::Track; }
 
+// How much of each kind of ground cover grows on a tile (before the density setting): meadows
+// thick with grass and drifts of flowers, ferns under the trees, heather on the heath and the
+// tundra, dry grass on the steppe, stones on rock and in the desert, reeds by the water, and
+// nothing at all on the snow.
+struct CoverMix {
+    float grass = 0, flowers = 0, ferns = 0, reeds = 0, heather = 0, pebbles = 0;
+};
+CoverMix coverMix(const Tile& t, bool byWater, float meadow) {
+    CoverMix m;
+    // Flowers drift across the meadows in patches.
+    const float drift = meadow > 0.5f ? (meadow - 0.5f) * 16.0f : 0.3f;
+    switch (t.ground) {
+    case Ground::Grass:
+        if (t.trees >= 2) m = {4.0f, 0.3f, 3.0f};
+        else m = {t.trees ? 11.0f : 16.0f, drift};
+        break;
+    case Ground::Rough: m = {8.0f, drift * 0.4f, 0.0f, 0.0f, 3.0f, 0.3f}; break;
+    case Ground::Steppe: m = {10.0f, drift * 0.3f, 0.0f, 0.0f, 0.0f, 0.4f}; break;
+    case Ground::Jungle: m = {8.0f, drift * 0.6f, t.trees ? 5.0f : 2.5f}; break;
+    case Ground::Tundra: m = {3.0f, drift * 0.4f, 0.0f, 0.0f, 5.0f, 0.6f}; break;
+    case Ground::Desert: m = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.2f}; break;
+    case Ground::Sand: m = {1.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.6f}; break;
+    case Ground::Rock: m = {0.4f, 0.0f, 0.0f, 0.0f, 0.0f, 2.5f}; break;
+    case Ground::Snow:
+    case Ground::Water: return m;
+    }
+    if (byWater) m.reeds = 1.5f;
+    return m;
+}
+
+// Scatters a tile's ground cover. Each piece takes the ground's colour where it stands (blended
+// from the tile's corners), so grass reads as the lit tips of the turf.
+void scatterCover(std::vector<CoverPlacement>& out, const Tile& tile, TilePos wp, float x0, float z0, const FineCorners& fine,
+                  u64 seed, float density, bool byWater, std::array<u32, 4> corners, u32 base) {
+    const float meadow = softNoise(seed, 0x7E62, wp.x, wp.y, 10);
+    const CoverMix mix = coverMix(tile, byWater, meadow);
+    // The flower colour of each drift, with a few strays of other colours.
+    const int palette = static_cast<int>(softNoise(seed, 0x7E63, wp.x, wp.y, 24) * 4.0f) % 4;
+    const auto colourAt = [&](float u, float v) {
+        const auto rgb = [&](int k) { return unpackRgb(corners[static_cast<usize>(k)] ? corners[static_cast<usize>(k)] : base); };
+        return glm::mix(glm::mix(rgb(0), rgb(1), u), glm::mix(rgb(3), rgb(2), u), v);
+    };
+    u32 salt = 0;
+    const auto place = [&](Cover kind, float amount, int variants, float size) {
+        const u32 h0 = hashCoords(seed, wp.x, wp.y, 0x7C00 + static_cast<u32>(kind));
+        const int count = static_cast<int>(amount * density + static_cast<float>(h0 & 0xFF) / 255.0f);
+        for (int k = 0; k < count; ++k) {
+            const u32 h = hashCoords(seed, wp.x, wp.y, 0x7C10 + salt++);
+            const float u = 0.04f + static_cast<float>(h & 0xFF) / 255.0f * 0.92f;
+            const float v = 0.04f + static_cast<float>((h >> 8) & 0xFF) / 255.0f * 0.92f;
+            CoverPlacement c;
+            c.pos = glm::vec3(x0 + u, tileSurfaceLevel(fine, u, v) * kHeightStep, z0 + v);
+            c.yaw = static_cast<float>((h >> 16) & 0xFF) / 255.0f * glm::two_pi<float>();
+            c.scale = size * (0.75f + static_cast<float>((h >> 24) & 0xFF) / 255.0f * 0.55f);
+            c.kind = kind;
+            c.variant = static_cast<u8>(kind == Cover::Flowers && (h >> 5) % 5 ? palette : (h >> 3) % static_cast<u32>(variants));
+            // Blades a little darker and richer than the turf, the lighter tips catching the sun.
+            const glm::vec3 ground = colourAt(u, v) * (0.82f + static_cast<float>((h >> 12) & 0x3F) / 63.0f * 0.2f);
+            c.tint = (rgbaf(ground) & 0x00FFFFFFu) | (249u << 24);
+            out.push_back(c);
+        }
+    };
+    place(Cover::Grass, mix.grass, 3, 1.35f);
+    place(Cover::Flowers, mix.flowers, 4, 1.0f);
+    place(Cover::Fern, mix.ferns, 2, 1.1f);
+    place(Cover::Reeds, mix.reeds, 2, 1.0f);
+    place(Cover::Heather, mix.heather, 2, 1.0f);
+    place(Cover::Pebbles, mix.pebbles, 2, 1.0f);
+}
+
 // Ground under a building: gardens for homes, paving for everything else.
 u32 buildingGround(const Tile& t, const World* world) {
     if (!world) return kGarden;
@@ -287,7 +357,7 @@ void addFoundation(MeshBuilder& mb, const TileCorners& c, float x0, float z0, fl
 
 ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen, const WaterLookup& waterOutside,
                                  int lod, const World* world, const std::function<bool(u32)>& residential,
-                                 const TileLookup& tilesOutside) {
+                                 const TileLookup& tilesOutside, float cover) {
     ChunkGeometry out;
     const TilePos origin = chunkOrigin(chunk.pos);
     const u64 seed = gen.seed();
@@ -587,6 +657,13 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                     out.maxY = std::max(out.maxY, tp.pos.y + 2.0f);
                 }
             }
+
+            if (cover > 0.0f && lod == 0 && tile.type == TileType::Clear && !tile.span)
+                scatterCover(out.cover, tile, wp, x0, z0, chunk.fineCorners(lx, ly), seed, cover,
+                             isWater(lx - 1, ly) || isWater(lx + 1, ly) || isWater(lx, ly - 1) || isWater(lx, ly + 1),
+                             {cornerColor[static_cast<usize>(j * gridN + i)], cornerColor[static_cast<usize>(j * gridN + i + 1)],
+                              cornerColor[static_cast<usize>((j + 1) * gridN + i + 1)], cornerColor[static_cast<usize>((j + 1) * gridN + i)]},
+                             base);
         }
     }
 

@@ -36,6 +36,7 @@ struct RenderSettings {
     float nightFogStrength = 0.25f;
     float brightness = 1.0f;
     float treeDistance = 200.0f;
+    int groundDetail = 2;       // grass, flowers and stones near the camera: 0 none, 1 some, 2 lush
     float detailScale = 1.0f;
     bool particles = true;
     bool lightHalos = true;
@@ -56,6 +57,7 @@ struct RenderStats {
     int chunksCached = 0;
     int meshesBuilt = 0;
     usize treesDrawn = 0;
+    usize coverDrawn = 0; // grass, flowers and stones
     usize buildingsDrawn = 0;
     usize vehiclesDrawn = 0;
     usize peopleDrawn = 0;
@@ -139,6 +141,8 @@ private:
         GpuMesh water;
         StaticInstances trees;
         StaticInstances buildings;
+        StaticInstances cover;    // ground cover, for chunks near the camera
+        float coverDensity = 0.0f;
         float minY = -4.0f;
         float maxY = 30.0f;
         u64 lastUsedFrame = 0;
@@ -169,9 +173,11 @@ private:
         std::vector<const ChunkMesh*> terrain;
         std::vector<const ChunkMesh*> trees;
         std::vector<const ChunkMesh*> buildings;
+        std::vector<const ChunkMesh*> cover;
     };
 
-    void buildChunkMesh(const World& world, ChunkPos pos, int lod, ChunkMesh& mesh, const ChunkGeometry* prepared = nullptr);
+    void buildChunkMesh(const World& world, ChunkPos pos, int lod, ChunkMesh& mesh, const ChunkGeometry* prepared = nullptr,
+                        float cover = 0.0f);
     void ensureShadowTarget();
     void drawChunks(const DrawLists& lists, const glm::dvec3& origin, bool shadowPass);
     void collectVehicles(const World& world, const glm::dvec3& origin, const glm::dvec3& focus, double radius,

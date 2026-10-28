@@ -148,6 +148,114 @@ void buildBush(MeshBuilder& mb, int variant) {
     }
 }
 
+// Ground cover: lit as if facing the sky, like the ground under it, so it blends in rather than
+// showing every blade's face.
+void coverVertex(MeshBuilder& mb, glm::vec3 p, u32 color) { mb.vertices.push_back({p, packNormal({0, 1, 0}), color}); }
+// One face: ground cover is drawn without back face culling, as blades and petals are seen
+// from either side.
+void coverTriangle(MeshBuilder& mb, glm::vec3 a, glm::vec3 b, glm::vec3 c, u32 ca, u32 cb, u32 cc) {
+    coverVertex(mb, a, ca);
+    coverVertex(mb, b, cb);
+    coverVertex(mb, c, cc);
+}
+
+// A thin blade from `base` leaning `lean` towards `yaw`, dark at its foot and light at its tip.
+void blade(MeshBuilder& mb, glm::vec3 base, float yaw, float height, float width, float lean, u32 foot, u32 tip) {
+    const glm::vec3 dir(std::cos(yaw), 0.0f, std::sin(yaw)), side(-dir.z, 0.0f, dir.x);
+    const glm::vec3 top = base + dir * lean + glm::vec3(0, height, 0);
+    coverTriangle(mb, base + side * width, base - side * width, top, foot, foot, tip);
+}
+
+// A deterministic scatter for model building (no simulation state).
+float scatter(int i, int salt) {
+    const unsigned h = static_cast<unsigned>(i * 374761393 + salt * 668265263);
+    return static_cast<float>(((h ^ (h >> 13)) * 1274126177u) >> 8 & 0xFFFF) / 65535.0f;
+}
+
+void buildGrass(MeshBuilder& mb, int variant) {
+    const int blades = 7 + variant * 3;
+    for (int i = 0; i < blades; ++i) {
+        const float a = scatter(i, variant) * 6.2831853f, r = scatter(i, variant + 7) * 0.07f;
+        const glm::vec3 base(std::cos(a) * r, 0.0f, std::sin(a) * r);
+        const float h = 0.07f + scatter(i, variant + 13) * (0.05f + 0.03f * variant);
+        blade(mb, base, a + 0.6f * (scatter(i, variant + 21) - 0.5f), h, 0.011f, h * 0.35f, tintable(0.78f), tintable(1.22f));
+    }
+}
+
+void buildFlowers(MeshBuilder& mb, int variant) {
+    static constexpr u32 kPetal[4] = {rgba(246, 244, 236), rgba(248, 210, 60), rgba(150, 110, 200), rgba(214, 52, 48)};
+    static constexpr u32 kHeart[4] = {rgba(240, 190, 50), rgba(220, 150, 40), rgba(236, 220, 120), rgba(40, 30, 30)};
+    for (int i = 0; i < 5; ++i) blade(mb, {0, 0, 0}, scatter(i, 40 + variant) * 6.28f, 0.08f, 0.012f, 0.04f, tintable(0.8f), tintable(1.1f));
+    const int heads = 4 + (variant % 2);
+    for (int i = 0; i < heads; ++i) {
+        const float a = scatter(i, 50 + variant) * 6.2831853f, r = 0.02f + scatter(i, 60 + variant) * 0.07f;
+        const glm::vec3 base(std::cos(a) * r, 0.0f, std::sin(a) * r);
+        const float h = 0.1f + scatter(i, 70 + variant) * 0.08f;
+        blade(mb, base, a, h, 0.007f, 0.012f, tintable(0.8f), tintable(1.05f));
+        // Five petals around a heart, facing up.
+        const glm::vec3 c = base + glm::vec3(0.0f, h, 0.0f);
+        const float size = variant == 3 ? 0.05f : 0.04f;
+        for (int k = 0; k < 5; ++k) {
+            const float p0 = (k + 0.0f) * 1.2566371f + a, p1 = (k + 0.5f) * 1.2566371f + a, p2 = (k + 1.0f) * 1.2566371f + a;
+            const glm::vec3 e0 = c + glm::vec3(std::cos(p0), 0.0f, std::sin(p0)) * size * 0.4f;
+            const glm::vec3 tip = c + glm::vec3(std::cos(p1), 0.004f, std::sin(p1)) * size;
+            const glm::vec3 e1 = c + glm::vec3(std::cos(p2), 0.0f, std::sin(p2)) * size * 0.4f;
+            coverTriangle(mb, e0, tip, e1, kPetal[variant], kPetal[variant], kPetal[variant]);
+        }
+        coverTriangle(mb, c + glm::vec3(0.008f, 0.003f, 0), c + glm::vec3(-0.005f, 0.003f, 0.007f), c + glm::vec3(-0.005f, 0.003f, -0.007f),
+                      kHeart[variant], kHeart[variant], kHeart[variant]);
+    }
+}
+
+void buildFern(MeshBuilder& mb, int variant) {
+    // Fronds arching out from the middle, each a long leaf of two faces.
+    const int fronds = 6 + variant;
+    for (int i = 0; i < fronds; ++i) {
+        const float a = static_cast<float>(i) / fronds * 6.2831853f + scatter(i, 80 + variant) * 0.5f;
+        const glm::vec3 dir(std::cos(a), 0.0f, std::sin(a)), side(-dir.z, 0.0f, dir.x);
+        const float len = 0.13f + scatter(i, 90 + variant) * 0.05f;
+        const glm::vec3 mid = dir * (len * 0.55f) + glm::vec3(0, 0.09f, 0), tip = dir * len + glm::vec3(0, 0.05f, 0);
+        coverTriangle(mb, {0, 0.01f, 0}, mid + side * 0.03f, mid - side * 0.03f, tintable(0.75f), tintable(1.0f), tintable(1.0f));
+        coverTriangle(mb, mid + side * 0.03f, tip, mid - side * 0.03f, tintable(1.0f), tintable(1.2f), tintable(1.0f));
+    }
+}
+
+void buildReeds(MeshBuilder& mb, int variant) {
+    const u32 foot = rgba(88, 112, 58), tip = rgba(160, 168, 96), head = rgba(110, 72, 44);
+    const int stems = 8 + variant * 2;
+    for (int i = 0; i < stems; ++i) {
+        const float a = scatter(i, 100 + variant) * 6.2831853f, r = scatter(i, 110 + variant) * 0.08f;
+        const glm::vec3 base(std::cos(a) * r, 0.0f, std::sin(a) * r);
+        const float h = 0.18f + scatter(i, 120 + variant) * 0.12f;
+        blade(mb, base, a, h, 0.008f, 0.02f, foot, tip);
+        if (i % 3 == 0) {
+            const glm::vec3 c = base + glm::vec3(std::cos(a) * 0.015f, h * 0.82f, std::sin(a) * 0.015f);
+            mb.box(c - glm::vec3(0.008f, 0.0f, 0.008f), c + glm::vec3(0.008f, 0.04f, 0.008f), head);
+        }
+    }
+}
+
+void buildHeather(MeshBuilder& mb, int variant) {
+    // A low mound of tiny flowers over a few green shoots.
+    const u32 bloom[2] = {rgba(168, 96, 164), rgba(196, 128, 176)};
+    for (int i = 0; i < 5; ++i) blade(mb, {0, 0, 0}, scatter(i, 130 + variant) * 6.28f, 0.05f, 0.012f, 0.04f, tintable(0.7f), tintable(0.95f));
+    for (int i = 0; i < 9; ++i) {
+        const float a = scatter(i, 140 + variant) * 6.2831853f, r = scatter(i, 150 + variant) * 0.07f;
+        const glm::vec3 c(std::cos(a) * r, 0.025f + scatter(i, 160 + variant) * 0.035f, std::sin(a) * r);
+        const u32 col = shade(bloom[variant], 0.85f + scatter(i, 170) * 0.3f);
+        coverTriangle(mb, c + glm::vec3(0.02f, 0, 0), c + glm::vec3(-0.012f, 0.012f, 0.016f), c + glm::vec3(-0.012f, 0.004f, -0.016f), col, col, col);
+    }
+}
+
+void buildPebbles(MeshBuilder& mb, int variant) {
+    for (int i = 0; i < 3 + variant; ++i) {
+        const float a = scatter(i, 180 + variant) * 6.2831853f, r = scatter(i, 190 + variant) * 0.1f;
+        const float size = 0.018f + scatter(i, 200 + variant) * 0.025f;
+        const u32 grey = shade(rgba(150, 146, 140), 0.8f + scatter(i, 210 + variant) * 0.35f);
+        mb.cone({std::cos(a) * r, -0.004f, std::sin(a) * r}, size, size * 0.9f, 5, grey, a);
+    }
+}
+
 void buildCloud(MeshBuilder& mb, int variant) {
     // A flat-bottomed heap of puffs, about one unit across.
     const u32 white = rgba(250, 251, 255);
@@ -216,6 +324,21 @@ void ModelLibrary::build() {
         MeshBuilder mb;
         buildBirch(mb, v);
         add(static_cast<ModelId>(models::kTreeBirch0 + v), swaying(mb));
+    }
+    // Ground cover sways and shrinks away by its instances (see the model shader), not its vertices.
+    for (int v = 0; v < 4; ++v) {
+        const auto make = [&](ModelId base, int variants, void (*fn)(MeshBuilder&, int)) {
+            if (v >= variants) return;
+            MeshBuilder mb;
+            fn(mb, v);
+            add(static_cast<ModelId>(base + v), mb);
+        };
+        make(models::kGrass0, 3, buildGrass);
+        make(models::kFlowers0, 4, buildFlowers);
+        make(models::kFern0, 2, buildFern);
+        make(models::kReeds0, 2, buildReeds);
+        make(models::kHeather0, 2, buildHeather);
+        make(models::kPebbles0, 2, buildPebbles);
     }
     for (int v = 0; v < 3; ++v) {
         MeshBuilder mb;

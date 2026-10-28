@@ -36,6 +36,7 @@ struct ClientPreferences {
     int shadowQuality = 2; // 512, 1024, 2048, 4096 pixels
     int detailQuality = 1; // low, balanced, high terrain detail
     int treeDistance = 200;
+    int groundDetail = 2; // grass, flowers and stones when zoomed in: off, some, lush
     int brightnessPercent = 100;
     bool clouds = true;
     bool cloudShadows = true;

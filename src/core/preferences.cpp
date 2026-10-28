@@ -20,6 +20,7 @@ void ClientPreferences::clamp() {
     monitor = std::clamp(monitor, 0, 15);
     antiAliasing = std::clamp(antiAliasing, 0, 3);
     frameCap = std::clamp(frameCap, 0, 7);
+    groundDetail = std::clamp(groundDetail, 0, 2);
     shadowQuality = std::clamp(shadowQuality, 0, 3);
     detailQuality = std::clamp(detailQuality, 0, 2);
     treeDistance = std::clamp(treeDistance, 60, 500);
@@ -44,6 +45,7 @@ void ClientPreferences::graphicsPreset(int quality) {
     detailQuality = quality;
     viewDistance = quality == 2 ? 700 : quality == 1 ? 460 : 300;
     treeDistance = quality == 2 ? 400 : quality == 1 ? 200 : 120;
+    groundDetail = quality == 2 ? 2 : quality == 1 ? 1 : 0;
     clouds = cloudShadows = particles = treeSway = waterAnimation = quality > 0;
     fogPercent = quality == 0 ? 50 : 100;
     lightHalos = true;
@@ -52,7 +54,7 @@ bool ClientPreferences::load(const std::filesystem::path& path) {
     std::ifstream in(path);
     ClientPreferences candidate;
     int version = 0;
-    if (!(in >> version) || (version < 1 || version > 10) ||
+    if (!(in >> version) || (version < 1 || version > 11) ||
         !(in >> candidate.shadows >> candidate.vsync >> candidate.daylightOnly >> candidate.viewDistance >>
           candidate.panPercent >> candidate.orbitPercent >> candidate.zoomPercent >> candidate.autosaveMonths >>
           candidate.startYear >> candidate.interestPercent)) return false;
@@ -73,6 +75,7 @@ bool ClientPreferences::load(const std::filesystem::path& path) {
     if (version >= 9 && !(in >> candidate.masterVolume >> candidate.musicVolume >> candidate.vehicleVolume >>
           candidate.ambienceVolume >> candidate.interfaceVolume >> candidate.muteUnfocused)) return false;
     if (version >= 10 && !(in >> candidate.trackContours)) return false;
+    if (version >= 11 && !(in >> candidate.groundDetail)) return false;
     candidate.clamp();
     *this = candidate;
     return true;
@@ -81,7 +84,7 @@ bool ClientPreferences::save(const std::filesystem::path& path) const {
     ClientPreferences p = *this;
     p.clamp();
     std::ofstream out(path, std::ios::trunc);
-    out << 10 << '\n' << p.shadows << ' ' << p.vsync << ' ' << p.daylightOnly << ' ' << p.viewDistance << ' '
+    out << 11 << '\n' << p.shadows << ' ' << p.vsync << ' ' << p.daylightOnly << ' ' << p.viewDistance << ' '
         << p.panPercent << ' ' << p.orbitPercent << ' ' << p.zoomPercent << ' ' << p.autosaveMonths << ' '
         << p.startYear << ' ' << p.interestPercent << ' ' << p.inflation << ' ' << p.recessions << ' ' << p.sounds << ' ' << p.aiCompetitors << ' '
         << p.landmass << ' ' << p.mountains << ' ' << p.lakes << ' ' << p.rivers << ' ' << p.climate << ' ' << p.weather << ' ' << p.checkUpdates << ' '
@@ -92,7 +95,7 @@ bool ClientPreferences::save(const std::filesystem::path& path) const {
         << p.waterAnimation << '\n'
         << p.masterVolume << ' ' << p.musicVolume << ' ' << p.vehicleVolume << ' ' << p.ambienceVolume << ' '
         << p.interfaceVolume << ' ' << p.muteUnfocused << '\n'
-        << p.trackContours << '\n';
+        << p.trackContours << ' ' << p.groundDetail << '\n';
     out.flush();
     return static_cast<bool>(out);
 }

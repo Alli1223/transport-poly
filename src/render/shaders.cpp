@@ -241,6 +241,9 @@ layout(location = 4) in vec4 iRow1;
 layout(location = 5) in vec4 iRow2;
 layout(location = 6) in vec4 iTint;
 uniform vec3 uOffset;
+// Ground cover: the distance from the eye at which it starts to sink into the ground, and where
+// it has gone.
+uniform vec2 uGroundCover;
 out vec3 vWorldPos;
 out vec3 vNormal;
 out vec3 vColor;
@@ -249,6 +252,19 @@ flat out float vGlass;
 void main() {
     vec4 p = vec4(aPos, 1.0);
     vec3 wp = vec3(dot(iRow0, p), dot(iRow1, p), dot(iRow2, p)) + uOffset;
+    // Ground cover (instance alpha 249) shrinks into the ground away from the eye, so it only
+    // shows close up and never pops, and bends in the wind.
+    if (abs(iTint.a * 255.0 - 249.0) < 0.25) {
+        vec3 base = vec3(iRow0.w, iRow1.w, iRow2.w) + uOffset;
+        float grow = 1.0 - smoothstep(uGroundCover.x, uGroundCover.y, length(base - uCameraPos.xyz));
+        wp = base + (wp - base) * grow;
+        if (uVisualOptions.z > 0.5) {
+            vec2 at = wp.xz + uOrigin.xz;
+            float t = uCameraPos.w;
+            float gust = 0.6 + 0.4 * sin(t * 0.5 + at.x * 0.07 + at.y * 0.05);
+            wp.xz += vec2(0.8, 0.55) * (sin(t * 2.3 + at.x * 3.1 + at.y * 2.3) * gust * aPos.y * 0.35 * (1.0 + uWeather.x));
+        }
+    }
     // Trees (vertex alpha 250) sway in the wind, more towards their tops, in gusts, and harder
     // under cloud.
     if (uVisualOptions.z > 0.5 && abs(aColor.a * 255.0 - 250.0) < 0.25) {

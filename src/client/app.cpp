@@ -491,19 +491,20 @@ bool App::parseArgs(int argc, char** argv) {
         } else if (arg == "--land") {
             // New world terrain: --land continents|mainland|islands|archipelago|island,
             // --mountains 0-4, --lakes 0-4, --rivers 0-3.
-            if (const char* v = next(); v && landmassByKey(v)) preferences_.landmass = static_cast<int>(*landmassByKey(v));
+            if (const char* v = next(); v && landmassByKey(v))
+                preferenceArgs_.push_back([m = static_cast<int>(*landmassByKey(v))](ClientPreferences& p) { p.landmass = m; });
         } else if (arg == "--clouds" || arg == "--mist") {
             // Automation: fixed weather, 0-1 (--clouds is cloud cover).
             if (const char* v = next())
                 (arg == "--clouds" ? renderer_.settings.forceCloudCover : renderer_.settings.forceMist) = static_cast<float>(std::atof(v));
         } else if (arg == "--climate") {
-            if (const char* v = next(); v && climateByKey(v)) preferences_.climate = static_cast<int>(*climateByKey(v));
+            if (const char* v = next(); v && climateByKey(v))
+                preferenceArgs_.push_back([c = static_cast<int>(*climateByKey(v))](ClientPreferences& p) { p.climate = c; });
         } else if (arg == "--mountains" || arg == "--lakes" || arg == "--rivers") {
-            if (const char* v = next()) {
-                int& amount = arg == "--mountains" ? preferences_.mountains : arg == "--lakes" ? preferences_.lakes : preferences_.rivers;
-                amount = std::atoi(v);
-                preferences_.clamp();
-            }
+            if (const char* v = next())
+                preferenceArgs_.push_back([which = std::string(arg), amount = std::atoi(v)](ClientPreferences& p) {
+                    (which == "--mountains" ? p.mountains : which == "--lakes" ? p.lakes : p.rivers) = amount;
+                });
         } else if (arg == "--demo-industries") {
             demoIndustries_ = true;
         } else if (arg == "--goto-industry") {
@@ -552,6 +553,9 @@ bool App::parseArgs(int argc, char** argv) {
             previewStation_ = true;
         } else if (arg == "--preview-track") {
             previewTrack_ = true;
+        } else if (arg == "--ground-detail") {
+            // Automation: grass, flowers and stones 0 (none) to 2 (lush).
+            if (const char* v = next()) preferenceArgs_.push_back([g = std::atoi(v)](ClientPreferences& p) { p.groundDetail = g; });
         } else if (arg == "--demo-freight") {
             demoFreight_ = true;
         } else if (arg == "--station-use") {
@@ -577,7 +581,7 @@ bool App::parseArgs(int argc, char** argv) {
         } else if (arg == "--join") {
             if (const char* v = next()) joinAddress_ = v;
         } else if (arg == "--ai") {
-            if (const char* v = next()) preferences_.aiCompetitors = std::clamp(std::atoi(v), 0, 3);
+            if (const char* v = next()) preferenceArgs_.push_back([n = std::atoi(v)](ClientPreferences& p) { p.aiCompetitors = n; });
         } else if (arg == "--competition") {
             if (const char* v = next()) competition_ = std::clamp(std::atoi(v), 0, 6);
         } else if (arg == "--name") {
@@ -638,6 +642,8 @@ bool App::init() {
         std::filesystem::current_path(data, ec);
     }
     preferences_.load("settings.cfg");
+    for (const auto& choose : preferenceArgs_) choose(preferences_);
+    preferences_.clamp();
     if (preferences_.checkUpdates || !updateFeed_.empty()) startUpdateCheck();
     renderer_.settings.shadows = preferences_.shadows;
     renderer_.settings.weather = preferences_.weather;
@@ -1246,7 +1252,8 @@ void App::drawDebugUi() {
     ImGui::Text("Camera %.1f, %.1f  dist %.0f", camera_.target.x, camera_.target.z, camera_.distance);
     ImGui::Text("Chunks: %d visible, %d cached, %d built", st.chunksVisible, st.chunksCached, st.meshesBuilt);
     ImGui::Text("Meshing: %.2f ms, worker wait %.2f ms", st.meshCpuMs, st.meshWaitMs);
-    ImGui::Text("Triangles: %zu  Trees: %zu  Buildings: %zu", st.trianglesDrawn, st.treesDrawn, st.buildingsDrawn);
+    ImGui::Text("Triangles: %zu  Trees: %zu  Buildings: %zu  Ground cover: %zu", st.trianglesDrawn, st.treesDrawn, st.buildingsDrawn,
+                st.coverDrawn);
     ImGui::Text("Towns %zu  people %zu  buildings %zu", w.towns.size(), w.people.size(), w.buildings.size());
     ImGui::Text("Tick %lld  explored chunks %zu", static_cast<long long>(w.clock.tick), w.map.activeChunks().size());
     ImGui::Text("State hash %016llx", static_cast<unsigned long long>(w.stateHash()));
