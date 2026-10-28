@@ -5,6 +5,45 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-28
+
+### Passenger and freight stations
+- Rail stations are built for passengers or for freight. Passenger stations keep their
+  canopies, benches and footbridges and handle passengers only; freight stations have
+  concrete loading docks, a goods shed, a gantry crane and floodlights, handle freight
+  only, and reach the industries around their platforms without a road entrance.
+- A station's window changes what it is for. Stations from earlier saves take both.
+
+### Placing stations
+- The Station tool's panel chooses what a new station is for, one to four platforms
+  built side by side, and a fixed length of 4 to 16 tiles (or as far as you drag).
+- While placing, a mark at every tile and a label show the platform length, and the
+  tooltip gives the cost of every platform and the longest train the station takes.
+- A train's depot window shows how many tiles long it is, and warns when it is longer
+  than the platform at one of its stops.
+
+### Lines
+- **New line** in the Lines window makes a named line before any vehicle runs it:
+  choose the kind of vehicle, click its stops on the map, and create it.
+- **Edit line** changes a line's stops for every vehicle on it, and adds vehicles or
+  takes them off; a vehicle's window can also put it on a line.
+- Each stop sets which goods it picks up and drops off. Freight is only sent with a
+  service that will drop it off where it is going.
+
+### Ground cover
+- Zoomed in, the ground grows what suits it: meadows of grass with drifts of
+  buttercups, daisies, poppies and violets, ferns under the trees, reeds by the water,
+  heather on the heath and tundra, dry tufts and stones on the steppe and in the
+  desert, and bare snow on the peaks. It sways in the wind and fades as the camera
+  pulls back.
+- **Ground detail** in the graphics settings (Off, Some, Lush), set by the presets.
+
+### Fixes
+- Command line choices such as `--climate`, `--mountains` and `--ai` apply over the
+  saved settings instead of being overwritten by them.
+- Save format 31 loads older saves; multiplayer protocol 40 requires matching game
+  versions.
+
 ## [0.4.0] - 2026-10-27
 
 ### Laying track over the land
@@ -178,7 +217,8 @@ Transport Fever, with deterministic lockstep multiplayer.
 - Multiplayer through a dedicated server or a hosted game, with chat, a
   player list and host-controlled pause and speed; save, load and autosave.
 
-[Unreleased]: https://github.com/Alli1223/transport-poly/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Alli1223/transport-poly/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Alli1223/transport-poly/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Alli1223/transport-poly/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Alli1223/transport-poly/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Alli1223/transport-poly/compare/v0.1.0...v0.2.0
