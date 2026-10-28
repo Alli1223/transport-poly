@@ -168,7 +168,9 @@ void blade(MeshBuilder& mb, glm::vec3 base, float yaw, float height, float width
 
 // A deterministic scatter for model building (no simulation state).
 float scatter(int i, int salt) {
-    const unsigned h = static_cast<unsigned>(i * 374761393 + salt * 668265263);
+    // Unsigned so the multiplications wrap: signed overflow is undefined and GCC turned the
+    // callers' loops into infinite ones.
+    const unsigned h = static_cast<unsigned>(i) * 374761393u + static_cast<unsigned>(salt) * 668265263u;
     return static_cast<float>(((h ^ (h >> 13)) * 1274126177u) >> 8 & 0xFFFF) / 65535.0f;
 }
 
