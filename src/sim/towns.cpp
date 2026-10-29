@@ -3,6 +3,7 @@
 #include "core/hash.hpp"
 #include "core/math.hpp"
 #include "core/names.hpp"
+#include "sim/industries.hpp"
 #include "sim/person.hpp"
 #include "sim/road.hpp"
 #include "sim/world.hpp"
@@ -166,6 +167,8 @@ bool extendRoad(World& w, TownId id) {
     if (chebyshev(n.x - t.centre.x, n.y - t.centre.y) > t.radius + 3) return false;
     const Tile* nt = w.map.tile(n);
     if (!nt) return false;
+    // Other roads join a curve at its ends only, and keep off the ground its corners overhang.
+    if (roadcurves::at(w, r).valid() || roadcurves::at(w, n).valid() || roadcurves::onVerge(w, n)) return false;
     if (t.grid) {
         const i32 off = isAxisX(d) ? (r.y - t.centre.y) : (r.x - t.centre.x);
         if (floorMod(off, static_cast<i32>(t.gridSpacing)) != 0) return false;
@@ -177,6 +180,70 @@ bool extendRoad(World& w, TownId id) {
         if (crowded && !t.rng.chance(1, 8)) return false;
     }
     return townConnect(w, t, r, d);
+}
+
+// Lays a curved town road out of `from` through its side `side`: round a quarter turn or in a
+// gentle S to one side, ending on open land or at a road there. False when none fits.
+bool layCurve(World& w, TownId id, TilePos from, Dir side) {
+    Town& t = w.towns[id];
+    const bool bend = t.rng.chance(1, 2);
+    const Dir turn = t.rng.chance(1, 2) ? rotateCW(side) : rotateCCW(side);
+    const i32 size = 3 + static_cast<i32>(t.rng.below(3));
+    const i32 shift = 1 + static_cast<i32>(t.rng.below(2));
+    const TilePos ahead = dirOffset(side), across = dirOffset(turn);
+    TilePos to;
+    Dir toSide = opposite(side);
+    if (bend) {
+        to = {from.x + (ahead.x + across.x) * size, from.y + (ahead.y + across.y) * size};
+        toSide = opposite(turn);
+    } else {
+        to = {from.x + ahead.x * (size + 3) + across.x * shift, from.y + ahead.y * (size + 3) + across.y * shift};
+    }
+    if (chebyshev(to.x - t.centre.x, to.y - t.centre.y) > t.radius + 3) return false;
+    const RoadCurvePlan plan = roadcurves::plan(w, from, side, to, toSide, kOwnerTown);
+    if (!plan.ok) return false;
+    const bool toNew = w.map.tile(to)->type == TileType::Clear;
+    const bool fromNew = w.map.tile(from)->type == TileType::Clear;
+    roadcurves::build(w, plan);
+    Town& town = w.towns[id];
+    if (fromNew) town.roads.push_back(from);
+    town.roads.insert(town.roads.end(), plan.curve.tiles.begin(), plan.curve.tiles.end());
+    if (toNew) town.roads.push_back(to);
+    return true;
+}
+
+// Organic towns (and the outskirts of grid towns) now and then lay a curved road instead of a
+// straight piece, out of a town road.
+bool curveRoad(World& w, TownId id) {
+    Town& t = w.towns[id];
+    if (t.roads.empty()) return false;
+    const TilePos r = t.roads[t.rng.below(static_cast<u32>(t.roads.size()))];
+    const Tile* rt = w.map.tile(r);
+    if (!rt || rt->type != TileType::Road || rt->rail || rt->span || roadcurves::at(w, r).valid()) return false;
+    if (t.grid && zoneOf(t, r) != kZoneOuter) return false;
+    const Dir d = kDirs[t.rng.below(4)];
+    if (hasRoadPiece(*rt, d)) return false;
+    return layCurve(w, id, r, d);
+}
+
+// Not every plot along a street is built on: some stay open (gardens, greens and yards), and
+// away from the centre some stretches of street have houses on one side only, or none at all.
+bool keepOpen(const World& w, const Town& t, TilePos road, Dir side, TilePos plot) {
+    const u64 seed = w.settings.seed ^ t.cellKey;
+    const u8 zone = zoneOf(t, plot);
+    const u32 open = zone == kZoneCore ? 8 : zone == kZoneInner ? 16 : 24; // percent of plots
+    if (hashCoords(seed, plot.x, plot.y, 0x0B07) % 100 < open) return true;
+    if (zone == kZoneCore) return false;
+    // Stretches of four tiles along the street decide together.
+    const bool streetAlongX = !isAxisX(side);
+    const i32 along = floorDiv(streetAlongX ? road.x : road.y, 4);
+    const i32 across = streetAlongX ? road.y : road.x;
+    switch (hashCoords(seed, along, across, streetAlongX ? 0x57E1 : 0x57E2) % 8) {
+    case 0: return zone == kZoneOuter;                   // a lane without houses
+    case 1: return side == Dir::N || side == Dir::W;     // houses on the south or east side only
+    case 2: return side == Dir::S || side == Dir::E;     // houses on the north or west side only
+    default: return false;
+    }
 }
 
 TilePos anchorFor2x2(TilePos p, Dir d, bool alt) {
@@ -198,6 +265,7 @@ bool buildBuilding(World& w, TownId id) {
     const Dir d = kDirs[t.rng.below(4)];
     if (hasRoadPiece(*rt, d)) return false;
     const TilePos p = neighbour(r, d);
+    if (keepOpen(w, t, r, d, p)) return false;
     const u8 zone = zoneOf(t, p);
     u16 type = chooseBuildingType(t, zone, 2);
     TilePos anchor = p;
@@ -216,6 +284,7 @@ bool buildBuilding(World& w, TownId id) {
 
 bool growStep(World& w, TownId id, bool founding) {
     Town& t = w.towns[id];
+    if (t.rng.chance(t.grid ? 4 : 10, 100) && curveRoad(w, id)) return true;
     if (t.rng.chance(founding ? 22 : 15, 100) && extendRoad(w, id)) return true;
     for (int i = 0; i < (founding ? 6 : 4); ++i)
         if (buildBuilding(w, id)) return true;
@@ -230,10 +299,14 @@ void makeCentre(World& w, TownId id) {
     for (const Dir d : kDirs) {
         TilePos cur = t.centre;
         const int len = base + static_cast<int>(t.rng.below(3));
-        for (int i = 0; i < len; ++i) {
+        // Organic towns' main streets leave the centre straight, then wander off in a curve.
+        const int straight = t.grid ? len : std::min(len, 2 + static_cast<int>(t.rng.below(3)));
+        int i = 0;
+        for (; i < straight; ++i) {
             if (!townConnect(w, t, cur, d)) break;
             cur = neighbour(cur, d);
         }
+        if (i == straight && straight < len) layCurve(w, id, cur, d);
     }
 }
 
@@ -299,6 +372,13 @@ bool newTownSiteOk(const World& w, TilePos c) {
         const i64 d = chebyshev(t.centre.x - c.x, t.centre.y - c.y);
         if (d < 40 || d < t.radius + 14) return false;
     }
+    // Nor right beside a countryside industry (they keep the same distance from towns).
+    for (const Industry& industry : w.industries)
+        if (const Building* b = w.buildings.tryGet(industry.building.id)) {
+            const i64 dx = c.x < b->pos.x ? b->pos.x - c.x : std::max<i64>(0, c.x - (b->pos.x + b->size() - 1));
+            const i64 dy = c.y < b->pos.y ? b->pos.y - c.y : std::max<i64>(0, c.y - (b->pos.y + b->size() - 1));
+            if (std::max(dx, dy) < industries::kMinTownDistance + 6) return false;
+        }
     int lo = 255, hi = 0;
     for (i32 dy = -5; dy <= 5; ++dy) {
         for (i32 dx = -5; dx <= 5; ++dx) {
@@ -365,6 +445,7 @@ bool canPlaceBuilding(const World& w, TilePos pos, u8 size) {
             const Tile* t = w.map.tile(p);
             if (!t || t->type != TileType::Clear) return false;
             if (w.trackTiles.contains(ChunkPos{p.x, p.y}.key())) return false; // under a bridge
+            if (roadcurves::onVerge(w, p)) return false; // under the corner of a curved road
             const Slope s = w.map.slope(p);
             const Surface surf = buildingSurface(s);
             if (surf == Surface::Invalid) return false;

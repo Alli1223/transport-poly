@@ -1,6 +1,7 @@
 #include "render/vehicle_pose.hpp"
 #include "sim/private_cars.hpp"
 
+#include "render/picking.hpp"
 #include "render/terrain_mesher.hpp"
 #include "render/track_renderer.hpp"
 #include "sim/rail.hpp"
@@ -94,6 +95,13 @@ float roadSurfaceY(const World& w, TilePos tile, float u, float v) {
     if (surf == Surface::Ramp) return tileSurfaceLevel(c, u, v) * kHeightStep;
     return static_cast<float>(flatSurfaceLevel(s, surf == Surface::Invalid ? Surface::Foundation : surf)) *
            kHeightStep;
+}
+
+float curvedRoadY(const World& w, const RoadCurve& c, double x, double z, float edge) {
+    const TilePos t{static_cast<i32>(std::floor(x)), static_cast<i32>(std::floor(z))};
+    if (t == c.a || t == c.b || std::find(c.tiles.begin(), c.tiles.end(), t) != c.tiles.end())
+        return roadSurfaceY(w, t, std::clamp(static_cast<float>(x - t.x), 0.0f, 1.0f), std::clamp(static_cast<float>(z - t.y), 0.0f, 1.0f));
+    return std::max(edge, static_cast<float>(terrainHeightAt(w.map, x, z)));
 }
 
 namespace {
@@ -199,6 +207,41 @@ void trainCarPoses(const World& w, const Vehicle& v, double tickFraction, std::v
 
 namespace {
 
+// A road vehicle following a curved road rides along its centre line in the right-hand lane,
+// `progress` units into its tile (a little beyond while it is about to leave the tile).
+std::optional<VehiclePose> curvePose(const World& w, TilePos tile, Dir entry, Dir exit, double progress) {
+    const roadcurves::Place on = roadcurves::follow(w, tile, entry, exit);
+    if (!on.curve || on.curve->samples.size() < 2) return std::nullopt;
+    const RoadCurve& c = *on.curve;
+    const double span = on.end() - on.begin();
+    const double len = std::max(1.0, std::abs(span));
+    const double s = std::clamp(on.begin() + span * (progress / len), 0.0, static_cast<double>(c.length));
+    const std::vector<TrackSample>& sm = c.samples;
+    const auto it = std::upper_bound(sm.begin(), sm.end(), s, [](double v, const TrackSample& x) { return v < x.s; });
+    const usize i = std::min(static_cast<usize>(std::max<std::ptrdiff_t>(it - sm.begin(), 1) - 1), sm.size() - 2);
+    const TrackSample& a = sm[i];
+    const TrackSample& b = sm[i + 1];
+    const double k = std::clamp((s - a.s) / std::max(1, b.s - a.s), 0.0, 1.0);
+    const glm::dvec2 centre = glm::mix(glm::dvec2(a.p.x, a.p.z), glm::dvec2(b.p.x, b.p.z), k) / static_cast<double>(kTrackUnits);
+    // Heading from a few samples either side, so it turns smoothly.
+    const TPoint behind = sm[i >= 2 ? i - 2 : 0].p, ahead = sm[std::min(i + 3, sm.size() - 1)].p;
+    glm::dvec2 d(static_cast<double>(ahead.x) - behind.x, static_cast<double>(ahead.z) - behind.z);
+    d = glm::length(d) > 0.0 ? glm::normalize(d) : glm::dvec2(1.0, 0.0);
+    if (!on.forward) d = -d;
+    const glm::dvec2 pos = centre + glm::dvec2(-d.y, d.x) * static_cast<double>(kLaneOffset);
+    // The road's surface under the vehicle, as drawn.
+    const auto surface = [&](glm::dvec2 q) {
+        const float edge = roadSurfaceY(w, tile, std::clamp(static_cast<float>(q.x - tile.x), 0.0f, 1.0f),
+                                        std::clamp(static_cast<float>(q.y - tile.y), 0.0f, 1.0f));
+        return curvedRoadY(w, c, q.x, q.y, edge);
+    };
+    VehiclePose pose;
+    pose.pos = glm::dvec3(pos.x, surface(pos) + 0.03, pos.y);
+    pose.yaw = static_cast<float>(std::atan2(-d.y, d.x));
+    pose.pitch = std::atan2(surface(pos + d * 0.15) - surface(pos - d * 0.15), 0.3f);
+    return pose;
+}
+
 float headingYaw(u8 h) {
     return static_cast<float>(std::atan2(-static_cast<double>(kHeadingDY[h & 7]), static_cast<double>(kHeadingDX[h & 7])));
 }
@@ -248,6 +291,7 @@ std::optional<VehiclePose> vehiclePose(const World& w, const Vehicle& v, double 
     const i32 len = pathLength(v.entry, v.exit);
     double progress = v.progress;
     if (v.state == VehicleState::Driving && !v.stopped) progress += v.speed * tickFraction;
+    if (auto onCurve = curvePose(w, v.tile, v.entry, v.exit, progress)) return onCurve;
     const float t = static_cast<float>(std::clamp(progress / len, 0.0, 1.0));
     const Dir travel = opposite(v.entry);
     const LocalPoint lp = canonical(turnKind(v.entry, v.exit), t);
@@ -272,8 +316,9 @@ std::optional<VehiclePose> privateCarPose(const World& w, const Person& p, doubl
     car.model = 0; car.tile = p.carPath[p.carIndex];
     car.entry = privatecars::entry(p); car.exit = privatecars::exit(p);
     car.state = VehicleState::Driving;
-    const double along = std::clamp((w.clock.tick + fraction - p.carStepStart) / kDriveTicksPerTile, 0.0, 1.0);
-    car.progress = static_cast<i32>(along * pathLength(car.entry, car.exit));
+    const double along =
+        std::clamp((w.clock.tick + fraction - p.carStepStart) / static_cast<double>(privatecars::stepTicks(w, p)), 0.0, 1.0);
+    car.progress = static_cast<i32>(along * roadcurves::pathLength(w, car.tile, car.entry, car.exit));
     return vehiclePose(w, car, 0);
 }
 

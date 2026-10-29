@@ -2,6 +2,7 @@
 
 #include "render/station_style.hpp"
 #include "render/terrain_mesher.hpp"
+#include "render/vehicle_pose.hpp"
 #include "sim/track.hpp"
 #include "sim/walking.hpp"
 #include <glm/gtc/matrix_transform.hpp>
@@ -539,7 +540,84 @@ void buildStationConcourseMesh(const World& world, StationId sid, TilePos anchor
     out.transform = saved;
 }
 
+void buildRoadCurveMesh(const World& world, const RoadCurve& c, TilePos anchor, MeshBuilder& out) {
+    constexpr u32 kPavement = rgba(176, 172, 162); // as the grid's road pieces (terrain_mesher.cpp)
+    constexpr u32 kAsphalt = rgba(80, 82, 88);
+    constexpr u32 kMarking = rgba(236, 234, 220);
+    const std::vector<TrackSample>& sm = c.samples;
+    if (sm.size() < 2 || c.tileStart.size() != c.tiles.size() + 1 || c.length <= 0) return;
+    // Cross sections about every sixteenth of a tile across the centre line; every point stands
+    // on the surface of the road tile under it (they meet at the same height at their edges), or
+    // beside the road no lower than the centre line, over any higher ground there.
+    struct Section {
+        glm::vec2 p, left;
+        float y = 0.0f;
+        i32 s = 0;
+    };
+    std::vector<Section> sections;
+    const usize step = std::max<usize>(1, static_cast<usize>(16) * (sm.size() - 1) / static_cast<usize>(c.length));
+    usize tile = 0;
+    for (usize i = 0;; i = std::min(i + step, sm.size() - 1)) {
+        const TrackSample& at = sm[i];
+        while (tile + 1 < c.tiles.size() && c.tileStart[tile + 1] <= at.s) ++tile;
+        // Square to the grid at both ends, where the road pieces of the end tiles meet it.
+        glm::vec2 d;
+        if (i == 0 || i + 1 >= sm.size()) {
+            const TilePos axis = dirOffset(i == 0 ? c.sideA : opposite(c.sideB));
+            d = glm::vec2(static_cast<float>(axis.x), static_cast<float>(axis.y));
+        } else {
+            const TPoint before = sm[i >= 2 ? i - 2 : 0].p, after = sm[std::min(i + 2, sm.size() - 1)].p;
+            d = glm::vec2(static_cast<float>(after.x - before.x), static_cast<float>(after.z - before.z));
+            d = glm::length(d) > 0.0f ? glm::normalize(d) : glm::vec2(1.0f, 0.0f);
+        }
+        const TilePos t = c.tiles[tile];
+        const glm::vec2 p(at.p.x / static_cast<float>(kTrackUnits), at.p.z / static_cast<float>(kTrackUnits));
+        const float y = roadSurfaceY(world, t, std::clamp(p.x - static_cast<float>(t.x), 0.0f, 1.0f),
+                                     std::clamp(p.y - static_cast<float>(t.y), 0.0f, 1.0f));
+        sections.push_back({p - glm::vec2(static_cast<float>(anchor.x), static_cast<float>(anchor.y)), {d.y, -d.x}, y, at.s});
+        if (i + 1 >= sm.size()) break;
+    }
+    const auto strip = [&](float half, float lift, u32 colour, bool dashed) {
+        for (usize i = 0; i + 1 < sections.size(); ++i) {
+            const Section& a = sections[i];
+            const Section& b = sections[i + 1];
+            if (dashed && ((a.s + b.s) / 2) % 128 >= 64) continue; // a quarter tile dashes, a quarter gaps
+            const auto v = [&](const Section& q, float side) {
+                const glm::vec2 xz = q.p + q.left * (half * side);
+                const float y = curvedRoadY(world, c, anchor.x + static_cast<double>(xz.x), anchor.y + static_cast<double>(xz.y), q.y);
+                return glm::vec3(xz.x, y + lift, xz.y);
+            };
+            out.triangleUp(v(a, 1.0f), v(b, -1.0f), v(a, -1.0f), colour);
+            out.triangleUp(v(a, 1.0f), v(b, 1.0f), v(b, -1.0f), colour);
+        }
+    };
+    strip(0.40f, 0.015f, kPavement, false);
+    strip(0.28f, 0.025f, kAsphalt, false);
+    strip(0.012f, 0.03f, kMarking, true);
+}
+
 void TrackRenderer::sync(const World& world) {
+    if (roadRevision_ != world.roadCurveRevision) {
+        roadRevision_ = world.roadCurveRevision;
+        std::erase_if(roads_, [&](const auto& kv) {
+            const RoadCurve* c = world.roadCurves.tryGet(RoadCurveId{kv.first});
+            return !c || c->a != kv.second.a || c->b != kv.second.b || c->sideA != kv.second.sideA || c->sideB != kv.second.sideB;
+        });
+        for (const auto [id, c] : world.roadCurves) {
+            if (roads_.contains(id.value) || c.samples.empty()) continue;
+            RoadMesh& m = roads_[id.value];
+            m.a = c.a;
+            m.b = c.b;
+            m.sideA = c.sideA;
+            m.sideB = c.sideB;
+            m.anchor = c.a;
+            MeshBuilder mb;
+            buildRoadCurveMesh(world, c, m.anchor, mb);
+            m.mesh.upload(mb.vertices);
+            m.centre = glm::dvec2((c.a.x + c.b.x) * 0.5 + 0.5, (c.a.y + c.b.y) * 0.5 + 0.5);
+            m.extent = static_cast<double>(c.length) / kTrackUnits * 0.6 + 1.0;
+        }
+    }
     if (revision_ == world.trackRevision) return;
     revision_ = world.trackRevision;
     concourses_.clear();
@@ -593,6 +671,7 @@ usize TrackRenderer::draw(const Shader& shader, const glm::dvec3& origin, const 
     };
     drawMeshes(meshes_);
     drawMeshes(concourses_);
+    drawMeshes(roads_);
     return triangles;
 }
 

@@ -20,6 +20,7 @@ inline constexpr Money kPlantTree = 120;
 inline constexpr Money kLoanStep = 10'000;
 inline constexpr Money kRoadPiece = 250;
 inline constexpr Money kRemoveRoadPiece = 40;
+inline constexpr Money kRoadCurvePerTile = 600; // curved road, per tile of length (both lanes, kerbs)
 inline constexpr Money kRoadStop = 1'500;
 inline constexpr Money kRemoveStation = 400;
 inline constexpr Money kRoadDepot = 4'000;

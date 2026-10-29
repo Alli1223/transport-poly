@@ -86,5 +86,9 @@ void fieldLabel(const char* text);
 
 // Name tag floating over the world (towns, stations).
 void worldLabel(ImDrawList* dl, ImVec2 centre, const char* title, const char* detail, ImU32 dot, float scale = 1.0f);
+// A larger floating label for things seen from afar (countryside industries): a badge holding an
+// icon, the title in the heading font and, when given, a detail line under it.
+void iconWorldLabel(ImDrawList* dl, ImVec2 centre, Icon icon, ImU32 badge, const char* title, const char* detail,
+                    float scale = 1.0f);
 
 } // namespace tp::ui

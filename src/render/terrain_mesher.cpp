@@ -355,9 +355,23 @@ void addFoundation(MeshBuilder& mb, const TileCorners& c, float x0, float z0, fl
 
 } // namespace
 
+u8 curvedRoadAt(const World& world, TilePos t) {
+    if (const Tile* tile = world.map.tile(t); tile && tile->type == TileType::Road && roadcurves::at(world, t).valid()) return 1;
+    if (roadcurves::onVerge(world, t)) return 2;
+    for (i32 dy = -1; dy <= 1; ++dy)
+        for (i32 dx = -1; dx <= 1; ++dx)
+            if (roadcurves::at(world, {t.x + dx, t.y + dy}).valid()) return 2;
+    return 0;
+}
+
 ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen, const WaterLookup& waterOutside,
                                  int lod, const World* world, const std::function<bool(u32)>& residential,
-                                 const TileLookup& tilesOutside, float cover) {
+                                 const TileLookup& tilesOutside, float cover, const std::function<u8(TilePos)>& curvedRoad) {
+    const auto curveKind = [&](TilePos t) -> u8 {
+        if (curvedRoad) return curvedRoad(t);
+        return world ? curvedRoadAt(*world, t) : 0;
+    };
+    const auto onCurve = [&](TilePos t) { return curveKind(t) == 1; };
     ChunkGeometry out;
     const TilePos origin = chunkOrigin(chunk.pos);
     const u64 seed = gen.seed();
@@ -478,7 +492,8 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 base = stationStyle::mortar;
             } else if (tile.type == TileType::Building) {
                 base = lod == 0 ? (residential ? (residential(tile.index) ? kGarden : kPlaza) : buildingGround(tile, world)) : kUrbanBuilding;
-            } else if ((tile.type == TileType::Road || tile.type == TileType::Station) && lod > 0) {
+            } else if ((tile.type == TileType::Road || tile.type == TileType::Station) && lod > 0 &&
+                       !(tile.type == TileType::Road && onCurve(wp))) {
                 base = kUrbanRoad;
             } else if (tile.type == TileType::Depot) {
                 base = lod == 0 ? kPlaza : kUrbanBuilding;
@@ -614,7 +629,7 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                     mark(0.515f, 0.51f, 0.55f, 0.67f);
                 }
             }
-            if (structure && roadLike)
+            if (structure && roadLike && !(tile.type == TileType::Road && onCurve(wp)))
                 addRoad(ground, top, x0, z0, roadPieces(tile), tramPieces(tile), tile.type == TileType::Station);
             if (structure && tile.type == TileType::Depot) {
                 quadOnSurface(ground, top, x0, z0, 0.04f, 0.04f, 0.96f, 0.96f, 0.012f, kPlaza);
@@ -658,7 +673,7 @@ ChunkGeometry buildChunkGeometry(const Chunk& chunk, const TerrainGenerator& gen
                 }
             }
 
-            if (cover > 0.0f && lod == 0 && tile.type == TileType::Clear && !tile.span)
+            if (cover > 0.0f && lod == 0 && tile.type == TileType::Clear && !tile.span && curveKind(wp) != 2)
                 scatterCover(out.cover, tile, wp, x0, z0, chunk.fineCorners(lx, ly), seed, cover,
                              isWater(lx - 1, ly) || isWater(lx + 1, ly) || isWater(lx, ly - 1) || isWater(lx, ly + 1),
                              {cornerColor[static_cast<usize>(j * gridN + i)], cornerColor[static_cast<usize>(j * gridN + i + 1)],

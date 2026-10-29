@@ -320,6 +320,19 @@ turns water into clear land; it protects ships, active sailing steps and dock /
 shipyard berths. Canals have company ownership and monthly maintenance. Raised
 waterways and locks are not yet implemented.
 
+The road toolbar's **Curve** tool lays curved roads. Click a road end, or open land,
+then click where the road should go: the preview shows the curve, its cost, length
+and radius. A curve runs from the edge of one tile to the edge of another and turns
+at most a quarter turn, or swings round to one side in an S between parallel roads.
+The tightest radius is two tiles. Laying carries on from the new end until you join
+a road or right-click. The tiles a curve runs over hold an ordinary chain of road,
+so buses, cars and pedestrians use it like any street, but vehicles drive round the
+smooth curve in their lanes, take wide curves at full speed and are routed by the
+curve's real length. A curve costs by its length. Other roads, stops and depots join
+it only at its ends, and removing or bulldozing any part of it removes the whole
+curve. The ground its corners overhang stays free of houses and trees. Towns lay
+curved streets of their own, and leave some plots along their streets open.
+
 The road toolbar includes **Bridge**, **Tunnel** and **Remove span**.
 Drag a straight span between clear, flat ends at the same height (3–64 tiles).
 Bridge interiors need lower terrain; tunnel interiors need higher terrain.
@@ -464,6 +477,12 @@ coasters take logs, planks, bricks and steel. Click an industry to see what it
 makes, its stock, how much of it was transported last month and which stations
 reach it.
 
+Industries are founded at least 12 tiles (`industries::kMinTownDistance`) from any
+town's houses and roads, and that far beyond the built-up area around a town's
+centre, including the sites of towns still to be founded. Their signs show an icon
+for the kind of industry and can be read from far out; zoomed in, they also show
+what the industry makes or takes.
+
 Towns need goods delivered to keep growing: a village asks for one of food, planks
 or cheese, and as it grows it asks for more and more elaborate things (bricks,
 cloth, goods, furniture, steel), chosen at random. Deliveries count at the town's
@@ -558,8 +577,8 @@ swap / VSync wait and is not a GPU timing measurement.
 
 The CI workflow builds, tests and packages Windows and Ubuntu clients, and also
 builds a headless Ubuntu server with warnings as errors. It can be started manually
-after pushing the branch. Save format 25 retains compatibility with versions 1-24;
-protocol 33 requires matching client and server builds. Older saves adopt daily
+after pushing the branch. Save format 33 retains compatibility with versions 1-32;
+protocol 44 requires matching client and server builds. Older saves adopt daily
 connected-town demand when loaded; current saves preserve planned departure times.
 
 `transport-poly --demo-station --time 12 --no-debug --screenshot station.png --frames 600`
@@ -577,3 +596,8 @@ shows occupied carriages and a tram from outside, including both decks of a coac
 `transport-poly --preview-station-details --time 12 --no-debug --screenshot station-details.png --frames 50`
 shows the platform furniture, compact footbridges and matching pedestrian approach
 without the station panel.
+
+`transport-poly --seed 77 --goto-town 40 --demo-road-curves --time 12 --no-debug --screenshot curves.png --frames 900`
+lays a quarter turn and an S-curve on open land near the camera, with two bus stops,
+a depot and two buses running round them. `--preview-road-curve` does the same and
+shows the Curve tool part way through laying another curve from the last road end.

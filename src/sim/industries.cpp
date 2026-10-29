@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <optional>
+#include <vector>
 
 namespace tp::industries {
 
@@ -113,28 +114,66 @@ bool explored(const Map& m, TilePos c, i32 r) {
     return true;
 }
 
-// Clear of towns and of other countryside industries.
-bool apart(const World& w, TilePos pos, i32 size) {
+// Tiles from a footprint (NW corner `pos`, `size` across) to a point, in the longer direction.
+i64 gapTo(TilePos pos, i32 size, TilePos p) {
+    const i64 dx = p.x < pos.x ? pos.x - p.x : p.x >= pos.x + size ? p.x - (pos.x + size - 1) : 0;
+    const i64 dy = p.y < pos.y ? pos.y - p.y : p.y >= pos.y + size ? p.y - (pos.y + size - 1) : 0;
+    return std::max(dx, dy);
+}
+
+// A town still to be founded: where its centre will be, and how far around it the town will
+// reach (its built-up radius when founded, and its roads and houses a little beyond).
+struct FutureTown {
+    TilePos centre;
+    i32 reach = 0;
+};
+
+// The towns still to be founded within `range` tiles of `near`.
+std::vector<FutureTown> futureTowns(const World& w, TilePos near, i32 range) {
+    std::vector<FutureTown> out;
+    for (i32 cy = floorDiv(near.y - range, kTownCellSize); cy <= floorDiv(near.y + range, kTownCellSize); ++cy)
+        for (i32 cx = floorDiv(near.x - range, kTownCellSize); cx <= floorDiv(near.x + range, kTownCellSize); ++cx) {
+            if (w.processedTownCells.contains(ChunkPos{cx, cy}.key())) continue; // founded (in w.towns) or empty
+            const std::optional<TownSite> site = townSiteForCell(w.map.generator(), cx, cy);
+            if (!site) continue;
+            const i32 classRadius = site->cls == TownClass::City ? 12 : site->cls == TownClass::Town ? 8 : 5;
+            const i32 radius = std::max(classRadius, static_cast<i32>(isqrt(static_cast<u64>(std::max(0, site->targetPopulation)))) / 2 + 4);
+            out.push_back({site->centre, radius + 6});
+        }
+    return out;
+}
+
+// Clear of towns (see kMinTownDistance), of towns still to be founded and of other countryside
+// industries.
+bool apart(const World& w, TilePos pos, i32 size, const std::vector<FutureTown>& future) {
     for (const auto [id, t] : w.towns)
-        if (chebyshev(t.centre.x - pos.x, t.centre.y - pos.y) < t.radius + 6 + size) return false;
-    for (i32 dy = -5; dy < size + 5; ++dy)
-        for (i32 dx = -5; dx < size + 5; ++dx) {
-            const Tile* tile = w.map.tile({pos.x + dx, pos.y + dy});
-            if (!tile || tile->type != TileType::Building) continue;
-            if (const Building* b = w.buildings.tryGet(BuildingId(tile->index)); b && isCountryside(b->type)) return false;
+        if (gapTo(pos, size, t.centre) < t.radius + kMinTownDistance) return false;
+    for (const FutureTown& t : future)
+        if (gapTo(pos, size, t.centre) < t.reach + kMinTownDistance) return false;
+    for (i32 dy = -kMinTownDistance; dy < size + kMinTownDistance; ++dy)
+        for (i32 dx = -kMinTownDistance; dx < size + kMinTownDistance; ++dx) {
+            const TilePos p{pos.x + dx, pos.y + dy};
+            const Tile* tile = w.map.tile(p);
+            if (!tile) continue;
+            if (tile->type == TileType::Road && tile->roadOwner == kOwnerTown) return false;
+            if (tile->type != TileType::Building) continue;
+            const Building* b = w.buildings.tryGet(BuildingId(tile->index));
+            if (!b) continue;
+            if (!isCountryside(b->type) && b->town.valid()) return false;
+            if (isCountryside(b->type) && gapTo(pos, size, p) <= 5) return false;
         }
     return true;
 }
 
 // Open land for a footprint, no more than `relief` levels from its lowest to its highest corner,
 // with a margin of open land around it.
-bool fits(const World& w, TilePos pos, i32 size, i32 relief) {
+bool fits(const World& w, TilePos pos, i32 size, i32 relief, const std::vector<FutureTown>& future) {
     for (i32 dy = -1; dy <= size; ++dy)
         for (i32 dx = -1; dx <= size; ++dx) {
             const TilePos t{pos.x + dx, pos.y + dy};
             const Tile* tile = w.map.tile(t);
             if (!tile || tile->type != TileType::Clear || tile->span) return false;
-            if (w.trackTiles.contains(ChunkPos{t.x, t.y}.key())) return false;
+            if (w.trackTiles.contains(ChunkPos{t.x, t.y}.key()) || roadcurves::onVerge(w, t)) return false;
         }
     i32 lo = INT32_MAX, hi = INT32_MIN;
     for (i32 cy = pos.y; cy <= pos.y + size; ++cy)
@@ -145,13 +184,13 @@ bool fits(const World& w, TilePos pos, i32 size, i32 relief) {
             hi = std::max(hi, f);
         }
     if (hi - lo > relief * kSubLevels || lo < kSubLevels) return false;
-    return apart(w, pos, size);
+    return apart(w, pos, size, future);
 }
 
 // Open water for a fish farm's pens, with a margin of water all round and the shore close by:
 // the edge of a lake or the coast, where a dock or a quay can reach it. Narrow water such as a
 // river, with land close on both sides, stays free for shipping.
-bool fitsWater(const World& w, TilePos pos, i32 size) {
+bool fitsWater(const World& w, TilePos pos, i32 size, const std::vector<FutureTown>& future) {
     for (i32 dy = -1; dy <= size; ++dy)
         for (i32 dx = -1; dx <= size; ++dx) {
             const Tile* tile = w.map.tile({pos.x + dx, pos.y + dy});
@@ -165,7 +204,7 @@ bool fitsWater(const World& w, TilePos pos, i32 size) {
             if (!tile) return false;
             ++(tile->type == TileType::Water ? water : land);
         }
-    return land > 0 && water >= 2 * land && apart(w, pos, size);
+    return land > 0 && water >= 2 * land && apart(w, pos, size, future);
 }
 
 // Levels the footprint to the whole height level nearest its average.
@@ -189,15 +228,16 @@ BuildingId found(World& w, u16 type, TilePos near, i32 search) {
     if (!isCountryside(type)) return {};
     const u8 startLevel = static_cast<u8>(1 + hashCoords(w.settings.seed, near.x, near.y, 0x1D57) % 4);
     const u8 size = static_cast<u8>(buildingType(type).size + 2 + startLevel / 2);
+    const std::vector<FutureTown> future = futureTowns(w, near, search + size + kMinTownDistance + 48);
     for (i32 r = 0; r <= search; ++r)
         for (i32 dy = -r; dy <= r; ++dy)
             for (i32 dx = -r; dx <= r; ++dx) {
                 if (std::max(std::abs(dx), std::abs(dy)) != r) continue;
                 const TilePos pos{near.x + dx - size / 2, near.y + dy - size / 2};
                 if (type == kFishFarm) {
-                    if (!fitsWater(w, pos, size)) continue;
+                    if (!fitsWater(w, pos, size, future)) continue;
                 } else {
-                    if (!fits(w, pos, size, extractive(type) ? 5 : 3)) continue;
+                    if (!fits(w, pos, size, extractive(type) ? 5 : 3, future)) continue;
                     level(w, pos, size);
                 }
                 TownId town;

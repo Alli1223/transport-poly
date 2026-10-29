@@ -593,6 +593,10 @@ bool App::parseArgs(int argc, char** argv) {
             demoStructure_ = TrackStructure::Tunnel;
         } else if (arg == "--demo-crossing") {
             demoCrossing_ = true;
+        } else if (arg == "--demo-road-curves" || arg == "--preview-road-curve") {
+            // Automation: curved roads with buses on them; the preview also shows the curve tool laying one.
+            demoRoadCurves_ = true;
+            previewRoadCurve_ = arg == "--preview-road-curve";
         } else if (arg == "--demo-ships") {
             demoShips_ = true;
         } else if (arg == "--join") {
@@ -1060,6 +1064,40 @@ std::optional<glm::vec2> App::worldToScreen(const glm::dvec3& p) const {
                      static_cast<float>((1.0 - ndc.y) * 0.5 * io.DisplaySize.y));
 }
 
+namespace {
+
+constexpr double kIndustryLabelDistance = 220.0; // industry signs show while the camera is closer than this
+
+struct IndustryBadge {
+    ui::Icon icon;
+    ImU32 colour;
+};
+
+// The icon and colour of an industry's sign: farms green and gold, mines and quarries in the
+// colours of their rock, mills and factories blue and purple, fish farms the colour of water.
+IndustryBadge industryBadge(const Building& b) {
+    switch (b.type) {
+    case industries::kGrainFarm: return {ui::Icon::Wheat, ui::col::kAccent};
+    case industries::kSheepFarm: return {ui::Icon::Sheep, ui::col::kLeaf};
+    case industries::kDairyFarm: return {ui::Icon::Milk, ui::col::kLeaf};
+    case industries::kLoggingCamp: return {ui::Icon::Tree, ui::col::kGreen};
+    case industries::kQuarry: return {ui::Icon::Stone, IM_COL32(206, 190, 160, 255)};
+    case industries::kIronMine: return {ui::Icon::MineCart, ui::col::kOrange};
+    case industries::kCoalMine: return {ui::Icon::Pickaxe, ui::col::kTextMuted};
+    case industries::kCheeseDairy: return {ui::Icon::Cheese, ui::col::kAccent};
+    case industries::kTextileMill: return {ui::Icon::Spool, ui::col::kPurple};
+    case industries::kSawmill: return {ui::Icon::Saw, ui::col::kOrange};
+    case industries::kBrickworks: return {ui::Icon::Bricks, ui::col::kRed};
+    case industries::kSteelMill: return {ui::Icon::Anvil, ui::col::kBlue};
+    case industries::kGoodsFactory: return {ui::Icon::Factory, ui::col::kBlue};
+    case industries::kFurnitureFactory: return {ui::Icon::Chair, ui::col::kPurple};
+    case industries::kFishFarm: return {ui::Icon::Fish, ui::col::kTeal};
+    default: return {ui::Icon::Cart, ui::col::kAccent}; // shops taking deliveries
+    }
+}
+
+} // namespace
+
 void App::drawTownLabels() {
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     const World& w = world();
@@ -1078,28 +1116,37 @@ void App::drawTownLabels() {
         const std::string pop = std::format("{}", t.population);
         ui::worldLabel(dl, ImVec2(sp->x, sp->y), t.name.c_str(), pop.c_str(), dot, scale);
     }
+    // Industries: large signs with an icon for what they are, readable from well out; what they
+    // make and take shows once zoomed in.
+    if (camera_.distance < kIndustryLabelDistance) {
+        const double reach = std::max(100.0, camera_.distance * 2.0 + 60.0);
+        const bool details = camera_.distance < 100.0;
+        for (const auto& industry : w.industries) {
+            const auto* b = w.buildings.tryGet(industry.building.id);
+            if (!b || b->serial != industry.building.serial) continue;
+            const double half = b->size() * 0.5;
+            const double dx = b->pos.x + half - camera_.target.x, dz = b->pos.y + half - camera_.target.z;
+            if (dx * dx + dz * dz > reach * reach) continue;
+            std::string detail;
+            if (const IndustryRecipe* r = recipeFor(b->type)) {
+                if (r->inputs[0] == CargoType::None) detail = std::format("Makes {} | {} in stock", cargoName(r->output), industry.stock[static_cast<usize>(r->output)]);
+                else if (r->inputs[1] == CargoType::None) detail = std::format("{} -> {}", cargoName(r->inputs[0]), cargoName(r->output));
+                else detail = std::format("{} + {} -> {}", cargoName(r->inputs[0]), cargoName(r->inputs[1]), cargoName(r->output));
+            } else if (b->info().category == BuildingCategory::Retail) {
+                detail = "Takes food and goods";
+            } else {
+                continue;
+            }
+            const double y = gfx::terrainHeightAt(w.map, b->pos.x + half, b->pos.y + half) + 3.0;
+            const auto sp = worldToScreen({b->pos.x + half, y, b->pos.y + half});
+            if (!sp) continue;
+            const IndustryBadge badge = industryBadge(*b);
+            ui::iconWorldLabel(dl, {sp->x, sp->y}, badge.icon, badge.colour, b->info().name.data(),
+                               details ? detail.c_str() : nullptr, 1.1f);
+        }
+    }
     // Station signs when zoomed in.
     if (camera_.distance > 110.0) return;
-    if (camera_.distance < 100) for (const auto& industry : w.industries) {
-        const auto* b = w.buildings.tryGet(industry.building.id);
-        if (!b || b->serial != industry.building.serial) continue;
-        const double dx = b->pos.x-camera_.target.x, dz = b->pos.y-camera_.target.z;
-        if (dx*dx + dz*dz > 10000) continue;
-        const double y = gfx::terrainHeightAt(w.map, b->pos.x+0.5, b->pos.y+0.5)+1.5;
-        const auto sp = worldToScreen({b->pos.x+0.5, y, b->pos.y+0.5});
-        if (!sp) continue;
-        std::string detail;
-        if (const IndustryRecipe* r = recipeFor(b->type)) {
-            if (r->inputs[0] == CargoType::None) detail = std::format("Makes {} | {} in stock", cargoName(r->output), industry.stock[static_cast<usize>(r->output)]);
-            else if (r->inputs[1] == CargoType::None) detail = std::format("{} -> {}", cargoName(r->inputs[0]), cargoName(r->output));
-            else detail = std::format("{} + {} -> {}", cargoName(r->inputs[0]), cargoName(r->inputs[1]), cargoName(r->output));
-        } else if (b->info().category == BuildingCategory::Retail) {
-            detail = "Takes food and goods";
-        } else {
-            continue;
-        }
-        ui::worldLabel(dl, {sp->x,sp->y}, b->info().name.data(), detail.c_str(), ui::col::kLeaf, 0.8f);
-    }
     const double stationDist = camera_.distance * 2.0 + 40.0;
     for (const auto [id, st] : w.stations) {
         const double dx = st.sign.x + 0.5 - camera_.target.x;
@@ -1500,6 +1547,30 @@ int App::run(int argc, char** argv) {
                         log::warn("No site found for the demo level crossing");
                     }
                     demoCrossing_ = false;
+                }
+            }
+            if (demoRoadCurves_ && frameCount >= 200) {
+                demoRoadCurves_ = false;
+                if (auto* local = dynamic_cast<LocalSession*>(session_.get())) {
+                    const TilePos centre{static_cast<i32>(std::floor(camera_.target.x)),
+                                         static_cast<i32>(std::floor(camera_.target.z))};
+                    if (const auto at = buildDemoRoadCurves(local->world(), local->localCompany(), centre)) {
+                        camera_.targetGoal = glm::dvec3(at->x + 0.5, 0.0, at->y + 4.5);
+                        if (previewRoadCurve_) {
+                            // From the end of the last straight, round a bend to the east.
+                            tool_ = Tool::RoadCurve;
+                            toolGroup_ = ToolGroup::Road;
+                            curveStart_ = TilePos{at->x + 4, at->y + 20};
+                            previewHover_ = glm::dvec3(at->x + 7.5, 0.0, at->y + 23.5);
+                            camera_.targetGoal = glm::dvec3(at->x + 5.0, 0.0, at->y + 20.0);
+                        }
+                        camera_.targetGoal.y = gfx::terrainHeightAt(world().map, camera_.targetGoal.x, camera_.targetGoal.z);
+                        camera_.distanceGoal = 16.0;
+                        camera_.snapToGoals();
+                        renderer_.invalidateAll();
+                    } else {
+                        log::warn("No site found for the curved road demo");
+                    }
                 }
             }
             if (demoFreight_ && frameCount >= 200) {

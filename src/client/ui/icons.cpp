@@ -404,6 +404,108 @@ void drawIcon(ImDrawList* dl, Icon icon, ImVec2 centre, float size, ImU32 color)
         g.fillCircle(0.0f, -0.42f, 0.11f);
         g.line(0.0f, -0.12f, 0.0f, 0.5f, 1.15f);
         break;
+    case Icon::RoadCurve:
+        // Kerbs sweeping round from the bottom to the right, with a dashed centre line.
+        dl->AddBezierCubic(g.p(-0.88f, 0.95f), g.p(-0.88f, -0.45f), g.p(-0.45f, -0.88f), g.p(0.95f, -0.88f), color, g.t);
+        dl->AddBezierCubic(g.p(-0.12f, 0.95f), g.p(-0.12f, 0.25f), g.p(0.25f, -0.12f), g.p(0.95f, -0.12f), color, g.t);
+        g.fillCircle(-0.47f, 0.52f, 0.08f);
+        g.fillCircle(-0.17f, -0.17f, 0.08f);
+        g.fillCircle(0.52f, -0.47f, 0.08f);
+        break;
+    case Icon::Wheat:
+        g.line(0.0f, 0.95f, 0.0f, -0.55f);
+        g.fillCircle(0.0f, -0.78f, 0.15f);
+        for (const float y : {-0.5f, -0.18f, 0.14f}) {
+            g.fillPoly({{-0.04f, y + 0.12f}, {-0.42f, y - 0.06f}, {-0.36f, y - 0.24f}, {-0.06f, y - 0.1f}});
+            g.fillPoly({{0.04f, y + 0.12f}, {0.06f, y - 0.1f}, {0.36f, y - 0.24f}, {0.42f, y - 0.06f}});
+        }
+        break;
+    case Icon::Sheep:
+        for (const ImVec2 c : {ImVec2(-0.42f, 0.0f), ImVec2(-0.1f, -0.2f), ImVec2(0.25f, -0.12f), ImVec2(-0.25f, 0.2f),
+                               ImVec2(0.15f, 0.2f)})
+            g.fillCircle(c.x, c.y, 0.3f);
+        g.fillCircle(0.72f, -0.32f, 0.2f);
+        g.line(-0.38f, 0.35f, -0.38f, 0.88f, 1.2f);
+        g.line(0.22f, 0.35f, 0.22f, 0.88f, 1.2f);
+        break;
+    case Icon::Milk:
+        // A milk churn.
+        g.rect(-0.46f, -0.28f, 0.46f, 0.9f, 0.12f);
+        g.poly({{-0.46f, -0.28f}, {-0.24f, -0.58f}, {0.24f, -0.58f}, {0.46f, -0.28f}}, false);
+        g.fillRect(-0.3f, -0.9f, 0.3f, -0.6f, 0.05f);
+        g.line(-0.46f, 0.25f, 0.46f, 0.25f);
+        break;
+    case Icon::Stone:
+        // Cut blocks stacked at a quarry.
+        g.fillRect(-0.9f, 0.3f, -0.06f, 0.88f, 0.05f);
+        g.fillRect(0.06f, 0.3f, 0.9f, 0.88f, 0.05f);
+        g.fillRect(-0.48f, -0.38f, 0.48f, 0.18f, 0.05f);
+        g.fillRect(-0.2f, -0.88f, 0.34f, -0.5f, 0.05f);
+        break;
+    case Icon::MineCart:
+        g.fillPoly({{-0.88f, -0.18f}, {0.88f, -0.18f}, {0.66f, 0.46f}, {-0.66f, 0.46f}});
+        g.fillCircle(-0.42f, 0.7f, 0.17f);
+        g.fillCircle(0.42f, 0.7f, 0.17f);
+        g.fillCircle(-0.36f, -0.32f, 0.22f);
+        g.fillCircle(0.08f, -0.42f, 0.25f);
+        g.fillCircle(0.48f, -0.3f, 0.19f);
+        break;
+    case Icon::Pickaxe:
+        g.line(-0.78f, 0.86f, 0.32f, -0.32f, 1.4f);
+        dl->AddBezierQuadratic(g.p(-0.22f, -0.88f), g.p(0.58f, -0.62f), g.p(0.9f, 0.18f), color, g.t * 1.6f);
+        g.fillCircle(0.62f, 0.78f, 0.16f);
+        g.fillCircle(0.88f, 0.52f, 0.11f);
+        break;
+    case Icon::Cheese:
+        g.poly({{-0.9f, 0.7f}, {0.9f, 0.7f}, {0.9f, -0.5f}}, true);
+        g.fillCircle(0.5f, 0.38f, 0.13f);
+        g.fillCircle(0.7f, 0.0f, 0.09f);
+        g.fillCircle(0.12f, 0.52f, 0.08f);
+        break;
+    case Icon::Spool:
+        // A spool of thread.
+        g.fillRect(-0.62f, -0.92f, 0.62f, -0.66f, 0.06f);
+        g.fillRect(-0.62f, 0.66f, 0.62f, 0.92f, 0.06f);
+        for (const float y : {-0.48f, -0.24f, 0.0f, 0.24f, 0.48f}) g.line(-0.4f, y, 0.4f, y, 1.1f);
+        break;
+    case Icon::Saw:
+        // A circular saw blade.
+        g.star(0.0f, 0.0f, 0.66f, 0.94f, 12, 0.0f);
+        break;
+    case Icon::Bricks:
+        g.rect(-0.9f, -0.62f, 0.9f, 0.7f);
+        g.line(-0.9f, -0.18f, 0.9f, -0.18f);
+        g.line(-0.9f, 0.26f, 0.9f, 0.26f);
+        for (const float x : {-0.3f, 0.3f}) {
+            g.line(x, -0.62f, x, -0.18f);
+            g.line(x, 0.26f, x, 0.7f);
+        }
+        g.line(0.0f, -0.18f, 0.0f, 0.26f);
+        g.line(-0.6f, -0.18f, -0.6f, 0.26f);
+        g.line(0.6f, -0.18f, 0.6f, 0.26f);
+        break;
+    case Icon::Anvil:
+        g.fillPoly({{-0.95f, -0.46f}, {0.72f, -0.52f}, {0.72f, 0.04f}, {-0.3f, 0.04f}});
+        g.fillRect(-0.22f, 0.04f, 0.4f, 0.46f);
+        g.fillRect(-0.55f, 0.46f, 0.74f, 0.82f, 0.05f);
+        break;
+    case Icon::Factory:
+        g.poly({{-0.9f, 0.88f}, {-0.9f, -0.5f}, {-0.35f, -0.12f}, {-0.35f, -0.5f}, {0.2f, -0.12f}, {0.2f, -0.5f},
+                {0.9f, -0.05f}, {0.9f, 0.88f}},
+               true);
+        g.fillRect(0.5f, -0.92f, 0.72f, -0.2f);
+        for (const float x : {-0.62f, -0.12f, 0.38f}) g.fillRect(x, 0.28f, x + 0.24f, 0.54f);
+        break;
+    case Icon::Chair:
+        g.line(-0.42f, -0.92f, -0.42f, 0.92f, 1.4f);
+        g.line(-0.42f, 0.1f, 0.52f, 0.1f, 1.4f);
+        g.line(0.52f, 0.1f, 0.52f, 0.92f, 1.4f);
+        g.line(-0.42f, -0.5f, -0.08f, -0.5f, 1.1f);
+        break;
+    case Icon::Fish:
+        g.fillPoly({{-0.55f, 0.0f}, {-0.15f, -0.44f}, {0.32f, -0.44f}, {0.82f, 0.0f}, {0.32f, 0.44f}, {-0.15f, 0.44f}});
+        g.tri(-0.5f, 0.0f, -0.96f, -0.46f, -0.96f, 0.46f);
+        break;
     }
 }
 

@@ -181,6 +181,19 @@ struct CmdRemoveRoad {
     }
 };
 
+// A curved road (see road_curves.hpp) from the edge of tile `from` it leaves through `fromSide`
+// to the edge of tile `to` it leaves through `toSide`. Either end may be open land or a road.
+struct CmdBuildRoadCurve {
+    TilePos from;
+    Dir fromSide = Dir::N;
+    TilePos to;
+    Dir toSide = Dir::N;
+    template <class Ar>
+    void serialize(Ar& ar) {
+        ar(from, fromSide, to, toSide);
+    }
+};
+
 // Drive-through bus or tram stop on a straight road tile.
 struct CmdBuildRoadStop {
     TilePos tile;
@@ -464,7 +477,7 @@ using CommandPayload =
                  CmdUpdateCompany, CmdTerraformBrush, CmdBuildTrack, CmdRemoveTrack, CmdBuildTrackStation,
                  CmdBuildTrackDepot, CmdTrackSignal, CmdReorderConsist, CmdStationEntrance, CmdAddPlatform, CmdExtendPlatform,
                  CmdDemolishBuilding, CmdElectrifyTrack, CmdSetAutoreplace, CmdSetAutorenew, CmdSetStationUse,
-                 CmdCreateLine, CmdEditLine, CmdAssignLine>;
+                 CmdCreateLine, CmdEditLine, CmdAssignLine, CmdBuildRoadCurve>;
 
 struct Command {
     CompanyId company;  // executing company, stamped by the server (invalid = server / spectator)

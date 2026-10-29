@@ -5,6 +5,38 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
 
 ## [Unreleased]
 
+### Curved roads
+- A **Curve** tool in the road toolbar lays curved roads, much as the track tool lays
+  curved track: click a road end (or open land), then click where the road should go.
+  A curve turns up to a quarter turn, or swings round to one side in an S and
+  straightens out again, and carries on from its end. The tightest curve has a radius
+  of two tiles, and a curve costs by its length.
+- Buses, lorries and private cars drive round curved roads smoothly, in their lane, and
+  take wide curves at full speed instead of slowing for every corner. Route finding
+  counts a curve by its real length.
+- Other roads, stops and depots join a curve at its ends. Removing or bulldozing any
+  part of a curve removes the whole curve. Houses keep off the ground a curve's
+  corners overhang.
+
+### Towns
+- Towns grow more organically: they now and then lay curved streets, and the main
+  streets of towns without a grid leave the centre straight and then bend away.
+- Not every plot along a street is built on. Some stay open as gardens and greens,
+  and away from the centre some stretches of street have houses on one side only,
+  or none at all.
+
+### Industries
+- Countryside industries are founded at least 12 tiles from any town's houses and
+  roads, and well away from town centres, including towns not yet founded. New
+  villages keep the same distance from industries.
+- Industry signs are larger, with an icon for each kind of industry (a tree for a
+  logging camp, a fish for a fish farm, a sheaf of wheat for a grain farm, and so
+  on), and show from much further out. What an industry makes shows when zoomed in.
+
+### Compatibility
+- Save format 33 (older saves load as before) and protocol 44: clients and servers
+  must be updated together.
+
 ## [0.6.0] - 2026-10-29
 
 ### Track and signals

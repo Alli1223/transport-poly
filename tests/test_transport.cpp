@@ -83,22 +83,35 @@ std::optional<Network> buildLine(World& w) {
         if (!town || t.population > town->population) town = &t;
     if (!town) return std::nullopt;
 
-    // Candidate stop tiles: straight, flat town road tiles.
+    // Candidate stop tiles: straight, flat town road tiles (not part way along a curve).
     std::vector<TilePos> candidates;
     for (const TilePos r : town->roads) {
         const Tile* t = w.map.tile(r);
-        if (t && t->type == TileType::Road && isStraight(roadPieces(*t)) && w.map.slope(r).isFlat())
+        if (t && t->type == TileType::Road && isStraight(roadPieces(*t)) && w.map.slope(r).isFlat() &&
+            !roadcurves::at(w, r).valid())
             candidates.push_back(r);
     }
     if (candidates.size() < 2) return std::nullopt;
-    // Pick the two candidates furthest apart that are connected by road.
+    // Pick two well apart, both among plenty of residents (organic towns have quiet lanes).
+    const auto residents = [&](TilePos c) {
+        i64 sum = 0;
+        for (i32 dy = -4; dy <= 4; ++dy)
+            for (i32 dx = -4; dx <= 4; ++dx)
+                if (const Tile* t = w.map.tile({c.x + dx, c.y + dy}); t && t->type == TileType::Building)
+                    if (const Building* b = w.buildings.tryGet(BuildingId(t->index))) sum += b->residents;
+        return sum;
+    };
+    std::vector<i64> people;
+    for (const TilePos c : candidates) people.push_back(residents(c));
     TilePos sa = candidates.front(), sb = candidates.front();
     i64 best = -1;
-    for (const TilePos p : candidates)
-        for (const TilePos q : candidates) {
-            const i64 d = manhattan(p.x - q.x, p.y - q.y);
-            if (d > best) {
-                best = d;
+    for (usize i = 0; i < candidates.size(); ++i)
+        for (usize j = i + 1; j < candidates.size(); ++j) {
+            const TilePos p = candidates[i], q = candidates[j];
+            if (manhattan(p.x - q.x, p.y - q.y) < 14) continue;
+            const i64 score = std::min(people[i], people[j]);
+            if (score > best) {
+                best = score;
                 sa = p;
                 sb = q;
             }

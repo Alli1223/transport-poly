@@ -7,6 +7,7 @@
 #include "sim/terraform.hpp"
 #include "sim/world.hpp"
 
+#include <algorithm>
 #include <format>
 
 namespace tp::cmd {
@@ -172,18 +173,28 @@ CommandResult handle(World& w, const Command& c, const CmdClearArea& x, bool exe
     bool anything = false;
     std::string firstError;
     const std::unordered_set<u64> busy = occupiedTiles(w);
+    const auto tally = [&](const CommandResult& t) {
+        if (t.ok) {
+            anything = true;
+            cost += t.cost;
+        } else if (firstError.empty()) {
+            firstError = t.error;
+        }
+    };
+    // Curved roads go whole, once each, after the other tiles (whose cost doesn't then depend on
+    // the curves' ends having lost their pieces).
+    std::vector<RoadCurveId> curves;
     for (i32 y = r.y0; y <= r.y1; ++y) {
         for (i32 xx = r.x0; xx <= r.x1; ++xx) {
             if (!w.map.tile({xx, y})) return CommandResult::failure("Area not explored");
-            const CommandResult t = demolishTile(w, c.company, {xx, y}, exec, busy);
-            if (t.ok) {
-                anything = true;
-                cost += t.cost;
-            } else if (firstError.empty()) {
-                firstError = t.error;
+            if (const RoadCurveId curve = roadcurves::at(w, {xx, y}); curve.valid()) {
+                if (std::find(curves.begin(), curves.end(), curve) == curves.end()) curves.push_back(curve);
+                continue;
             }
+            tally(demolishTile(w, c.company, {xx, y}, exec, busy));
         }
     }
+    for (const RoadCurveId curve : curves) tally(demolishRoadCurve(w, c.company, curve, exec, busy));
     if (!anything) return CommandResult::failure(firstError.empty() ? "Nothing to clear" : firstError);
     return CommandResult::success(cost, Expense::Construction);
 }
@@ -197,7 +208,7 @@ CommandResult handle(World& w, const Command& c, const CmdPlantTrees& x, bool ex
         for (i32 xx = r.x0; xx <= r.x1; ++xx) {
             Tile* tile = w.map.tile({xx, y});
             if (!tile) return CommandResult::failure("Area not explored");
-            if (tile->type != TileType::Clear || tile->trees >= 4) continue;
+            if (tile->type != TileType::Clear || tile->trees >= 4 || roadcurves::onVerge(w, {xx, y})) continue;
             if (tile->ground == Ground::Rock || tile->ground == Ground::Sand || tile->ground == Ground::Water) continue;
             cost += prices::kPlantTree;
             if (exec) {

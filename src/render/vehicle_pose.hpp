@@ -25,6 +25,10 @@ std::optional<VehiclePose> privateCarPose(const World& w, const Person& person, 
 
 // Height (world units) of the road / rail / stop / depot surface at a point inside a tile.
 float roadSurfaceY(const World& w, TilePos tile, float u, float v);
+// Height of a curved road's surface at a world point (x, z): that of the road tile under it, or
+// where it reaches over the ground beside the road, no lower than `edge` and riding over any
+// higher ground there.
+float curvedRoadY(const World& w, const RoadCurve& c, double x, double z, float edge);
 
 struct CarPose {
     VehiclePose pose;

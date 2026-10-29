@@ -709,7 +709,10 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
         }
         pl.tiles.push_back(t);
         switch (tile->type) {
-        case TileType::Clear: trees += tile->trees * prices::kRemoveTree; break;
+        case TileType::Clear:
+            if (roadcurves::onVerge(w, t)) return fail("Curved road in the way");
+            trees += tile->trees * prices::kRemoveTree;
+            break;
         case TileType::Track:
             if (tile->owner != company.value) return fail("Owned by another company");
             break;
@@ -717,6 +720,7 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
             return fail(options.kind == TrackKind::Plain ? "Too low to bridge the water - raise the track" : "Can't build on water");
         case TileType::Road: {
             if (bt.near.d >= kGrazeReach) break; // the edge of the bed only brushes the road
+            if (roadcurves::at(w, t).valid()) return fail("Curved road in the way");
             if (bt.near.d > kCrossingReach || options.kind != TrackKind::Plain) return fail("Road in the way");
             // A level crossing: square enough across a straight road, at its height.
             if (tile->rail) return fail("Railway in the way");

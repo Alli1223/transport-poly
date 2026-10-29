@@ -74,6 +74,23 @@ enum class Icon : unsigned char {
     Spark,
     Warning,
     Info,
+    // Curved road tool
+    RoadCurve,
+    // Countryside industries (Tree marks a logging camp)
+    Wheat,
+    Sheep,
+    Milk,
+    Stone,
+    MineCart,
+    Pickaxe,
+    Cheese,
+    Spool,
+    Saw,
+    Bricks,
+    Anvil,
+    Factory,
+    Chair,
+    Fish,
 };
 
 // Draws `icon` centred on `centre`, fitting a `size` x `size` box.

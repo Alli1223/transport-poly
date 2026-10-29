@@ -61,6 +61,7 @@ enum class Tool {
     RemoveWires, // take them down
     DemolishBuilding,
     PickOrder, // click a station to append it to the selected vehicle's orders
+    RoadCurve, // click a road end, then where the curved road should go
 };
 
 // Toolbar categories; the tools of the open group are shown above the main toolbar.
@@ -157,6 +158,9 @@ private:
     CommandResult testPickedOrders(const std::vector<Order>& orders);
     void commitPickedOrders(const std::vector<Order>& orders);
     void drawLineRoutes(std::vector<gfx::OverlayQuad>& overlays, bool all);
+
+    // app_roads.cpp
+    void handleRoadCurveTool(std::vector<gfx::OverlayQuad>& overlays);
 
     // app_track.cpp
     void handleTrackTool(std::vector<gfx::OverlayQuad>& overlays);
@@ -310,6 +314,7 @@ private:
     std::optional<TilePos> dragStart_;
     std::optional<TrackAnchor> trackStart_; // free-form track being laid (start of the next piece)
     std::optional<TrackAnchor> stationStart_; // first end of a station platform being placed
+    std::optional<TilePos> curveStart_;       // curved road being laid: the tile the next curve leaves
     TrackNodeId selSignal_;          // the signal open in the signal panel
     bool newSignalOneWay_ = false;   // the signal tool puts in one-way signals
     SignalBlocks signalBlocks_;
@@ -455,6 +460,8 @@ private:
     bool previewOrders_ = false;    // automation: show the order picker over a platform
     std::optional<TrackStructure> demoStructure_; // automation: build a line needing a bridge or tunnel
     bool demoCrossing_ = false;     // automation: build a line across a road
+    bool demoRoadCurves_ = false;   // automation: curved roads with buses running round them
+    bool previewRoadCurve_ = false; // automation: the curved road tool part way through laying a curve
     std::optional<glm::dvec3> previewHover_; // automation: scripted cursor position on the ground
     bool followFirst_ = false;      // automation: follow the first vehicle
     bool inspectFirst_ = false;     // automation: open the card of someone travelling by public transport
@@ -464,5 +471,9 @@ private:
     std::string joinAddress_;       // --join host[:port]
     std::string openWindows_;       // automation: --open depot,station,town,finances,vehicles,towns,news
 };
+
+// Automation: curved roads with two bus stops, a depot and two buses on open land near `centre`
+// (app_roads.cpp). Returns a tile in the middle of it.
+std::optional<TilePos> buildDemoRoadCurves(World& w, CompanyId company, TilePos centre);
 
 } // namespace tp

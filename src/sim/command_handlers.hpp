@@ -24,6 +24,7 @@ CommandResult handle(World& w, const Command& c, const CmdDemolishBuilding& x, b
 CommandResult handle(World& w, const Command& c, const CmdPlantTrees& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdBuildRoad& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdRemoveRoad& x, bool exec);
+CommandResult handle(World& w, const Command& c, const CmdBuildRoadCurve& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdBuildRoadStop& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdBuildRoadDepot& x, bool exec);
 CommandResult handle(World& w, const Command& c, const CmdBuyVehicle& x, bool exec);
@@ -61,8 +62,11 @@ CommandResult handle(World& w, const Command& c, const CmdAssignLine& x, bool ex
 // Tiles currently occupied by vehicles, computed directly from the vehicle pool so the result
 // never depends on derived caches (which differ right after loading a game).
 std::unordered_set<u64> occupiedTiles(const World& w);
-// Bulldozes a single tile for `company` (used by CmdClearArea). Returns cost or an error.
+// Bulldozes a single tile for `company` (used by CmdClearArea). Returns cost or an error. A tile
+// of a curved road takes the whole curve with it.
 CommandResult demolishTile(World& w, CompanyId company, TilePos t, bool exec, const std::unordered_set<u64>& busy);
+// Removes a whole curved road for `company`.
+CommandResult demolishRoadCurve(World& w, CompanyId company, RoadCurveId id, bool exec, const std::unordered_set<u64>& busy);
 
 // Helpers shared by handlers.
 struct Rect {

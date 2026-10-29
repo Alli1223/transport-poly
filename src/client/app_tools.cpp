@@ -124,10 +124,12 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
     const bool rightClick = !mouseOverUi_ && ImGui::IsMouseClicked(ImGuiMouseButton_Right);
     if (tool_ != Tool::RailTrack) trackStart_.reset();
     if (tool_ != Tool::RailStation) { stationStart_.reset(); stationEditTarget_ = {}; }
-    if ((trackStart_ || stationStart_) && (esc || rightClick)) {
-        // First stop laying the current track or platform, then leave the tool.
+    if (tool_ != Tool::RoadCurve) curveStart_.reset();
+    if ((trackStart_ || stationStart_ || curveStart_) && (esc || rightClick)) {
+        // First stop laying the current track, platform or curved road, then leave the tool.
         trackStart_.reset();
         stationStart_.reset();
+        curveStart_.reset();
         if (esc) escConsumed_ = true;
     } else if ((esc && tool_ != Tool::None) || (rightClick && tool_ != Tool::None && !dragStart_)) {
         tool_ = Tool::None;
@@ -140,6 +142,10 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
     }
     if (tool_ == Tool::RailTrack) {
         handleTrackTool(overlays);
+        return;
+    }
+    if (tool_ == Tool::RoadCurve) {
+        handleRoadCurveTool(overlays);
         return;
     }
     if (tool_ == Tool::RemoveRail) {
@@ -458,6 +464,10 @@ constexpr ToolInfo kTools[] = {
      "Click a building to preview its demolition cost, then clear it", true},
     {Tool::Trees, ToolGroup::Land, ui::Icon::Tree, "Trees", "Drag to plant trees", false},
     {Tool::Road, ToolGroup::Road, ui::Icon::Road, "Road", "Drag to build a straight road", false},
+    {Tool::RoadCurve, ToolGroup::Road, ui::Icon::RoadCurve, "Curve",
+     "Click a road end (or open land), then click again to lay a curved road there; it carries on from its end. "
+     "A curve turns a quarter turn at most, or bends round to one side and straightens out again",
+     false},
     {Tool::DemolishBuilding, ToolGroup::Road, ui::Icon::Bulldoze, "Demolish",
      "Click a building to preview its demolition cost, then clear it", true},
     {Tool::RemoveRoad, ToolGroup::Road, ui::Icon::Road, "Remove", "Drag to remove road", true},

@@ -32,6 +32,7 @@ CommandResult handle(World& w, const Command& c, const CmdBuildSpan& x, bool exe
         if (!tile) return CommandResult::failure("Area not explored");
         if (tile->span || (tile->type != TileType::Clear && tile->type != TileType::Water))
             return CommandResult::failure("Clear the span before building");
+        if ((i == 0 || i == count - 1) && roadcurves::onVerge(w, p)) return CommandResult::failure("Too close to a curved road");
         if (tile->owner != kOwnerNone && tile->owner != c.company.value)
             return CommandResult::failure("Owned by another company");
         if (busy.contains(ChunkPos{p.x, p.y}.key())) return CommandResult::failure("Vehicle in the way");

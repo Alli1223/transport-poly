@@ -12,6 +12,7 @@
 #include "sim/map.hpp"
 #include "sim/passengers.hpp"
 #include "sim/person.hpp"
+#include "sim/road_curves.hpp"
 #include "sim/station.hpp"
 #include "sim/subsidies.hpp"
 #include "sim/town.hpp"
@@ -30,7 +31,7 @@
 namespace tp {
 
 // Save game / snapshot format version.
-inline constexpr u32 kSaveVersion = 32;
+inline constexpr u32 kSaveVersion = 33;
 inline constexpr u32 kMinSaveVersion = 1; // oldest save game that can still be loaded
 
 struct WorldSettings {
@@ -103,6 +104,7 @@ public:
     Pool<Vehicle, VehicleId> vehicles;
     Pool<TrackNode, TrackNodeId> trackNodes;
     Pool<TrackEdge, TrackEdgeId> trackEdges;
+    Pool<RoadCurve, RoadCurveId> roadCurves;
     std::set<u64> processedTownCells; // town cells already founded or known to be empty
     std::set<u64> processedIndustrySites; // industry sites already founded or known to be empty
     u32 nextSerial = 0;               // serial numbers for buildings / people
@@ -129,6 +131,15 @@ public:
     std::unordered_map<u64, std::vector<TrackEdgeId>> trackTiles;
     // Bumped whenever track is built or removed (renderers rebuild their meshes).
     u32 trackRevision = 0;
+    // Tile key -> the curved road running over the tile, and the tile's place along it.
+    struct RoadCurveTile {
+        RoadCurveId curve;
+        u16 index = 0;
+    };
+    std::unordered_map<u64, RoadCurveTile> roadCurveTiles;
+    // Tile key -> how many curved roads' surfaces overhang the tile (their verges).
+    std::unordered_map<u64, u16> roadCurveVerges;
+    u32 roadCurveRevision = 0; // bumped whenever a curved road is built or removed
     // Tile key -> vehicles on the tile (rebuilt every tick).
     std::unordered_map<u64, std::vector<VehicleId>> vehicleTiles;
     std::unordered_map<u64, std::vector<PersonId>> privateCarTiles; // derived, updated as citizens drive
@@ -160,6 +171,7 @@ public:
         if (ar.version == 0 || ar.version >= 26) ar(competitionWinner, competitionOver);
         if (ar.version == 0 || ar.version >= 29) ar(feedback, subsidies);
         if (ar.version == 0 || ar.version >= 31) ar(lines);
+        if (ar.version == 0 || ar.version >= 33) ar(roadCurves);
         if constexpr (Ar::kReading) {
             for (auto [id, c] : companies)
                 if (!c.thisMonth.month) {
@@ -180,6 +192,7 @@ public:
             townLinks = TownLinks{};
             rebuildSignalIndex();
             track::rebuildDerived(*this);
+            roadcurves::rebuildDerived(*this);
             if (ar.version != 0 && ar.version < 18) walking::migrateLegacy(*this);
         }
     }

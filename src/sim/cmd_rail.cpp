@@ -64,6 +64,8 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRail& x, bool exe
             if (t->rail & s.bit) continue;
         }
         if (!canAddTrack(w.map, s.tile, s.bit)) return CommandResult::failure(whyNoRail(w, s.tile));
+        if (roadcurves::at(w, s.tile).valid() || (t->type == TileType::Clear && roadcurves::onVerge(w, s.tile)))
+            return CommandResult::failure("Curved road in the way");
         if (t->type == TileType::Road && crossingRoadOccupied(w, s.tile))
             return CommandResult::failure("Vehicle in the way");
         cost += prices::kRailPiece + (t->type == TileType::Clear ? t->trees * prices::kRemoveTree : 0);

@@ -9,6 +9,7 @@
 #include "sim/water_path.hpp"
 #include "sim/world.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <format>
 #include <unordered_set>
@@ -50,6 +51,20 @@ std::string whyNoRoad(const World& w, TilePos t) {
 
 u8 ownerByte(CompanyId c) { return c.value; }
 
+CommandResult removeCurve(World& w, CompanyId company, RoadCurveId id, bool exec, const std::unordered_set<u64>& busy) {
+    const RoadCurve& curve = w.roadCurves[id];
+    if (curve.owner == kOwnerTown) return CommandResult::failure("Town road - can't remove");
+    if (curve.owner != ownerByte(company) && curve.owner != kOwnerNone) return CommandResult::failure("Owned by another company");
+    for (const TilePos t : curve.tiles)
+        if (occupied(busy, t)) return CommandResult::failure("Vehicle in the way");
+    const Money cost = roadcurves::removalCost(curve);
+    if (exec) {
+        roadcurves::remove(w, id);
+        vehicles::invalidatePaths(w);
+    }
+    return CommandResult::success(cost);
+}
+
 CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, const std::unordered_set<u64>& busy) {
     Tile* tile = w.map.tile(t);
     if (!tile) return CommandResult::failure("Area not explored");
@@ -88,6 +103,7 @@ CommandResult demolishImpl(World& w, CompanyId company, TilePos t, bool exec, co
         return CommandResult::success(cost);
     }
     case TileType::Road: {
+        if (const RoadCurveId curve = roadcurves::at(w, t); curve.valid()) return removeCurve(w, company, curve, exec, busy);
         if (track::isCrossing(w, t)) return CommandResult::failure("A railway crosses the road here - remove the track first");
         if (tile->rail && tile->owner != ownerByte(company))
             return CommandResult::failure("Railway owned by another company");
@@ -242,6 +258,11 @@ CommandResult demolishTile(World& w, CompanyId company, TilePos t, bool exec, co
     return demolishImpl(w, company, t, exec, busy);
 }
 
+CommandResult demolishRoadCurve(World& w, CompanyId company, RoadCurveId id, bool exec, const std::unordered_set<u64>& busy) {
+    if (!w.roadCurves.contains(id)) return CommandResult::failure("Nothing to clear");
+    return removeCurve(w, company, id, exec, busy);
+}
+
 CommandResult handle(World& w, const Command& c, const CmdDemolishBuilding& x, bool exec) {
     if (!w.companies.contains(c.company)) return CommandResult::failure("Only companies can demolish buildings");
     const auto* building = w.buildings.tryGet(x.building.id);
@@ -270,6 +291,10 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRoad& x, bool exe
         if (hasA && hasB) continue;
         if ((!hasA && track::isCrossing(w, a)) || (!hasB && track::isCrossing(w, b)))
             return CommandResult::failure("Roads can't branch off at a level crossing");
+        if ((!hasA && roadcurves::at(w, a).valid()) || (!hasB && roadcurves::at(w, b).valid()))
+            return CommandResult::failure("Roads join a curve at its ends only");
+        if ((ta->type == TileType::Clear && roadcurves::onVerge(w, a)) || (tb->type == TileType::Clear && roadcurves::onVerge(w, b)))
+            return CommandResult::failure("Too close to a curved road");
         if (!canConnectRoad(w.map, a, dir, x.tram)) {
             const bool aOk = ta->type == TileType::Clear || ta->type == TileType::Road;
             return CommandResult::failure(whyNoRoad(w, aOk ? b : a));
@@ -297,11 +322,16 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveRoad& x, bool ex
     const std::unordered_set<u64> busy = occupiedTiles(w);
     Money cost = 0;
     int removed = 0;
+    std::vector<RoadCurveId> curves; // curved roads go whole, after the other pieces
     for (usize i = 0; i < tiles.size(); ++i) {
         Tile* t = w.map.tile(tiles[i]);
         if (!t) return CommandResult::failure("Area not explored");
         if (t->type != TileType::Road) continue;
         if (t->span) return CommandResult::failure("Use the remove bridge / tunnel tool");
+        if (const RoadCurveId curve = roadcurves::at(w, tiles[i]); curve.valid() && !x.tram) {
+            if (std::ranges::find(curves, curve) == curves.end()) curves.push_back(curve);
+            continue;
+        }
         u8 mask = 0;
         if (i + 1 < tiles.size()) mask |= dirBit(dir);
         if (i > 0) mask |= dirBit(opposite(dir));
@@ -327,9 +357,27 @@ CommandResult handle(World& w, const Command& c, const CmdRemoveRoad& x, bool ex
             w.map.touch(tiles[i]);
         }
     }
+    for (const RoadCurveId curve : curves) {
+        const CommandResult r = removeCurve(w, c.company, curve, exec, busy);
+        if (!r.ok) return r;
+        cost += r.cost;
+        ++removed;
+    }
     if (removed == 0) return CommandResult::failure("No road to remove");
     if (exec) vehicles::invalidatePaths(w);
     return CommandResult::success(cost, Expense::Construction);
+}
+
+CommandResult handle(World& w, const Command& c, const CmdBuildRoadCurve& x, bool exec) {
+    if (!w.companies.contains(c.company)) return CommandResult::failure("Only companies can build roads");
+    const RoadCurvePlan plan = roadcurves::plan(w, x.from, x.fromSide, x.to, x.toSide, ownerByte(c.company));
+    if (!plan.ok) return CommandResult::failure(plan.error);
+    CommandResult r = CommandResult::success(plan.cost, Expense::Construction);
+    if (exec) {
+        r.createdId = roadcurves::build(w, plan).value;
+        vehicles::invalidatePaths(w);
+    }
+    return r;
 }
 
 CommandResult handle(World& w, const Command& c, const CmdBuildRoadStop& x, bool exec) {
@@ -339,6 +387,7 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRoadStop& x, bool
     if (t->type != TileType::Road) return CommandResult::failure(x.tram ? "Build on a tram track" : "Build on a road");
     if (t->span) return CommandResult::failure("Stops cannot be built on a bridge or tunnel");
     if (t->rail || track::isCrossing(w, x.tile)) return CommandResult::failure("Can't build a stop on a level crossing");
+    if (roadcurves::at(w, x.tile).valid()) return CommandResult::failure("Stops can't be built on a curved road");
     const u8 pieces = layerPieces(*t, x.tram);
     if (!isStraight(pieces)) return CommandResult::failure("The road must be straight here");
     if (!w.map.slope(x.tile).isFlat()) return CommandResult::failure("Land must be flat");
@@ -374,6 +423,9 @@ CommandResult handle(World& w, const Command& c, const CmdBuildRoadDepot& x, boo
     const TilePos front = neighbour(x.tile, x.facing);
     const Tile* ft = w.map.tile(front);
     if (!ft || ft->type != TileType::Road) return CommandResult::failure("The depot must face a road");
+    if (roadcurves::onVerge(w, x.tile)) return CommandResult::failure("Too close to a curved road");
+    if (roadcurves::at(w, front).valid() && !(layerPieces(*ft, x.tram) & dirBit(opposite(x.facing))))
+        return CommandResult::failure("Roads join a curve at its ends only");
     // The road in front needs a piece towards the depot at a matching height.
     const u8 bit = x.tram ? static_cast<u8>(dirBit(opposite(x.facing)) << 4) : dirBit(opposite(x.facing));
     const u8 newRoad = static_cast<u8>(ft->road | bit);

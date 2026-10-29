@@ -109,9 +109,19 @@ Dir exit(const Person& p) {
     if (p.carIndex + 1 < p.carPath.size()) return direction(p.carPath[p.carIndex], p.carPath[p.carIndex + 1]);
     return opposite(entry(p));
 }
-i32 progress(const Person& p, i64 tick) {
-    const auto length = pathLength(entry(p), exit(p));
-    return static_cast<i32>(std::clamp<i64>(tick - p.carStepStart, 0, kDriveTicksPerTile) * length / kDriveTicksPerTile);
+i64 stepTicks(const World& w, const Person& p) {
+    if (p.carIndex >= p.carPath.size()) return kDriveTicksPerTile;
+    const TilePos tile = p.carPath[p.carIndex];
+    if (!roadcurves::follow(w, tile, entry(p), exit(p)).curve) return kDriveTicksPerTile;
+    // Along a curved road, at the same pace however much of the curve the tile holds.
+    const i64 length = roadcurves::pathLength(w, tile, entry(p), exit(p));
+    return std::clamp<i64>((length * kDriveTicksPerTile + kTrackUnits / 2) / kTrackUnits, 1, 3 * kDriveTicksPerTile);
+}
+i32 progress(const World& w, const Person& p, i64 tick) {
+    if (p.carIndex >= p.carPath.size()) return 0;
+    const auto length = roadcurves::pathLength(w, p.carPath[p.carIndex], entry(p), exit(p));
+    const i64 ticks = stepTicks(w, p);
+    return static_cast<i32>(std::clamp<i64>(tick - p.carStepStart, 0, ticks) * length / ticks);
 }
 void release(World& w, PersonId id) {
     auto& p = w.people[id];
@@ -146,7 +156,7 @@ bool advance(World& w, PersonId id) {
             people::schedule(w, id, p.carStepStart); return true;
         }
         p.carStarted = true; p.carStepStart = w.clock.tick; index(w, id);
-        people::schedule(w, id, w.clock.tick + kDriveTicksPerTile); return true;
+        people::schedule(w, id, w.clock.tick + stepTicks(w, p)); return true;
     }
     if (p.carIndex + 1 == p.carPath.size()) { release(w, id); p.carPath.clear(); return false; }
     const auto next = p.carPath[p.carIndex + 1];
@@ -155,7 +165,7 @@ bool advance(World& w, PersonId id) {
         release(w, id); p.carPath.clear();
         if (auto replacement = route(w, {current.x * 2 + 1, current.y * 2 + 1}, p.tripTo2)) {
             p.carPath = std::move(*replacement); p.carIndex = 0; p.carStepStart = w.clock.tick;
-            index(w, id); people::schedule(w, id, w.clock.tick + kDriveTicksPerTile); return true;
+            index(w, id); people::schedule(w, id, w.clock.tick + stepTicks(w, p)); return true;
         }
         people::travelAbstract(w, id, {current.x * 2 + 1, current.y * 2 + 1}, p.tripTo2, false);
         return true;
@@ -163,7 +173,7 @@ bool advance(World& w, PersonId id) {
     if (blocked(w, id, next, opposite(exit(p)))) { people::schedule(w, id, w.clock.tick + 2); return true; }
     release(w, id); ++p.carIndex; p.carStepStart = w.clock.tick;
     index(w, id);
-    people::schedule(w, id, w.clock.tick + kDriveTicksPerTile);
+    people::schedule(w, id, w.clock.tick + stepTicks(w, p));
     return true;
 }
 void rebuild(World& w) {

@@ -242,7 +242,7 @@ void finishLoading(World& w, VehicleId id) {
 i32 gapAhead(const World& w, VehicleId id) {
     const Vehicle& v = w.vehicles[id];
     i32 best = INT_MAX;
-    const i32 len = pathLength(v.entry, v.exit);
+    const i32 len = roadcurves::pathLength(w, v.tile, v.entry, v.exit);
     if (const auto it = w.vehicleTiles.find(tileKey(v.tile)); it != w.vehicleTiles.end()) {
         for (const VehicleId oid : it->second) {
             if (oid == id) continue;
@@ -251,7 +251,7 @@ i32 gapAhead(const World& w, VehicleId id) {
             if (o.entry == v.entry && o.exit == v.exit) {
                 if (o.progress > v.progress) best = std::min(best, o.progress - v.progress);
             } else if (o.exit == v.exit) {
-                const i32 remO = pathLength(o.entry, o.exit) - o.progress;
+                const i32 remO = roadcurves::pathLength(w, o.tile, o.entry, o.exit) - o.progress;
                 const i32 remV = len - v.progress;
                 if (remO < remV) best = std::min(best, remV - remO);
             }
@@ -264,7 +264,7 @@ i32 gapAhead(const World& w, VehicleId id) {
             for (const PersonId pid : it->second) {
                 const auto* p = w.people.tryGet(pid);
                 if (!p || p->state != PersonState::Driving || !p->carStarted || p->carIndex >= p->carPath.size()) continue;
-                const i32 at = privatecars::progress(*p, w.clock.tick);
+                const i32 at = privatecars::progress(w, *p, w.clock.tick);
                 if (tile == v.tile && privatecars::entry(*p) == v.entry && at > v.progress)
                     best = std::min(best, at - v.progress);
                 else if (tile == next && privatecars::entry(*p) == ne)
@@ -278,6 +278,23 @@ i32 gapAhead(const World& w, VehicleId id) {
             if (o.entry == ne) best = std::min(best, (len - v.progress) + o.progress);
         }
     }
+    // Along a curved road the next tile may hold only a corner of the curve: look on along it
+    // for a tile's worth.
+    i32 ahead = len - v.progress;
+    TilePos at = next;
+    Dir in = ne;
+    for (int k = 0; k < 6 && ahead < kPathStraight; ++k) {
+        const auto out = roadcurves::onwardSide(w, at, in);
+        if (!out) break;
+        ahead += roadcurves::pathLength(w, at, in, *out);
+        at = neighbour(at, *out);
+        in = opposite(*out);
+        if (const auto it = w.vehicleTiles.find(tileKey(at)); it != w.vehicleTiles.end())
+            for (const VehicleId oid : it->second) {
+                const Vehicle& o = w.vehicles[oid];
+                if (oid != id && o.info().type != VehicleType::Ship && o.entry == in) best = std::min(best, ahead + o.progress);
+            }
+    }
     return best;
 }
 
@@ -287,7 +304,10 @@ void drive(World& w, VehicleId id) {
     const i32 maxSpeed = speedUnits(m.maxSpeedKmh);
     i32 desired = maxSpeed;
     const TurnKind tk = turnKind(v.entry, v.exit);
-    if (tk == TurnKind::Left || tk == TurnKind::Right) desired = std::min(desired, std::max(10, maxSpeed * 55 / 100));
+    // Along a curved road the whole curve sets the pace; its tiles' corners don't.
+    if (const roadcurves::Place on = roadcurves::follow(w, v.tile, v.entry, v.exit); on.curve)
+        desired = std::min(desired, roadcurves::speedLimit(*on.curve, maxSpeed));
+    else if (tk == TurnKind::Left || tk == TurnKind::Right) desired = std::min(desired, std::max(10, maxSpeed * 55 / 100));
     if (tk == TurnKind::UTurn) desired = std::min(desired, 8);
     if (v.stopAtMiddle) {
         const i32 remaining = pathLength(v.entry, v.exit) / 2 - v.progress;
@@ -311,11 +331,11 @@ void drive(World& w, VehicleId id) {
         return (tile->rail && (tile->extra2 & tile->rail)) || track::crossingClosed(w, pos);
     };
     if (closedCrossing(neighbour(v.tile, v.exit)))
-        v.speed = std::min(v.speed, std::max(0, pathLength(v.entry, v.exit) - v.progress - 1));
+        v.speed = std::min(v.speed, std::max(0, roadcurves::pathLength(w, v.tile, v.entry, v.exit) - v.progress - 1));
 
     v.progress += v.speed;
     for (int guard = 0; guard < 4; ++guard) {
-        const i32 len = pathLength(v.entry, v.exit);
+        const i32 len = roadcurves::pathLength(w, v.tile, v.entry, v.exit);
         if (v.stopAtMiddle && v.progress >= len / 2) {
             v.progress = len / 2;
             arriveAtStop(w, id);

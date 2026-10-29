@@ -578,4 +578,27 @@ void worldLabel(ImDrawList* dl, ImVec2 centre, const char* title, const char* de
     if (detail) dl->AddText(df, ds, ImVec2(x + tsz.x + gap, centre.y - dsz.y * 0.5f), col::kTextMuted, detail);
 }
 
+void iconWorldLabel(ImDrawList* dl, ImVec2 centre, Icon icon, ImU32 badge, const char* title, const char* detail, float k) {
+    ImFont* tf = fonts().heading ? fonts().heading : ImGui::GetFont();
+    ImFont* df = fonts().small ? fonts().small : ImGui::GetFont();
+    const float ts = tf->FontSize * k, ds = df->FontSize * k;
+    const ImVec2 tsz = tf->CalcTextSizeA(ts, FLT_MAX, 0.0f, title);
+    const ImVec2 dsz = detail ? df->CalcTextSizeA(ds, FLT_MAX, 0.0f, detail) : ImVec2(0, 0);
+    const float padX = px(7) * k, padY = px(5) * k, gap = px(8) * k, lineGap = px(1) * k;
+    const float textH = tsz.y + (detail ? lineGap + dsz.y : 0.0f);
+    const float badgeD = std::max(textH, tsz.y * 1.3f);
+    const float h = badgeD + padY * 2;
+    const float w = padX + badgeD + gap + std::max(tsz.x, dsz.x) + padX + px(6) * k;
+    const ImVec2 mn(centre.x - w * 0.5f, centre.y - h * 0.5f), mx(centre.x + w * 0.5f, centre.y + h * 0.5f);
+    dropShadow(dl, mn, mx, h * 0.5f, 10.0f * k, 0.32f);
+    dl->AddRectFilled(mn, mx, withAlpha(col::kBar, 0.94f), h * 0.5f);
+    dl->AddRect(mn, mx, withAlpha(badge, 0.6f), h * 0.5f, 0, 1.5f * k);
+    const ImVec2 bc(mn.x + padX + badgeD * 0.5f, centre.y);
+    dl->AddCircleFilled(bc, badgeD * 0.5f, badge);
+    drawIcon(dl, icon, bc, badgeD * 0.68f, col::kBar);
+    const float x = mn.x + padX + badgeD + gap, top = centre.y - textH * 0.5f;
+    dl->AddText(tf, ts, ImVec2(x, top), col::kText, title);
+    if (detail) dl->AddText(df, ds, ImVec2(x, top + tsz.y + lineGap), col::kTextMuted, detail);
+}
+
 } // namespace tp::ui

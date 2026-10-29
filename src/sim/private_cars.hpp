@@ -14,5 +14,7 @@ void release(World& w, PersonId id);
 void rebuild(World& w);
 Dir entry(const Person& p);
 Dir exit(const Person& p);
-i32 progress(const Person& p, i64 tick);
+// How far into its current tile a citizen's car is, and how many ticks it takes to cross it.
+i32 progress(const World& w, const Person& p, i64 tick);
+i64 stepTicks(const World& w, const Person& p);
 }

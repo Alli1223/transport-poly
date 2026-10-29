@@ -1,6 +1,6 @@
 #pragma once
 // Meshes for free-form track: ballast, sleepers and rails following each curved edge, with
-// bridges, tunnel portals and level crossings.
+// bridges, tunnel portals and level crossings. Curved roads (road_curves.hpp) are drawn here too.
 
 #include "render/mesh.hpp"
 #include "render/shader.hpp"
@@ -24,7 +24,9 @@ public:
     void clear() {
         meshes_.clear();
         concourses_.clear();
+        roads_.clear();
         revision_ = ~0u;
+        roadRevision_ = ~0u;
     }
 
 private:
@@ -39,11 +41,19 @@ private:
     std::unordered_map<u32, EdgeMesh> meshes_;
     std::unordered_map<u32, EdgeMesh> concourses_;
     u32 revision_ = ~0u;
+    struct RoadMesh : EdgeMesh {
+        TilePos a, b; // curve ids are reused: the ends tell curves apart
+        Dir sideA = Dir::N, sideB = Dir::N;
+    };
+    std::unordered_map<u32, RoadMesh> roads_;
+    u32 roadRevision_ = ~0u;
 };
 
 // Builds the mesh of one edge with vertices relative to tile `anchor` (the world gives the
 // ground under bridges).
 void buildTrackMesh(const World& world, const TrackEdge& edge, TilePos anchor, MeshBuilder& out);
 void buildStationConcourseMesh(const World& world, StationId station, TilePos anchor, MeshBuilder& out);
+// The road surface of a curved road: kerbs, asphalt and a dashed centre line.
+void buildRoadCurveMesh(const World& world, const RoadCurve& curve, TilePos anchor, MeshBuilder& out);
 
 } // namespace tp::gfx

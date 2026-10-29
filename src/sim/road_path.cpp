@@ -141,6 +141,8 @@ std::optional<std::vector<u8>> findRoadPath(const World& w, TilePos start, Dir e
             const Dir nextEntry = opposite(d);
             i64 step = 256;
             if (uturn) step += 1024;
+            else if (const roadcurves::Place on = roadcurves::follow(w, tile, in, d); on.curve)
+                step = roadcurves::pathLength(w, tile, in, d); // along a curved road: its length, no corners
             else if (d == rotateCW(opposite(in))) step += 24;
             else if (d != opposite(in)) step += 48;
             const i64 g = gHere + step;

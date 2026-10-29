@@ -33,6 +33,11 @@ inline constexpr u16 kFurnitureFactory = 28;
 inline constexpr u16 kFishFarm = 29; // net pens out on the water
 inline constexpr bool isCountryside(u16 buildingType) { return buildingType >= kGrainFarm && buildingType <= kFishFarm; }
 
+// Industries keep their distance from towns: a new industry's footprint is at least this many
+// tiles from every town house and town road, and this far beyond the built-up radius of every
+// town's centre (and of the sites where towns are still to be founded, as big as they will be).
+inline constexpr i32 kMinTownDistance = 12;
+
 // Founds the industries whose sites became fully explored by activating `chunk`.
 void onChunkActivated(World& w, ChunkPos chunk);
 // Founds an industry as near `near` as the land allows (within `search` tiles): open, gently

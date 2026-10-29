@@ -6,6 +6,7 @@
 #include "render/picking.hpp"
 #include <future>
 #include <chrono>
+#include <map>
 #include <set>
 #include "render/vehicle_pose.hpp"
 #include "render/catenary.hpp"
@@ -91,6 +92,28 @@ ModelId treeModel(const TreePlacement& t) {
     if (t.snowy) return models::kTreeConiferSnow;
     const ModelId base = t.type == TreeType::Conifer ? models::kTreeConifer0 : models::kTreeDeciduous0;
     return static_cast<ModelId>(base + t.variant % 3);
+}
+
+// Where the street lamp of a town road tile stands (x, height, z), if it has one: at the north-west
+// corner of every fourth tile on the grid, and at the kerb of every third tile of a curved road.
+std::optional<glm::dvec3> streetLamp(const World& world, TilePos t) {
+    const Tile* tile = world.map.tile(t);
+    if (!tile || tile->type != TileType::Road || tile->roadOwner != kOwnerTown || tile->span || tile->rail) return std::nullopt;
+    const auto it = world.roadCurveTiles.find(ChunkPos{t.x, t.y}.key());
+    if (it == world.roadCurveTiles.end()) {
+        if (((static_cast<u32>(t.x) + static_cast<u32>(t.y)) & 3u) != 0) return std::nullopt;
+        return glm::dvec3(t.x + 0.08, roadSurfaceY(world, t, 0.08f, 0.08f) + 0.02, t.y + 0.08);
+    }
+    const RoadCurve* c = world.roadCurves.tryGet(it->second.curve);
+    const usize i = it->second.index;
+    if (!c || i % 3 != 1 || i + 1 >= c->tileStart.size()) return std::nullopt;
+    TDir d;
+    const TPoint p = roadcurves::pointAt(*c, (c->tileStart[i] + c->tileStart[i + 1]) / 2, &d);
+    const double x = p.x / double(kTrackUnits) + d.z / double(kDirOne) * 0.45;
+    const double z = p.z / double(kTrackUnits) - d.x / double(kDirOne) * 0.45;
+    const float y = roadSurfaceY(world, t, std::clamp(static_cast<float>(x - t.x), 0.0f, 1.0f),
+                                 std::clamp(static_cast<float>(z - t.y), 0.0f, 1.0f));
+    return glm::dvec3(x, y + 0.02, z);
 }
 
 float facingYaw(Dir d) {
@@ -299,11 +322,9 @@ void WorldRenderer::collectLamps(const World& world, const glm::dvec3& origin, c
             const Tile* t = world.map.tile({x, y});
             if (!t) continue;
             const TilePos tp{x, y};
-            if (t->type == TileType::Road && t->roadOwner == kOwnerTown && !t->span && !t->rail &&
-                ((static_cast<u32>(x) + static_cast<u32>(y)) & 3u) == 0) {
-                const float ground = roadSurfaceY(world, tp, 0.08f, 0.08f) + 0.02f;
-                glows_.push_back({rel(x + 0.08, ground + 0.885f, y + 0.08), warm, 0.42f, night});
-                lamps_.push_back({rel(x + 0.08, ground + 0.85f, y + 0.08),
+            if (const auto lamp = streetLamp(world, tp)) {
+                glows_.push_back({rel(lamp->x, lamp->y + 0.885, lamp->z), warm, 0.42f, night});
+                lamps_.push_back({rel(lamp->x, lamp->y + 0.85, lamp->z),
                                   3.2f,
                                   warm * 0.85f * night,
                                   {0, -1, 0},
@@ -442,10 +463,10 @@ void WorldRenderer::buildChunkMesh(const World& world, ChunkPos pos, int lod, Ch
             for (i32 lx = 0; lx < kChunkSize; ++lx) {
                 const Tile& t = active->tile(lx, ly);
                 const TilePos wp{o.x + lx, o.y + ly};
-                if (t.type == TileType::Road && t.roadOwner == kOwnerTown && !t.span && !t.rail &&
-                    ((static_cast<u32>(wp.x) + static_cast<u32>(wp.y)) & 3u) == 0) {
-                    const float y = roadSurfaceY(world, wp, 0.08f, 0.08f) + 0.02f;
-                    items.emplace_back(models::kStreetLamp, makeInstance({lx + 0.08f, y, ly + 0.08f}, 0.0f, 1.0f));
+                if (const auto lamp = streetLamp(world, wp)) {
+                    const float y = static_cast<float>(lamp->y);
+                    items.emplace_back(models::kStreetLamp, makeInstance({static_cast<float>(lamp->x - o.x), y,
+                                                                          static_cast<float>(lamp->z - o.y)}, 0.0f, 1.0f));
                     mesh.maxY = std::max(mesh.maxY, y + 1.0f);
                 }
                 if (t.type == TileType::Station &&
@@ -1063,12 +1084,17 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
             !(settings.shadows && cand.dist2 < (shadowRadius+24)*(shadowRadius+24))) continue;
         std::optional<Chunk> snapshot;
         std::set<u32> residential;
+        std::map<TilePos, u8> curved; // tiles of curved roads (1) and their verges (2), see buildChunkGeometry
         if (active) {
             snapshot = *active;
             for (const auto& tile : active->tiles) if (tile.type == TileType::Building) {
                 const auto* b = world.buildings.tryGet(BuildingId(tile.index));
                 if (!b || b->info().category == BuildingCategory::Residential || b->type == 12 || (b->type >= 15 && b->type <= 18)) residential.insert(tile.index);
             }
+            if (!world.roadCurves.empty())
+                for (i32 ly = 0; ly < kChunkSize; ++ly)
+                    for (i32 lx = 0; lx < kChunkSize; ++lx)
+                        if (const u8 kind = curvedRoadAt(world, {o.x + lx, o.y + ly})) curved[{o.x + lx, o.y + ly}] = kind;
         }
         std::map<TilePos, bool> border;
         std::map<TilePos, Tile> borderTiles; // explored ones
@@ -1080,14 +1106,18 @@ void WorldRenderer::render(const World& world, const Camera& cam, double minuteO
             }
         }
         jobs.emplace(cand.pos.key(), std::async(std::launch::async,
-            [snapshot = std::move(snapshot), residential = std::move(residential), border = std::move(border),
-             borderTiles = std::move(borderTiles), gen = map.generator(), pos = cand.pos, lod, cover]() mutable {
+            [snapshot = std::move(snapshot), residential = std::move(residential), curved = std::move(curved),
+             border = std::move(border), borderTiles = std::move(borderTiles), gen = map.generator(), pos = cand.pos, lod,
+             cover]() mutable {
                 if (!snapshot) { snapshot.emplace(); gen.generateChunk(pos, *snapshot); }
                 return buildChunkGeometry(*snapshot, gen, [&](TilePos t) { return border.at(t); }, lod, nullptr,
                     [&](u32 id) { return residential.contains(id); }, [&](TilePos t) -> const Tile* {
                         const auto it = borderTiles.find(t);
                         return it == borderTiles.end() ? nullptr : &it->second;
-                    }, cover);
+                    }, cover, [&](TilePos t) -> u8 {
+                        const auto it = curved.find(t);
+                        return it == curved.end() ? 0 : it->second;
+                    });
             }));
     }
     DrawLists main, shadow;
