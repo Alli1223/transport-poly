@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <map>
+#include <optional>
 
 namespace tp::people {
 
@@ -15,6 +16,10 @@ namespace {
 
 Building* resolve(World& w, const BuildingRef& r) {
     Building* b = w.buildings.tryGet(r.id);
+    return (b && b->serial == r.serial) ? b : nullptr;
+}
+const Building* resolve(const World& w, const BuildingRef& r) {
+    const Building* b = w.buildings.tryGet(r.id);
     return (b && b->serial == r.serial) ? b : nullptr;
 }
 
@@ -44,13 +49,12 @@ bool findVacancy(World& w, TownId townId, PersonId pid) {
 
 // Picks the destination of a day out from the person's town to a town linked to it by public
 // transport. Rail serves the whole town through connected streets. Bigger towns draw more
-// visitors. False when there is no walkable round trip.
-bool planVisit(World& w, PersonId id, i32 day, bool business) {
-    Person& p = w.people[id];
+// visitors. Nothing when there is no walkable round trip.
+std::optional<BuildingRef> planVisit(const World& w, const Person& p, i32 day, bool business) {
     const Building* home = resolve(w, p.home);
-    if (!home) return false;
-    const std::vector<TownLink>& links = linkedTowns(w, p.town);
-    if (links.empty()) return false;
+    if (!home) return std::nullopt;
+    const std::vector<TownLink>& links = townLinks(w, p.town);
+    if (links.empty()) return std::nullopt;
     // A station with links must be within reach of home.
     std::vector<StationId> near;
     const TilePos centre = home->centre2();
@@ -66,7 +70,7 @@ bool planVisit(World& w, PersonId id, i32 day, bool business) {
         usable.push_back(&link);
         total += t->population + 50;
     }
-    if (total <= 0) return false;
+    if (total <= 0) return std::nullopt;
     const u32 h = mix32(p.serial * 0x27D4EB2Du ^ static_cast<u32>(day) * 0x165667B1u);
     i64 pick = static_cast<i64>(h % static_cast<u32>(total));
     const TownLink* link = usable.front();
@@ -99,58 +103,15 @@ bool planVisit(World& w, PersonId id, i32 day, bool business) {
             if (!passengers::planTrip(w, centre, there, outbound) ||
                 !passengers::planTrip(w, there, centre, inbound))
                 continue;
-            p.visit = w.buildings[dest].ref(dest);
-            return true;
+            return w.buildings[dest].ref(dest);
         }
     }
-    return false;
+    return std::nullopt;
 }
 
 void scheduleFromHome(World& w, PersonId id) {
-    Person& p = w.people[id];
-    p.visit = {};
-    const i64 now = w.clock.tick;
-    const i32 today = w.clock.day();
-    // One outing per day. Opening a route after the morning departure still attracts people
-    // today, but coming home does not immediately send them out on another trip.
-    const bool returnedToday = p.purpose == TripPurpose::Home && p.tripStart >= w.clock.tickOfDay(today);
-    for (i32 d = today + (returnedToday ? 1 : 0); d < today + 8; ++d) {
-        const i64 dayStart = w.clock.tickOfDay(d);
-        const auto visit = [&](i64 minute, bool business) {
-            i64 t = dayStart + minute * kTicksPerMinute;
-            if (t <= now && d == today && w.clock.minuteOfDay() < 20 * 60)
-                t = now + (15 + mix32(p.serial ^ static_cast<u32>(d)) % 105) * kTicksPerMinute;
-            if (t <= now || !planVisit(w, id, d, business)) return false;
-            p.purpose = TripPurpose::Visit;
-            schedule(w, id, t);
-            return true;
-        };
-        if (!isWeekend(weekdayFromDays(d))) {
-            if (p.employed() && visit(p.departMinute, true)) return;
-            if (!p.employed() && visit(10 * 60 + mix32(p.serial ^ static_cast<u32>(d)) % 180, false)) return;
-            if (p.employed()) {
-                const i64 jitter = static_cast<i64>(mix32(p.serial * 31u + static_cast<u32>(d)) % 21) - 10;
-                const i64 t = dayStart + (p.departMinute + jitter) * kTicksPerMinute;
-                if (t > now) {
-                    p.purpose = TripPurpose::Work;
-                    schedule(w, id, t);
-                    return;
-                }
-            }
-        } else if (visit(9 * 60 + mix32(p.serial ^ (static_cast<u32>(d) * 2654435761u)) % 240, false)) {
-            return;
-        } else if (p.shop.valid()) {
-            const i64 minute = 9 * 60 + mix32(p.serial ^ (static_cast<u32>(d) * 2654435761u)) % 300;
-            const i64 t = dayStart + minute * kTicksPerMinute;
-            if (t > now) {
-                p.purpose = TripPurpose::Shop;
-                schedule(w, id, t);
-                return;
-            }
-        }
-    }
-    p.purpose = TripPurpose::None;
-    schedule(w, id, w.clock.tickOfDay(today + 1) + 8 * kTicksPerHour);
+    refreshTownLinks(w);
+    applyHomePlan(w, id, planFromHome(w, w.people[id]));
 }
 
 void startTrip(World& w, PersonId id, TilePos from2, TilePos to2) {
@@ -387,8 +348,64 @@ void remove(World& w, PersonId id) {
     w.people.destroy(id);
 }
 
+HomePlan planFromHome(const World& w, const Person& p) {
+    const i64 now = w.clock.tick;
+    const i32 today = w.clock.day();
+    // One outing per day. Opening a route after the morning departure still attracts people
+    // today, but coming home does not immediately send them out on another trip.
+    const bool returnedToday = p.purpose == TripPurpose::Home && p.tripStart >= w.clock.tickOfDay(today);
+    for (i32 d = today + (returnedToday ? 1 : 0); d < today + 8; ++d) {
+        const i64 dayStart = w.clock.tickOfDay(d);
+        HomePlan plan;
+        const auto visit = [&](i64 minute, bool business) {
+            i64 t = dayStart + minute * kTicksPerMinute;
+            if (t <= now && d == today && w.clock.minuteOfDay() < 20 * 60)
+                t = now + (15 + mix32(p.serial ^ static_cast<u32>(d)) % 105) * kTicksPerMinute;
+            if (t <= now) return false;
+            const auto destination = planVisit(w, p, d, business);
+            if (!destination) return false;
+            plan = {TripPurpose::Visit, *destination, t};
+            return true;
+        };
+        if (!isWeekend(weekdayFromDays(d))) {
+            if (p.employed() && visit(p.departMinute, true)) return plan;
+            if (!p.employed() && visit(10 * 60 + mix32(p.serial ^ static_cast<u32>(d)) % 180, false)) return plan;
+            if (p.employed()) {
+                const i64 jitter = static_cast<i64>(mix32(p.serial * 31u + static_cast<u32>(d)) % 21) - 10;
+                const i64 t = dayStart + (p.departMinute + jitter) * kTicksPerMinute;
+                if (t > now) return {TripPurpose::Work, {}, t};
+            }
+        } else if (visit(9 * 60 + mix32(p.serial ^ (static_cast<u32>(d) * 2654435761u)) % 240, false)) {
+            return plan;
+        } else if (p.shop.valid()) {
+            const i64 minute = 9 * 60 + mix32(p.serial ^ (static_cast<u32>(d) * 2654435761u)) % 300;
+            const i64 t = dayStart + minute * kTicksPerMinute;
+            if (t > now) return {TripPurpose::Shop, {}, t};
+        }
+    }
+    return {TripPurpose::None, {}, w.clock.tickOfDay(today + 1) + 8 * kTicksPerHour};
+}
+
+void applyHomePlan(World& w, PersonId id, const HomePlan& plan) {
+    Person& p = w.people[id];
+    p.visit = plan.visit;
+    p.purpose = plan.purpose;
+    schedule(w, id, plan.tick);
+}
+
 const std::vector<TownLink>& linkedTowns(World& w, TownId town) {
+    refreshTownLinks(w);
+    return townLinks(w, town);
+}
+
+const std::vector<TownLink>& townLinks(const World& w, TownId town) {
     static const std::vector<TownLink> kNone;
+    TP_ASSERT(w.townLinks.routing == w.routing.builtTick);
+    const auto it = w.townLinks.byTown.find(town.value);
+    return it == w.townLinks.byTown.end() ? kNone : it->second;
+}
+
+void refreshTownLinks(World& w) {
     TownLinks& links = w.townLinks;
     if (links.routing != w.routing.builtTick) {
         links.routing = w.routing.builtTick;
@@ -411,8 +428,6 @@ const std::vector<TownLink>& linkedTowns(World& w, TownId town) {
                 if (!link.origins.empty()) links.byTown[from].push_back(std::move(link));
             }
     }
-    const auto it = links.byTown.find(town.value);
-    return it == links.byTown.end() ? kNone : it->second;
 }
 
 void schedule(World& w, PersonId id, i64 tick) {

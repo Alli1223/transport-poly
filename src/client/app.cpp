@@ -1266,7 +1266,14 @@ void App::drawDebugUi() {
                 st.coverDrawn);
     ImGui::Text("Towns %zu  people %zu  buildings %zu", w.towns.size(), w.people.size(), w.buildings.size());
     ImGui::Text("Tick %lld  explored chunks %zu", static_cast<long long>(w.clock.tick), w.map.activeChunks().size());
-    ImGui::Text("State hash %016llx", static_cast<unsigned long long>(w.stateHash()));
+    if (debugHashTick_ != w.clock.tick) {
+        debugHashTick_ = w.clock.tick;
+        debugHash_ = w.stateHash();
+    }
+    ImGui::Text("State hash %016llx", static_cast<unsigned long long>(debugHash_));
+    if (const auto* client = dynamic_cast<const net::NetClientSession*>(session_.get()))
+        ImGui::Text("Playback %.0f ms behind the server (%lld ticks buffered)", client->playbackDelay() * 1000.0,
+                    static_cast<long long>(client->framesBehind()));
     ImGui::Separator();
     ImGui::Checkbox("Shadows", &renderer_.settings.shadows);
     ImGui::SameLine();
@@ -1328,7 +1335,7 @@ int App::run(int argc, char** argv) {
     std::ofstream profile;
     if (!profilePath_.empty()) {
         profile.open(profilePath_);
-        profile << "frame,simulation_ms,cpu_frame_ms,meshing_ms,worker_wait_ms,chunks_built,people_drawn\n";
+        profile << "frame,simulation_ms,cpu_frame_ms,meshing_ms,worker_wait_ms,chunks_built,people_drawn,dt_ms,game_tick\n";
     }
     int frameCount = 0;
     double last = glfwGetTime();
@@ -1777,8 +1784,13 @@ int App::run(int argc, char** argv) {
         if (profile) {
             const auto& st = renderer_.stats();
             const auto cpuMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-cpuStart).count();
+            // The rendered game clock (tick plus fraction) should advance by the same amount every
+            // frame; stalls and jumps in it are what a player sees as stutter.
+            const double gameTick = session_ && session_->ready()
+                                        ? static_cast<double>(world().clock.tick) + session_->tickFraction() : 0.0;
             profile << frameCount << ',' << simulationMs << ',' << cpuMs << ',' << st.meshCpuMs << ',' << st.meshWaitMs
-                    << ',' << st.meshesBuilt << ',' << st.peopleDrawn << '\n';
+                    << ',' << st.meshesBuilt << ',' << st.peopleDrawn << ',' << dt * 1000.0 << ','
+                    << std::format("{:.4f}", gameTick) << '\n';
         }
         ++frameCount;
         if (pendingScreenshot_) {

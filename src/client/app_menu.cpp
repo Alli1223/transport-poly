@@ -617,7 +617,7 @@ void App::drawChat() {
         ui::FontScope f(ui::fonts().small);
         ui::iconText(ui::Icon::Chat, ui::col::kBlue, session_->status().c_str(), ui::col::kTextMuted);
     }
-    if (ImGui::SmallButton("Players (Tab)")) showClients_ = !showClients_;
+    drawPlayerRoster();
     const usize first = chatLines_.size() > 6 ? chatLines_.size() - 6 : 0;
     for (usize i = first; i < chatLines_.size(); ++i) ImGui::TextWrapped("%s", chatLines_[i].c_str());
     if (!showChat_) {

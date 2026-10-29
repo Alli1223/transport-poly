@@ -4,11 +4,15 @@
 // Types opt in with a member template:
 //     template <class Ar> void serialize(Ar& ar) { ar(fieldA, fieldB); }
 // The same function both writes (tp::Writer) and reads (tp::Reader). Integers are stored
-// little endian with their full width, container sizes as LEB128 varints.
+// little endian with their full width, container sizes as LEB128 varints. tp::HashWriter runs the
+// same functions to checksum the game state without storing the bytes.
 
+#include "core/parallel.hpp"
 #include "core/types.hpp"
 
+#include <algorithm>
 #include <array>
+#include <bit>
 #include <cstring>
 #include <deque>
 #include <map>
@@ -60,6 +64,71 @@ public:
 
 private:
     std::vector<u8> buf_;
+};
+
+// A ByteWriter look-alike that hashes the byte stream instead of storing it (desync checks). Bytes
+// are packed into little endian 64-bit words and folded into four lanes, so the value depends only
+// on the bytes written and is the same on every platform; changing any one word always changes it.
+class HashSink {
+public:
+    void bytes(const void* data, usize size) {
+        const auto* p = static_cast<const u8*>(data);
+        for (usize i = 0; i < size; ++i) le<u8>(p[i]);
+    }
+    template <std::unsigned_integral T>
+    void le(T v) {
+        constexpr u32 n = sizeof(T);
+        const u64 x = static_cast<u64>(v);
+        size_ += n;
+        if (fill_ + n < 8) {
+            acc_ |= x << (8 * fill_);
+            fill_ += n;
+            return;
+        }
+        const u32 take = 8 - fill_; // bytes of v that complete the word
+        acc_ |= x << (8 * fill_);
+        word(acc_);
+        fill_ = n - take;
+        acc_ = fill_ ? x >> (8 * take) : 0;
+    }
+    void varint(u64 v) {
+        while (v >= 0x80) {
+            le<u8>(static_cast<u8>(v | 0x80));
+            v >>= 7;
+        }
+        le<u8>(static_cast<u8>(v));
+    }
+    void string(std::string_view s) {
+        varint(s.size());
+        bytes(s.data(), s.size());
+    }
+    usize size() const { return size_; }
+
+    u64 value() const {
+        u64 h = std::rotl(lanes_[0], 1) + std::rotl(lanes_[1], 7) + std::rotl(lanes_[2], 12) + std::rotl(lanes_[3], 18);
+        h = round(h, acc_ ^ (static_cast<u64>(fill_) << 59));
+        h ^= static_cast<u64>(size_) * kPrime2;
+        h ^= h >> 33;
+        h *= kPrime1;
+        h ^= h >> 29;
+        h *= kPrime2;
+        return h ^ (h >> 32);
+    }
+
+private:
+    static constexpr u64 kPrime1 = 0x9E3779B185EBCA87ULL;
+    static constexpr u64 kPrime2 = 0xC2B2AE3D27D4EB4FULL;
+    static constexpr u64 round(u64 lane, u64 w) { return std::rotl(lane + w * kPrime2, 31) * kPrime1; }
+    void word(u64 w) {
+        u64& lane = lanes_[words_++ & 3];
+        lane = round(lane, w);
+    }
+
+    u64 lanes_[4] = {0x60EA27EEADC0B5D6ULL, 0xC2B2AE3D27D4EB4FULL, 0x9E3779B97F4A7C15ULL, 0x61C8864E7A143579ULL};
+    u64 acc_ = 0;
+    u32 fill_ = 0;
+    usize words_ = 0;
+    usize size_ = 0;
 };
 
 class ByteReader {
@@ -151,12 +220,13 @@ template <class T, class Ar>
 concept HasSerialize = requires(T& t, Ar& ar) { t.serialize(ar); };
 } // namespace detail
 
-// Writing archive.
-class Writer {
+// Writing archive over a ByteWriter (tp::Writer) or a HashSink (tp::HashWriter).
+template <class Out>
+class BasicWriter {
 public:
     static constexpr bool kReading = false;
 
-    explicit Writer(ByteWriter& out, u32 formatVersion = 0) : version(formatVersion), out_(out) {}
+    explicit BasicWriter(Out& out, u32 formatVersion = 0) : version(formatVersion), out_(out) {}
 
     template <class... Ts>
     void operator()(const Ts&... values) {
@@ -192,20 +262,43 @@ public:
         } else if constexpr (detail::kIsVariant<T>) {
             out_.varint(v.index());
             std::visit([this](const auto& alt) { write(alt); }, v);
-        } else if constexpr (detail::HasSerialize<T, Writer>) {
+        } else if constexpr (detail::HasSerialize<T, BasicWriter>) {
             const_cast<T&>(v).serialize(*this);
         } else {
             static_assert(detail::kAlwaysFalse<T>, "type is not serialisable");
         }
     }
 
-    ByteWriter& bytes() { return out_; }
+    // Writes `count` independent items: item(ar, i) writes item i to the archive `ar`. Writing for
+    // storage this is the items in order. Hashing, fixed blocks of items are hashed in parallel
+    // and the block hashes added in order, so the checksum never depends on the thread count.
+    template <class F>
+    void items(usize count, F&& item) {
+        if constexpr (std::is_same_v<Out, HashSink>) {
+            constexpr usize kBlock = 8;
+            std::vector<u64> blocks((count + kBlock - 1) / kBlock);
+            parallelFor(blocks.size(), [&](usize b) {
+                HashSink sink;
+                BasicWriter sub(sink, version);
+                for (usize i = b * kBlock; i < std::min(count, (b + 1) * kBlock); ++i) item(sub, i);
+                blocks[b] = sink.value();
+            });
+            for (const u64 h : blocks) out_.le(h);
+        } else {
+            for (usize i = 0; i < count; ++i) item(*this, i);
+        }
+    }
+
+    Out& bytes() { return out_; }
 
     u32 version; // format version, lets serialize() functions stay backwards compatible
 
 private:
-    ByteWriter& out_;
+    Out& out_;
 };
+
+using Writer = BasicWriter<ByteWriter>;
+using HashWriter = BasicWriter<HashSink>;
 
 // Reading archive. Throws SerializeError on malformed input.
 class Reader {

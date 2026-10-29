@@ -1,5 +1,7 @@
+#include "core/parallel.hpp"
 #include "core/serialize.hpp"
 #include "sim/commands.hpp"
+#include "sim/walking.hpp"
 #include "sim/world.hpp"
 #include "test.hpp"
 using namespace tp;
@@ -183,4 +185,25 @@ TEST_CASE("interchanges: disconnected pavements and withdrawn feeder services cr
     passengers::markDirty(f.w);
     passengers::updateRouting(f.w);
     CHECK(!f.w.routing.find(f.a, f.homeStop));
+}
+TEST_CASE("interchanges: boarding, transfers and routing give the same game on any number of threads") {
+    const auto play = [](usize threads) {
+        setParallelThreads(threads);
+        Interchange f(false);
+        for (u32 i = 0; i < 60; ++i) {
+            const auto id = f.rider(f.train, f.a, f.b, i % 2 ? f.b : f.homeStop, true);
+            f.w.people[id].serial = 100 + i;
+        }
+        for (i64 t = 0; t < 3 * kTicksPerHour; ++t) {
+            if (t % 200 == 0) walking::invalidate(f.w); // as construction does: rebuild the routing
+            f.w.tick();
+        }
+        setParallelThreads(0);
+        CHECK(f.w.vehicles[f.train].passengers.empty()); // everyone alighted and went on their way
+        return std::pair{f.w.stateHash(), toBytes(f.w, kSaveVersion)};
+    };
+    const auto serial = play(1);
+    const auto parallel = play(8);
+    CHECK_EQ(serial.first, parallel.first);
+    CHECK(serial.second == parallel.second);
 }

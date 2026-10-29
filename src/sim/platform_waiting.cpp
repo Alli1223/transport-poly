@@ -45,23 +45,44 @@ TrackEdgeId departurePlatform(const World& w, StationId station, StationId desti
     }
     return best;
 }
-// Sample the whole platform in physical order, independent of edge creation order.
-WalkPoint waitingPoint(const World& w, const std::vector<TrackEdgeId>& chain, u32 serial) {
+// One platform's waiting area, measured once for everyone waiting on it.
+struct WaitingArea {
+    bool ends = false;  // both ends found; otherwise everyone waits at `middle`
+    WalkPoint middle;
+    TPoint start;
+    i32 height = 0;
+    TDir direction;
+    u32 salt = 0;
+    i64 length = 0, margin = 0;
+};
+WaitingArea waitingArea(const World& w, const std::vector<TrackEdgeId>& chain) {
+    WaitingArea a;
     const auto ends = track::platformEnds(w, chain.front());
-    if (ends.size() != 2) return {track::platformPoint(w, chain)};
+    if (ends.size() != 2) {
+        a.middle = {track::platformPoint(w, chain)};
+        return a;
+    }
     const auto& start = w.trackNodes[ends.front().node];
-    const auto direction = -ends.front().outward;
-    i64 length = 0;
-    for (const auto id : chain) length += w.trackEdges[id].length;
-    const i64 margin = std::min<i64>(kTrackUnits / 2, length / 4);
-    const u32 hash = mix32(serial ^ mix32(ends.front().node.value + 0x9e3779b9u));
-    const i64 along = margin + hash % std::max<i64>(1, length - 2 * margin);
-    const auto centre = offset(start.pos, direction, along);
+    a.ends = true;
+    a.start = start.pos;
+    a.height = start.h;
+    a.direction = -ends.front().outward;
+    for (const auto id : chain) a.length += w.trackEdges[id].length;
+    a.margin = std::min<i64>(kTrackUnits / 2, a.length / 4);
+    a.salt = mix32(ends.front().node.value + 0x9e3779b9u);
+    return a;
+}
+// Sample the whole platform in physical order, independent of edge creation order.
+WalkPoint waitingPoint(const WaitingArea& a, u32 serial) {
+    if (!a.ends) return a.middle;
+    const u32 hash = mix32(serial ^ a.salt);
+    const i64 along = a.margin + hash % std::max<i64>(1, a.length - 2 * a.margin);
+    const auto centre = offset(a.start, a.direction, along);
     // Stable per-person positions across both platform strips. New arrivals never move people
     // already waiting; keep a margin from the track and the outer platform edges.
     const u32 across = mix32(hash ^ 0x85ebca6bu);
     const i64 lateral = static_cast<i64>(108 + across % 121) * ((across & 0x80000000u) ? -1 : 1);
-    return {offset(centre, {-direction.z, direction.x}, lateral), start.h};
+    return {offset(centre, {-a.direction.z, a.direction.x}, lateral), a.height};
 }
 } // namespace
 
@@ -84,9 +105,9 @@ void positionWaiting(World& w, StationId sid) {
     }
     for (auto& [platform, people] : groups) {
         std::ranges::sort(people, {}, &PersonId::value);
+        const WaitingArea area = waitingArea(w, platforms[platform]);
         for (usize i = 0; i < people.size(); ++i) {
             auto& p = w.people[people[i]];
-            const auto target = waitingPoint(w, platforms[platform], p.serial);
             // Waiting spots used to be miscalculated far off to one side, sending passengers on
             // walks lasting years: call anyone heading that far from the station straight back.
             bool astray = false;
@@ -98,6 +119,7 @@ void positionWaiting(World& w, StationId sid) {
             }
             // Finish an existing walk first, including transfers across the footbridge.
             if (p.walkEnd > w.clock.tick || p.transitEnd > w.clock.tick) continue;
+            const auto target = waitingPoint(area, p.serial);
             if (!p.walkPath.empty() && p.walkPath.back().p == target.p) continue;
             TPoint from =
                 p.walkPath.empty() ? tileCentre(station->sign) : walking::position(p, w.clock.tick).p;

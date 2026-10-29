@@ -148,9 +148,12 @@ void World::addNews(NewsKind kind, std::string text, std::optional<TilePos> wher
 
 u64 World::stateHash() const {
     // Hash the canonical save representation so new simulation fields are covered
-    // automatically. Render revisions and rebuildable lookup caches are excluded.
-    const auto bytes = toBytes(*this, kSaveVersion);
-    return hashString(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
+    // automatically. Render revisions and rebuildable lookup caches are excluded. The bytes are
+    // hashed as they are produced, the map chunks and pooled objects in parallel.
+    HashSink sink;
+    HashWriter ar(sink, kSaveVersion);
+    ar(*this);
+    return sink.value();
 }
 
 } // namespace tp

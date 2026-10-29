@@ -203,13 +203,23 @@ bool begin(World& w, PersonId id, std::vector<WalkPoint> path, i64 start) {
 }
 WalkPoint position(const Person& p, i64 tick) {
     if (p.walkPath.empty()) return {};
-    i64 remaining = length(p.walkPath) *
-                    std::clamp(tick - p.walkBegin, i64{0}, std::max<i64>(1, p.walkEnd - p.walkBegin)) /
-                    std::max<i64>(1, p.walkEnd - p.walkBegin);
+    const auto spanOf = [](const WalkPoint& a, const WalkPoint& b) {
+        return distance(a.p, b.p) + (a.height >= 0 && b.height >= 0 ? std::abs(b.height - a.height) * 8 : 0);
+    };
+    const i64 duration = std::max<i64>(1, p.walkEnd - p.walkBegin);
+    if (tick - p.walkBegin >= duration) {
+        // The walk is over (as for everyone standing on a platform): the end of its last segment
+        // with any length, exactly where the general case below would arrive.
+        for (usize n = p.walkPath.size() - 1; n >= 1; --n) {
+            const auto a = p.walkPath[n - 1], b = p.walkPath[n];
+            if (spanOf(a, b) > 0) return {b.p, a.height >= 0 && b.height >= 0 ? b.height : -1};
+        }
+        return p.walkPath.back();
+    }
+    i64 remaining = length(p.walkPath) * std::clamp(tick - p.walkBegin, i64{0}, duration) / duration;
     for (usize n = 1; n < p.walkPath.size(); ++n) {
         const auto a = p.walkPath[n - 1], b = p.walkPath[n];
-        const i64 span =
-            distance(a.p, b.p) + (a.height >= 0 && b.height >= 0 ? std::abs(b.height - a.height) * 8 : 0);
+        const i64 span = spanOf(a, b);
         if (remaining <= span && span > 0)
             return {{static_cast<i32>(a.p.x + (i64(b.p.x) - a.p.x) * remaining / span),
                      static_cast<i32>(a.p.z + (i64(b.p.z) - a.p.z) * remaining / span)},
