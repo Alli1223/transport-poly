@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <fstream>
 
 namespace tp {
@@ -139,5 +140,23 @@ std::vector<SaveInfo> listSaves(const std::string& directory) {
     std::sort(out.begin(), out.end(), [](const SaveInfo& a, const SaveInfo& b) { return a.fileTime > b.fileTime; });
     return out;
 }
+
+std::string nextAutosavePath(const std::string& directory, int slots) {
+    const auto slot = [&](int n) { return std::format("{}/autosave-{}.tpsave", directory, n); };
+    std::string oldest = slot(1);
+    auto oldestTime = std::filesystem::file_time_type::max();
+    for (int n = 1; n <= slots; ++n) {
+        std::error_code ec;
+        const auto time = std::filesystem::last_write_time(slot(n), ec);
+        if (ec) return slot(n);
+        if (time < oldestTime) {
+            oldestTime = time;
+            oldest = slot(n);
+        }
+    }
+    return oldest;
+}
+
+bool isAutosave(const std::string& path) { return std::filesystem::path(path).stem().string().starts_with("autosave"); }
 
 } // namespace tp

@@ -470,6 +470,9 @@ bool App::parseArgs(int argc, char** argv) {
             if (const char* v = next()) autoScreenshot_ = v;
         } else if (arg == "--profile") {
             if (const char* v = next()) profilePath_ = v;
+        } else if (arg == "--autosave-interval") {
+            // Automation: autosave after this many seconds of play instead of five minutes.
+            if (const char* v = next()) autosaveInterval_ = std::max(1.0, std::atof(v));
         } else if (arg == "--frames") {
             if (const char* v = next()) autoFrames_ = std::max(1, std::atoi(v));
         } else if (arg == "--return-to-menu-at") {
@@ -544,6 +547,14 @@ bool App::parseArgs(int argc, char** argv) {
         } else if (arg == "--preview-demolition") {
             demoStation_ = true;
             previewDemolition_ = true;
+        } else if (arg == "--preview-entrance") {
+            // Automation: "--preview-entrance build" also clicks, building the entrance on the house.
+            demoStation_ = true;
+            previewEntrance_ = true;
+            if (i + 1 < argc && std::string_view(argv[i + 1]) == "build") {
+                ++i;
+                previewEntranceBuild_ = true;
+            }
         } else if (arg == "--preview-consist" || arg == "--preview-consist-popup") {
             previewConsist_ = true;
             previewConsistPopup_ = arg == "--preview-consist-popup";
@@ -789,6 +800,15 @@ void App::newGame(u64 seed) {
             selStation_ = {};
             tool_ = Tool::DemolishBuilding;
             toolGroup_ = ToolGroup::Road;
+            previewHover_ = glm::dvec3(20.5, 0, 27.5);
+        }
+        if (previewEntrance_) {
+            // The first station without its road entrance, and the entrance tool over the house beside the road.
+            Command remove;
+            remove.company = session_->localCompany();
+            remove.payload = CmdStationEntrance{selStation_, {}, true};
+            executeCommand(world(), remove);
+            tool_ = Tool::StationEntrance;
             previewHover_ = glm::dvec3(20.5, 0, 27.5);
         }
     }
@@ -1349,7 +1369,10 @@ int App::run(int argc, char** argv) {
             if (!openWindows_.empty() && frameCount == 30) {
                 // Automation: show a page of the main menu.
                 if (openWindows_.find("newgame") != std::string::npos) menuPage_ = MenuPage::NewGame;
-                if (openWindows_.find("load") != std::string::npos) menuPage_ = MenuPage::Load;
+                if (openWindows_.find("load") != std::string::npos) {
+                    menuPage_ = MenuPage::Load;
+                    saves_ = listSaves("saves");
+                }
                 if (openWindows_.find("join") != std::string::npos) menuPage_ = MenuPage::Join;
             }
             updatePreview(dt);
@@ -1710,6 +1733,7 @@ int App::run(int argc, char** argv) {
                     inspectFirst_ = false;
                 }
             }
+            if (previewEntranceBuild_ && frameCount == 60) session_->submit(CmdStationEntrance{selStation_, {20, 27}});
             if (followFirst_ && frameCount >= 160) {
                 // Follow the first vehicle out on the network as soon as there is one.
                 for (const auto [id, v] : world().vehicles) {
@@ -1722,7 +1746,7 @@ int App::run(int argc, char** argv) {
             }
             updateCamera(dt);
             updateExploration(now);
-            autosave();
+            updateAutosave(dt);
 
             std::vector<gfx::OverlayQuad> overlays;
             drawWorldOverlays(overlays);

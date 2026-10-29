@@ -30,6 +30,17 @@ namespace tp {
 namespace {
 
 constexpr const char* kSaveDir = "saves";
+constexpr int kAutosaveSlots = 5; // autosave-1 to autosave-5, the oldest overwritten next
+
+// How long ago a save was written, for the load menu.
+std::string savedAgo(i64 fileTime) {
+    const i64 now = std::chrono::duration_cast<std::chrono::seconds>(std::filesystem::file_time_type::clock::now().time_since_epoch()).count();
+    const i64 minutes = std::max<i64>(0, now - fileTime) / 60;
+    if (minutes < 1) return "just now";
+    if (minutes < 60) return std::format("{} min ago", minutes);
+    if (minutes < 48 * 60) return std::format("{} h ago", minutes / 60);
+    return std::format("{} days ago", minutes / (24 * 60));
+}
 
 u64 randomSeed() {
     return static_cast<u64>(std::chrono::system_clock::now().time_since_epoch().count() / 1000) % 1'000'000'000ULL;
@@ -197,7 +208,8 @@ void App::startSession(std::unique_ptr<GameSession> session) {
     tool_ = Tool::None;
     showGameMenu_ = false;
     cameraPlaced_ = false;
-    lastAutosaveMonth_ = -1;
+    autosaveClock_ = 0.0;
+    autosaveTick_ = -1;
     chatLines_.clear();
     showClients_ = false;
     showChat_ = false;
@@ -412,10 +424,11 @@ void App::drawMainMenu() {
                 const bool hovered = ImGui::IsItemHovered();
                 ImDrawList* dl = ImGui::GetWindowDrawList();
                 dl->AddRectFilled(p, ImVec2(p.x + avail, p.y + h), hovered ? ui::col::kCardHover : ui::col::kCard, 10.0f * s);
-                ui::drawIcon(dl, ui::Icon::Save, ImVec2(p.x + 22.0f * s, p.y + h * 0.5f), 18.0f * s,
-                             hovered ? ui::col::kAccent : ui::col::kTextMuted);
+                ui::drawIcon(dl, isAutosave(info.path) ? ui::Icon::Clock : ui::Icon::Save, ImVec2(p.x + 22.0f * s, p.y + h * 0.5f),
+                             18.0f * s, hovered ? ui::col::kAccent : ui::col::kTextMuted);
                 const std::string name = std::filesystem::path(info.path).stem().string();
-                const std::string detail = std::format("{}  -  {}", info.companyName, formatDate(info.day));
+                const std::string detail =
+                    std::format("{}  -  {}  -  saved {}", info.companyName, formatDate(info.day), savedAgo(info.fileTime));
                 dl->AddText(ImVec2(p.x + 44.0f * s, p.y + 8.0f * s), ui::col::kText, name.c_str());
                 ImFont* sf = ui::fonts().small;
                 dl->AddText(sf, sf->FontSize, ImVec2(p.x + 44.0f * s, p.y + 29.0f * s), ui::col::kTextMuted, detail.c_str());
@@ -674,20 +687,24 @@ void App::quicksave() {
 
 void App::autosave() {
     if (!session_ || !session_->ready() || dynamic_cast<net::NetClientSession*>(session_.get())) return;
-    if (!preferences_.autosaveMonths) return;
-    const CivilDate d = world().clock.date();
-    const i32 month = d.year * 12 + static_cast<i32>(d.month) - 1;
-    if (lastAutosaveMonth_ < 0) {
-        lastAutosaveMonth_ = month;
-        return;
-    }
-    if (month - lastAutosaveMonth_ < preferences_.autosaveMonths) return;
-    lastAutosaveMonth_ = month;
+    if (!preferences_.autosave) return;
+    autosaveClock_ = 0.0;
+    autosaveTick_ = world().clock.tick;
     std::string err;
-    if (saveGame(world(), session_->localCompany(), std::format("{}/autosave.tpsave", kSaveDir), err))
+    const std::string path = nextAutosavePath(kSaveDir, kAutosaveSlots);
+    if (saveGame(world(), session_->localCompany(), path, err))
         toasts_.push_back({"Autosaved", glfwGetTime() + 2.0, false});
     else
         log::warn("Autosave failed: {}", err);
+}
+
+void App::updateAutosave(double dt) {
+    // Single player and multiplayer hosts save every five minutes of play; time paused doesn't count.
+    if (!preferences_.autosave || !session_ || !session_->ready() || session_->speed() == 0 ||
+        dynamic_cast<net::NetClientSession*>(session_.get()))
+        return;
+    autosaveClock_ += dt;
+    if (autosaveClock_ >= autosaveInterval_ && world().clock.tick != autosaveTick_) autosave();
 }
 
 void App::applyDisplayMode() {
@@ -857,8 +874,8 @@ void App::drawSettings() {
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Gameplay")) {
-                changed |= ImGui::SliderInt("Autosave interval", &preferences_.autosaveMonths, 0, 12, "%d months");
-                ImGui::TextDisabled("Zero disables autosaves. Multiplayer hosts save for their game.");
+                changed |= ImGui::Checkbox("Autosave every 5 minutes of play", &preferences_.autosave);
+                ImGui::TextDisabled("Keeps the last 5, autosave-1 to autosave-5. Multiplayer hosts save for their game.");
                 changed |= ImGui::SliderInt("New game year", &preferences_.startYear, 1900, 2100);
                 changed |= ImGui::SliderInt("New game interest", &preferences_.interestPercent, 0, 20, "%d%%");
                 changed |= ImGui::Checkbox("New game inflation (about 2% per year)", &preferences_.inflation);

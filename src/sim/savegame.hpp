@@ -31,4 +31,9 @@ std::unique_ptr<World> loadGame(const std::string& path, CompanyId& localCompany
 // Lists the save files in a directory, newest first.
 std::vector<SaveInfo> listSaves(const std::string& directory);
 
+// Rolling autosaves are autosave-1 to autosave-<slots> in a directory. The next one to write is the
+// first that does not exist yet, or else the one written longest ago.
+std::string nextAutosavePath(const std::string& directory, int slots);
+bool isAutosave(const std::string& path);
+
 } // namespace tp
