@@ -93,7 +93,8 @@ void NetClientSession::handle(const Packet& p) {
         world_ = restoreWorld(mapData_, ignored);
         mapData_.clear();
         mapData_.shrink_to_fit();
-        frameMax_ = world_->clock.tick;
+        frameMax_ = lastFrameMax_ = world_->clock.tick;
+        fraction_ = sinceFrame_ = peakGap_ = 0.0;
         phase_ = Phase::Playing;
         if (joinCompany_ == kJoinAsk) {
             choosing_ = true;
@@ -120,23 +121,36 @@ void NetClientSession::handle(const Packet& p) {
     }
     case PacketType::ChatBroadcast: chat_.push_back(p.decode<ChatBroadcastMsg>()); break;
     case PacketType::Speed: speed_ = p.decode<SpeedMsg>().speed; break;
-    case PacketType::ClientList: {
-        auto msg = p.decode<ClientListMsg>();
-        clients_ = std::move(msg.clients);
-        locked_ = std::move(msg.locked);
-        break;
-    }
-    case PacketType::CompanyAssigned:
-        company_ = p.decode<CompanyAssignedMsg>().company;
-        choosing_ = false;
-        joinPending_ = false;
-        break;
+    // These can name a company the server has only just founded. Playback runs a little behind
+    // the server, so they wait until this world has reached the tick they followed.
+    case PacketType::ClientList: defer(p.decode<ClientListMsg>()); break;
+    case PacketType::CompanyAssigned: defer(p.decode<CompanyAssignedMsg>()); break;
     case PacketType::JoinRefused:
         notices_.push_back(p.decode<JoinRefusedMsg>().reason);
         joinPending_ = false;
         break;
     case PacketType::Cursors: cursors_ = p.decode<CursorsMsg>().cursors; break;
     default: fail("unexpected packet from server"); break;
+    }
+}
+
+void NetClientSession::defer(Deferred msg) {
+    deferred_.emplace_back(frameMax_, std::move(msg));
+    applyDeferred();
+}
+
+void NetClientSession::applyDeferred() {
+    while (!deferred_.empty() && (!world_ || deferred_.front().first <= world_->clock.tick)) {
+        Deferred& msg = deferred_.front().second;
+        if (auto* list = std::get_if<ClientListMsg>(&msg)) {
+            clients_ = std::move(list->clients);
+            locked_ = std::move(list->locked);
+        } else if (const auto* assigned = std::get_if<CompanyAssignedMsg>(&msg)) {
+            company_ = assigned->company;
+            choosing_ = false;
+            joinPending_ = false;
+        }
+        deferred_.pop_front();
     }
 }
 
@@ -199,19 +213,9 @@ void NetClientSession::update(double dtSeconds) {
     }
     if (phase_ != Phase::Playing) return;
 
-    // Simulate every tick the server has authorised; when far behind (just joined) catch up within
-    // a time budget per frame.
-    const auto start = std::chrono::steady_clock::now();
-    int ran = 0;
-    while (world_->clock.tick < frameMax_ && phase_ == Phase::Playing) {
-        runTick();
-        ++ran;
-        if (std::chrono::steady_clock::now() - start > std::chrono::milliseconds(25)) break;
-    }
-    if (ran > 0)
-        sinceTick_ = 0.0;
-    else
-        sinceTick_ += dtSeconds;
+    advancePlayback(dtSeconds);
+    if (phase_ != Phase::Playing) return;
+    applyDeferred();
     // The pointer, at most ten times a second and only when it has moved.
     cursorTimer_ += dtSeconds;
     const auto same = [](const std::optional<CursorInfo>& a, const std::optional<CursorInfo>& b) {
@@ -232,10 +236,55 @@ void NetClientSession::update(double dtSeconds) {
     conn_.pump();
 }
 
-double NetClientSession::tickFraction() const {
-    if (speed_ == 0) return 1.0;
-    const double interval = 1.0 / (kTicksPerSecond * std::max(1, speed_));
-    return std::clamp(sinceTick_ / interval, 0.0, 1.0);
+namespace {
+// Playback stays at least this far behind the newest authorised tick (seconds), plus a margin for
+// the longest recent wait for one, but never more than kMaxDelay.
+constexpr double kMinDelay = 0.05;
+constexpr double kMaxDelay = 0.75;
+// Further behind than the delay plus this (just joined, or this window stalled), it catches up at
+// once instead of hurrying.
+constexpr double kCatchUpSeconds = 2.0;
+} // namespace
+
+double NetClientSession::playbackDelay() const { return std::clamp(kMinDelay + peakGap_ * 1.25, kMinDelay, kMaxDelay); }
+
+void NetClientSession::advancePlayback(double dtSeconds) {
+    World& w = *world_;
+    // Arrival jitter: the longest wait between new ticks, forgotten at 20 ms per second. A pause
+    // is not jitter.
+    sinceFrame_ = speed_ > 0 ? sinceFrame_ + dtSeconds : 0.0;
+    if (frameMax_ > lastFrameMax_) {
+        lastFrameMax_ = frameMax_;
+        peakGap_ = std::max(peakGap_, sinceFrame_);
+        sinceFrame_ = 0.0;
+    }
+    peakGap_ = std::max({0.0, peakGap_ - dtSeconds * 0.02, std::min(sinceFrame_, kMaxDelay)});
+
+    const double rate = kTicksPerSecond * std::max(1, speed_);
+    const double shown = static_cast<double>(w.clock.tick) + fraction_;
+    // The furthest the picture may go: the newest authorised tick, extrapolated one tick on.
+    const double newest = static_cast<double>(frameMax_) + 1.0;
+    const double behind = (newest - shown) / rate;
+    if (speed_ > 0 && behind > playbackDelay() + kCatchUpSeconds) {
+        // Far behind: run ticks as fast as the frame's time budget allows.
+        const auto start = std::chrono::steady_clock::now();
+        while (w.clock.tick < frameMax_ && phase_ == Phase::Playing &&
+               static_cast<double>(frameMax_ - w.clock.tick) / rate > playbackDelay()) {
+            runTick();
+            if (std::chrono::steady_clock::now() - start > std::chrono::milliseconds(25)) break;
+        }
+        fraction_ = 0.0;
+        return;
+    }
+    // Play at the server's pace, nudged (at most 15% slower, 50% faster) to keep the delay: a
+    // slightly slower train is invisible, a stopped one is not. Paused, the rest plays out.
+    const double pace = speed_ > 0 ? std::clamp(1.0 + (behind - playbackDelay()), 0.85, 1.5) : 1.0;
+    const double target = std::min(shown + dtSeconds * rate * pace, newest);
+    while (w.clock.tick < frameMax_ && static_cast<double>(w.clock.tick) + 1.0 <= target && phase_ == Phase::Playing)
+        runTick();
+    fraction_ = std::clamp(target - static_cast<double>(w.clock.tick), 0.0, 1.0);
 }
+
+double NetClientSession::tickFraction() const { return fraction_; }
 
 } // namespace tp::net

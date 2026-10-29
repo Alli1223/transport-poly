@@ -1,15 +1,20 @@
 // Headless dedicated server.
 //
 //   transport-poly-server [--port N] [--seed N] [--load file] [--name text] [--password text] [--autosave months]
+//                         [--threads N]
+//   transport-poly-server --load file --bench ticks [--bench-reroute ticks] [--bench-save file]
 //
 // Console commands (stdin): status, save <file>, speed <0-16>, say <text>, quit
 
 #include "core/calendar.hpp"
 #include "core/log.hpp"
+#include "core/parallel.hpp"
 #include "core/version.hpp"
 #include "net/net_server.hpp"
 #include "sim/league.hpp"
 #include "sim/savegame.hpp"
+#include "sim/passengers.hpp"
+#include "sim/walking.hpp"
 
 #include <atomic>
 #include <algorithm>
@@ -37,6 +42,76 @@ void consoleThread() {
     }
 }
 
+double percentile(std::vector<double> sorted, double p) {
+    if (sorted.empty()) return 0.0;
+    const usize i = std::min(sorted.size() - 1, static_cast<usize>(p * static_cast<double>(sorted.size())));
+    return sorted[i];
+}
+
+// --bench: runs the loaded world flat out and reports how long ticks take, the slowest ticks, what
+// the desync check costs and what a network change costs. --bench-reroute makes such a change every
+// so many ticks; --bench-save keeps the world as it is after the ticks (to compare builds).
+int runBenchmark(World& w, i64 ticks, const std::string& savePath, i64 rerouteEvery) {
+    using Clock = std::chrono::steady_clock;
+    const auto ms = [](Clock::duration d) { return std::chrono::duration<double, std::milli>(d).count(); };
+    log::info("Benchmark: {} ticks from {} (tick {}), {} people, {} vehicles, {} stations", ticks, formatDate(w.clock.day()),
+              w.clock.tick, w.people.size(), w.vehicles.size(), w.stations.size());
+    struct Sample {
+        double ms;
+        i64 tick;
+    };
+    std::vector<Sample> samples;
+    samples.reserve(static_cast<usize>(ticks));
+    const auto begin = Clock::now();
+    for (i64 i = 0; i < ticks; ++i) {
+        const auto t0 = Clock::now();
+        // --bench-reroute: what a construction command sets off, every so many ticks.
+        if (rerouteEvery > 0 && i % rerouteEvery == rerouteEvery - 1) walking::invalidate(w);
+        w.tick();
+        samples.push_back({ms(Clock::now() - t0), w.clock.tick});
+    }
+    const double total = ms(Clock::now() - begin);
+    if (std::string err; !savePath.empty() && !saveGame(w, CompanyId{}, savePath, err)) log::error("{}", err);
+    std::vector<double> sorted;
+    for (const Sample& s : samples) sorted.push_back(s.ms);
+    std::ranges::sort(sorted);
+    const double interval = 1000.0 / kTicksPerSecond;
+    const auto over = std::ranges::count_if(sorted, [&](double v) { return v > interval; });
+    log::info("Ticks: mean {:.3f} ms, p50 {:.3f}, p90 {:.3f}, p99 {:.3f}, p99.9 {:.3f}, max {:.3f} ms; {} over {:.1f} ms",
+              total / static_cast<double>(ticks), percentile(sorted, 0.5), percentile(sorted, 0.9), percentile(sorted, 0.99),
+              percentile(sorted, 0.999), sorted.back(), over, interval);
+    std::ranges::sort(samples, std::greater<>{}, &Sample::ms);
+    for (usize i = 0; i < std::min<usize>(10, samples.size()); ++i) {
+        const Sample& s = samples[i];
+        const i64 ofDay = s.tick % kTicksPerDay;
+        log::info("  slow tick {} ({:.2f} ms): {} {:02}:{:02}{}", s.tick, s.ms, formatDate(w.clock.startDay + static_cast<i32>(s.tick / kTicksPerDay)),
+                  ofDay / kTicksPerHour, ofDay % kTicksPerHour / kTicksPerMinute, ofDay == 0 ? " (new day)" : "");
+    }
+    const usize threads = parallelThreads();
+    for (const usize count : {usize{1}, threads}) {
+        setParallelThreads(count);
+        const auto t0 = Clock::now();
+        u64 h = 0;
+        for (int i = 0; i < 5; ++i) h = w.stateHash();
+        log::info("State hash on {} thread(s): {:.2f} ms ({:016x})", parallelThreads(), ms(Clock::now() - t0) / 5.0, h);
+    }
+    {
+        // What any construction command costs: walking routes are checked and the passenger
+        // routing is rebuilt, which replans the day of everyone at home.
+        const auto t0 = Clock::now();
+        walking::invalidate(w);
+        const auto t1 = Clock::now();
+        passengers::updateRouting(w);
+        log::info("Network change: {:.2f} ms walking check, {:.2f} ms routing rebuild", ms(t1 - t0), ms(Clock::now() - t1));
+    }
+    {
+        const auto t0 = Clock::now();
+        const auto bytes = snapshotWorld(w, CompanyId{});
+        log::info("Snapshot: {:.2f} ms, {} bytes", ms(Clock::now() - t0), bytes.size());
+    }
+    return EXIT_SUCCESS;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -46,6 +121,9 @@ int main(int argc, char** argv) {
     settings.seed = static_cast<u64>(std::chrono::system_clock::now().time_since_epoch().count()) & 0x7FFFFFFF;
     std::string loadPath;
     i32 autosaveMonths = 1;
+    i64 benchTicks = 0;
+    std::string benchSave;
+    i64 benchReroute = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         const auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : std::string(); };
@@ -60,6 +138,10 @@ int main(int argc, char** argv) {
             settings.goalYear = years > 0 ? settings.startYear + years : 0;
         }
         else if (arg == "--autosave") autosaveMonths = std::atoi(next().c_str());
+        else if (arg == "--bench") benchTicks = std::max<i64>(1, std::atoll(next().c_str()));
+        else if (arg == "--bench-save") benchSave = next();
+        else if (arg == "--bench-reroute") benchReroute = std::atoll(next().c_str());
+        else if (arg == "--threads") setParallelThreads(static_cast<usize>(std::max(0, std::atoi(next().c_str()))));
         else if (arg == "--ai") settings.aiCompetitors = std::clamp(std::atoi(next().c_str()), 0, 3);
         else if (arg == "--inflation") settings.inflation = true;
         else if (arg == "--no-recessions") settings.recessions = false;
@@ -86,9 +168,10 @@ int main(int argc, char** argv) {
         else if (arg == "--rivers") settings.terrain.rivers = static_cast<u8>(std::clamp(std::atoi(next().c_str()), 0, kRiverAmountMax));
         else {
             std::cerr << "usage: transport-poly-server [--port N] [--seed N] [--load file] [--name text] [--password text] [--goal-value money] [--goal-years N] "
-                         "[--autosave months] [--ai 0-3] [--inflation] [--no-recessions]\n"
+                         "[--autosave months] [--ai 0-3] [--inflation] [--no-recessions] [--threads N]\n"
                          "       [--land continents|mainland|islands|archipelago|island] [--climate temperate|arid|arctic|tropical|varied]\n"
-                         "       [--mountains 0-4] [--lakes 0-4] [--rivers 0-3]\n";
+                         "       [--mountains 0-4] [--lakes 0-4] [--rivers 0-3]\n"
+                         "       transport-poly-server --load file --bench ticks [--bench-reroute ticks] [--bench-save file]\n";
             return EXIT_FAILURE;
         }
     }
@@ -110,6 +193,8 @@ int main(int argc, char** argv) {
             for (i32 x = -5; x <= 5; ++x) world->activateChunk({x, y});
         log::info("New world, seed {}, {} towns", settings.seed, world->towns.size());
     }
+    if (benchTicks > 0) return runBenchmark(*world, benchTicks, benchSave, benchReroute);
+    log::info("Simulation work runs on {} thread(s)", parallelThreads());
 
     net::NetServer server(std::move(world), options);
     std::string err;

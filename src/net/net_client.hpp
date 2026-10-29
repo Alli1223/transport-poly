@@ -1,14 +1,16 @@
 #pragma once
 // Network client session: downloads the world from a server, then runs the same deterministic
 // simulation locally, executing the server's command stream and never running ahead of the frames
-// the server has authorised.
+// the server has authorised. Ticks are played back at a steady pace slightly behind the newest one.
 
 #include "net/protocol.hpp"
 #include "net/session.hpp"
 
+#include <deque>
 #include <map>
 #include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace tp::net {
@@ -40,6 +42,9 @@ public:
     float downloadProgress() const;
     u16 clientId() const { return clientId_; }
     i64 framesBehind() const { return frameMax_ - (world_ ? world_->clock.tick : 0); }
+    // How far (seconds) playback stays behind the newest authorised tick; it grows while ticks
+    // arrive unevenly and shrinks again once they are steady.
+    double playbackDelay() const;
     const std::vector<ClientInfo>& clients() const { return clients_; }
     void sendChat(const std::string& text, ChatScope scope = ChatScope::All, u16 target = 0);
     std::vector<ChatBroadcastMsg> takeChat() { return std::exchange(chat_, {}); }
@@ -92,7 +97,19 @@ private:
     std::map<i64, std::vector<Command>> pending_; // tick -> commands executed at its start
     std::map<i64, u64> hashes_;                   // tick -> expected state hash after it
     i64 frameMax_ = 0;
-    double sinceTick_ = 0.0;
+
+    // Playback: ticks arrive in bursts (the server's frames, network jitter, a busy host) but are
+    // shown at a steady pace a little behind the newest one, so motion never stalls or jumps.
+    void advancePlayback(double dtSeconds);
+    double fraction_ = 0.0;   // how far into the next tick the picture is
+    double sinceFrame_ = 0.0; // seconds since the server last authorised a new tick
+    double peakGap_ = 0.0;    // longest recent wait for a new tick, forgotten slowly
+    i64 lastFrameMax_ = 0;
+    // Player list and company changes, held until playback reaches the tick they arrived after.
+    using Deferred = std::variant<ClientListMsg, CompanyAssignedMsg>;
+    void defer(Deferred msg);
+    void applyDeferred();
+    std::deque<std::pair<i64, Deferred>> deferred_;
 
     std::vector<CommandFeedback> feedback_;
     std::vector<ClientInfo> clients_;

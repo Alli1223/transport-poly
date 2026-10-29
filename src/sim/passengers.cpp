@@ -2,6 +2,7 @@
 
 #include "core/hash.hpp"
 #include "core/math.hpp"
+#include "core/parallel.hpp"
 #include "sim/feedback.hpp"
 #include "sim/person.hpp"
 #include "sim/rail.hpp"
@@ -12,6 +13,7 @@
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <optional>
 #include <queue>
 #include <tuple>
 
@@ -315,7 +317,13 @@ void updateRouting(World& w) {
     }
 
     // A train entrance and a nearby street stop form an interchange only when a real
-    // pedestrian route joins them. Track distance alone must never create a transfer.
+    // pedestrian route joins them. Track distance alone must never create a transfer. The walks
+    // are searched in parallel and added in station order.
+    struct Interchange {
+        StationId rail, local;
+        std::optional<std::vector<WalkPoint>> path;
+    };
+    std::vector<Interchange> interchanges;
     for (const auto [railId, rail] : w.stations) {
         if (!(rail.facilities & kFacilityRail) || rail.entrances.empty() || !adj.contains(railId.value))
             continue;
@@ -327,20 +335,33 @@ void updateRouting(World& w) {
             for (const auto& entrance : rail.entrances)
                 for (const auto tile : local.tiles)
                     near = near || chebyshev(entrance.road.x - tile.x, entrance.road.y - tile.y) <= 4;
-            if (!near) continue;
-            const TPoint meeting{local.sign.x * kTrackUnits + 40, local.sign.y * kTrackUnits + 40};
-            auto path = walking::fromStation(w, railId, meeting);
-            if (!path) continue;
-            const i64 cost = std::max<i64>(1, walking::length(*path) * kWalkTicksPerTile / kTrackUnits);
-            rt.transfers[{railId.value, localId.value}] = *path;
-            std::reverse(path->begin(), path->end());
-            rt.transfers[{localId.value, railId.value}] = std::move(*path);
-            adj[railId.value].push_back({localId.value, cost, true});
-            adj[localId.value].push_back({railId.value, cost, true});
+            if (near) interchanges.push_back({railId, localId, std::nullopt});
         }
     }
+    parallelFor(interchanges.size(), [&](usize i) {
+        const Station& local = w.stations[interchanges[i].local];
+        const TPoint meeting{local.sign.x * kTrackUnits + 40, local.sign.y * kTrackUnits + 40};
+        interchanges[i].path = walking::fromStation(w, interchanges[i].rail, meeting);
+    });
+    for (Interchange& x : interchanges) {
+        auto& path = x.path;
+        if (!path) continue;
+        const u32 railId = x.rail.value, localId = x.local.value;
+        const i64 cost = std::max<i64>(1, walking::length(*path) * kWalkTicksPerTile / kTrackUnits);
+        rt.transfers[{railId, localId}] = *path;
+        std::reverse(path->begin(), path->end());
+        rt.transfers[{localId, railId}] = std::move(*path);
+        adj[railId].push_back({localId, cost, true});
+        adj[localId].push_back({railId, cost, true});
+    }
 
-    for (const auto& [origin, edges] : adj) {
+    // Cheapest routes from every station, one search per origin in parallel.
+    std::vector<const std::pair<const u32, std::vector<Edge>>*> origins;
+    for (const auto& entry : adj) origins.push_back(&entry);
+    std::vector<std::unordered_map<u32, RouteEntry>> searched(origins.size());
+    parallelFor(origins.size(), [&](usize index) {
+        const u32 origin = origins[index]->first;
+        const std::vector<Edge>& edges = origins[index]->second;
         struct Item {
             i64 cost;
             u32 station;
@@ -368,19 +389,31 @@ void updateRouting(World& w) {
                 if (!best.contains(e.to))
                     pq.push({it.cost + e.cost, e.to, it.firstHop, it.walk, it.hasRide || !e.walk});
         }
-        rt.routes[origin] = std::move(best);
-    }
+        searched[index] = std::move(best);
+    });
+    for (usize i = 0; i < origins.size(); ++i) rt.routes[origins[i]->first] = std::move(searched[i]);
     rt.dirty = false;
     rt.builtTick = w.clock.tick;
     w.townLinks.routing = -2;
     // Entrances can change access without changing the station graph. Refresh after every
     // network edit; the first rebuild after loading a current save keeps saved departures.
     if (!preserveSchedules) {
+        // Everyone at home plans their next outing in parallel (a plan reads only the network and
+        // the person); then, in id order, the plans take effect and waiting passengers review.
+        people::refreshTownLinks(w);
+        std::vector<PersonId> atHome;
+        for (const auto [id, person] : w.people)
+            if (person.state == PersonState::AtHome) atHome.push_back(id);
+        std::vector<people::HomePlan> plans(atHome.size());
+        parallelFor(atHome.size(), [&](usize i) { plans[i] = people::planFromHome(w, w.people[atHome[i]]); }, 16);
+        usize next = 0;
         for (const auto [id, person] : w.people) {
-            if (person.state == PersonState::AtHome)
-                people::reschedule(w, id);
-            else if (person.state == PersonState::Waiting)
+            if (person.state == PersonState::AtHome) {
+                TP_ASSERT(next < atHome.size() && atHome[next] == id);
+                people::applyHomePlan(w, id, plans[next++]);
+            } else if (person.state == PersonState::Waiting) {
                 reviewWaiting(w, id);
+            }
         }
     }
 }
@@ -526,25 +559,44 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
     if (queue == station->waiting.end()) return moved;
     const usize capacity = v.capacity();
     if (v.passengers.size() >= capacity) return moved;
+    // Seats and doors, worked out when the first passenger is ready to board. Seats whose doors
+    // share a spot share a crowd: `doorAt` maps each seat to its spot, `doorLoads` counts there.
     std::vector<Door> doors;
-    std::vector<bool> occupied(capacity, false);
-    std::map<std::pair<i32, i32>, i32> doorLoads;
-    for (usize seat = 0; seat < capacity; ++seat) doors.push_back(doorForSeat(w, v, seat));
-    for (const auto seat : v.passengerSeats)
-        if (seat < capacity) {
-            occupied[seat] = true;
-            ++doorLoads[{doors[seat].centre.x, doors[seat].centre.z}];
+    std::vector<usize> doorAt;
+    std::vector<TPoint> doorSpots;
+    std::vector<i32> doorLoads;
+    std::vector<bool> occupied;
+    const auto prepareSeats = [&] {
+        if (!doors.empty()) return;
+        std::map<std::pair<i32, i32>, usize> spots;
+        for (usize seat = 0; seat < capacity; ++seat) {
+            doors.push_back(doorForSeat(w, v, seat));
+            const auto [it, fresh] = spots.try_emplace({doors.back().centre.x, doors.back().centre.z}, doorSpots.size());
+            if (fresh) doorSpots.push_back(doors.back().centre);
+            doorAt.push_back(it->second);
         }
+        doorLoads.assign(doorSpots.size(), 0);
+        occupied.assign(capacity, false);
+        for (const auto seat : v.passengerSeats)
+            if (seat < capacity) {
+                occupied[seat] = true;
+                ++doorLoads[doorAt[seat]];
+            }
+    };
+    std::vector<i64> spotCost;
     int actualPlatform = 0;
+    std::optional<track::StationPlatforms> platforms;
+    if (v.freeTrack) platforms.emplace(w, sid);
     if (v.freeTrack && !v.runs.empty()) {
         const auto& edge = w.trackEdges[v.runs.front().edge];
-        actualPlatform = track::platformNumber(w, sid, track::pointOn(edge, true, edge.length / 2).p);
+        actualPlatform = platforms->number(track::pointOn(edge, true, edge.length / 2).p);
     }
     std::vector<PersonId> remaining;
     for (const PersonId pid : queue->second) {
         Person* p = w.people.tryGet(pid);
         if (!p || p->state != PersonState::Waiting || p->station != sid) continue;
-        if (v.passengers.size() >= capacity || (p->transitMotion == 2 && p->transitEnd > w.clock.tick)) {
+        if (v.passengers.size() >= capacity || (p->transitMotion == 2 && p->transitEnd > w.clock.tick) ||
+            (v.freeTrack && !actualPlatform)) {
             remaining.push_back(pid);
             continue;
         }
@@ -556,22 +608,26 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
         if (v.freeTrack) {
             // A walk to a waiting spot need not finish: anyone already on the correct platform
             // can head directly for a door. Concourse / street walkers never hold up the train.
-            const auto platform = track::platformNear(w, sid, current.p, kPlatformHalfWidth);
-            if (!actualPlatform || !platform.valid() ||
-                track::platformNumber(w, sid, current.p) != actualPlatform ||
+            // (The nearest platform edge within half a platform's width is also the one
+            // platformNumber would find.)
+            const auto platform = platforms->near(current.p, kPlatformHalfWidth);
+            if (!platform.valid() || platforms->numberOf(platform) != actualPlatform ||
                 (current.height >= 0 &&
                  std::abs(current.height - w.trackNodes[w.trackEdges[platform].a].h) > 8)) {
                 remaining.push_back(pid);
                 continue;
             }
         }
+        // The free seat whose door is nearest, counting the crowd already using it (the first such
+        // seat on a tie).
+        prepareSeats();
+        spotCost.resize(doorSpots.size());
+        for (usize i = 0; i < doorSpots.size(); ++i) spotCost[i] = distance(current.p, doorSpots[i]) + doorLoads[i] * 12;
         usize best = capacity;
         i64 bestCost = std::numeric_limits<i64>::max();
         for (usize seat = 0; seat < capacity; ++seat) {
             if (occupied[seat]) continue;
-            const auto& door = doors[seat];
-            const i64 cost =
-                distance(current.p, door.centre) + doorLoads[{door.centre.x, door.centre.z}] * 12;
+            const i64 cost = spotCost[doorAt[seat]];
             if (cost < bestCost) {
                 best = seat;
                 bestCost = cost;
@@ -609,7 +665,7 @@ i32 exchangeAtStop(World& w, VehicleId vid, StationId sid) {
         v.passengerSeats.push_back(static_cast<u16>(best));
         feedback::boarded(w, pid, vid, sid, waited);
         occupied[best] = true;
-        ++doorLoads[{door.centre.x, door.centre.z}];
+        ++doorLoads[doorAt[best]];
         ++station->boardedThisMonth;
         ++moved;
     }

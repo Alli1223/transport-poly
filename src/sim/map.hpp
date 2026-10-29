@@ -76,7 +76,7 @@ public:
         } else {
             u64 count = order_.size();
             ar(count);
-            for (const ChunkPos p : order_) ar(*chunks_.at(p.key()));
+            ar.items(order_.size(), [&](auto& out, usize i) { out(*chunks_.at(order_[i].key())); });
         }
     }
 

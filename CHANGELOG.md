@@ -5,6 +5,26 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
 
 ## [Unreleased]
 
+### Smooth multiplayer
+- Trains, cars, trams, ships and people move smoothly for players who join a game.
+  A client now plays the server's ticks back at a steady pace a little behind the
+  newest one (about a tenth of a second, more if ticks arrive unevenly) instead of
+  running each tick the moment it arrives, so motion no longer stops and lurches
+  when the host is busy or the network hiccups.
+- The regular desync check no longer freezes the game: it took about 80 ms every
+  second on a large map (on the host and on every client) and now takes about 4 ms,
+  spread over all processor cores.
+- Busy stations no longer slow the game down: boarding a train with hundreds of
+  people waiting costs a fraction of what it did (a large town's simulation runs
+  about thirteen times faster overall).
+- After building anything, passenger routes and everyone's plans are worked out on
+  all processor cores, so construction in a big game no longer causes a hitch.
+- The players under the chat: click a name to look where that player is pointing.
+  Names in the players window do the same.
+- The dedicated server takes `--threads N` to leave cores free, and
+  `--bench ticks` measures how fast a saved game runs.
+- Network protocol 42: hosts and players need this version.
+
 ## [0.5.0] - 2026-10-28
 
 ### Passenger and freight stations

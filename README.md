@@ -115,8 +115,10 @@ own with a name and a colour (colours other companies use are struck out), join 
 friend's company to play it together, or watch as a spectator. *Host* asks for
 your name, your company's name and colour, and an optional server password.
 
-Press **Tab** or click **Players** in multiplayer chat to see who is playing,
-grouped by company; companies with more than one player are marked co-op. Lock
+The other players are listed under the chat; click a name to look where that
+player is pointing. Press **Tab** or click **Players** in multiplayer chat to see
+who is playing, grouped by company; companies with more than one player are
+marked co-op. Lock
 your company with a password so only friends who know it can join, or **Change
 company** to move to another one or to watching. Everyone sees the other players'
 pointers in the world in their company's colour, with their names. Chat goes to
@@ -136,8 +138,8 @@ hosted game can be played as a competition: the first company to a company value
 of $1,000,000, $5,000,000 or $20,000,000 wins, or the best rated company after
 5, 10 or 20 years (`--goal-value` and `--goal-years` for the dedicated server).
 Clients see changes immediately while paused; commands submitted during pause
-wait until the host resumes. **Find** in the players window looks where another
-player is pointing. The dedicated server is run from its console: `status`,
+wait until the host resumes. **Find** (or a player's name) in the players window
+looks where another player is pointing. The dedicated server is run from its console: `status`,
 `companies` (the league with each company's players), `say <text>`, `pause`,
 `unpause`, `speed <0-16>`, `kick <id or name> [reason]`, `password [text]` (set or
 clear the server password), `unlock <company id>` (clear a company password),
@@ -504,6 +506,24 @@ roads, railways or freight services. Multiplayer clients cannot join AI companie
 Press **F3** to see chunk meshing and worker wait timings. Terrain generation and
 meshing use immutable snapshots on up to four workers; OpenGL uploads stay on
 the render thread. The simulation remains on its deterministic tick loop.
+
+Heavy, independent simulation work runs on a pool of worker threads, one per core
+(`--threads N` on the dedicated server): the desync check hashes map chunks and
+people in parallel, and a network change rebuilds passenger routes and replans
+everyone at home in parallel. Each piece writes only its own result and the
+results are merged in a fixed order, so the game is bit-identical on any number of
+threads; the tests check this. In multiplayer a client plays ticks back a little
+behind the server at a steady pace, speeding up or slowing down by a few percent
+to keep that delay, so a late or bunched tick never stops the picture; F3 shows
+the current delay.
+
+`transport-poly-server --load game.tpsave --bench 30000` runs a saved game flat out
+and reports tick times (mean, percentiles, the slowest ticks and when they fell),
+the cost of the desync check on one thread and on all of them, and the cost of a
+network change and of a snapshot. `--bench-reroute 500` makes a network change every
+500 ticks and `--bench-save out.tpsave` keeps the result, to compare two builds byte
+for byte. A client's `--profile` file also records each frame's length and the game
+clock it showed, which should advance evenly.
 
 `transport-poly --seed 20261017 --goto-town 35 --demo-network --profile profile.csv`
 records simulation time, CPU frame work, meshing time, worker wait, chunk builds

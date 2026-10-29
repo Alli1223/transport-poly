@@ -269,6 +269,24 @@ std::vector<std::vector<TrackEdgeId>> platformsOf(const World& w, StationId s);
 TrackEdgeId platformNear(const World& w, StationId s, TPoint p, i32 radius = 2 * kTrackUnits);
 TPoint platformPoint(const World& w, const std::vector<TrackEdgeId>& chain);
 int platformNumber(const World& w, StationId s, TPoint p);
+// One station's platform edges, gathered once to answer platformNear and platformNumber for many
+// points (every waiting passenger) with the same results, without scanning all track each time.
+class StationPlatforms {
+public:
+    StationPlatforms(const World& w, StationId s);
+    TrackEdgeId near(TPoint p, i32 radius = 2 * kTrackUnits) const;
+    int number(TPoint p) const;
+    int numberOf(TrackEdgeId platformEdge) const; // 0 for an edge that is not one of them
+
+private:
+    struct Edge {
+        TrackEdgeId id;
+        int number = 0;
+        TPoint min, max; // bounding box of the samples
+    };
+    const World& w_;
+    std::vector<Edge> edges_; // in pool order, as platformNear visits them
+};
 // Whether an edge runs over (or under) a tile.
 bool edgeCovers(const World& w, TrackEdgeId e, TilePos t);
 

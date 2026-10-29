@@ -103,8 +103,14 @@ public:
 
     template <class Ar>
     void serialize(Ar& ar) {
-        ar(slots_);
-        if constexpr (Ar::kReading) rebuild();
+        if constexpr (Ar::kReading) {
+            ar(slots_);
+            rebuild();
+        } else {
+            // The same bytes as writing the vector; hashing may take the slots in parallel.
+            ar.bytes().varint(slots_.size());
+            ar.items(slots_.size(), [&](auto& out, usize i) { out(slots_[i]); });
+        }
     }
 
 private:

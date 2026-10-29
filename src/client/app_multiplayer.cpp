@@ -245,22 +245,26 @@ void App::drawPlayersWindow() {
                 ImGui::Indent(22.0f * s);
                 const float right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
                 const std::string label = std::format("{}{}{}", p->name, p->id == me ? "  (you)" : "", p->id == kLocalClientId ? "  [host]" : "");
+                const bool pointing = p->id != me && playerPointer(p->id).has_value();
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted(label.c_str());
+                if (p->id == me) {
+                    ImGui::TextUnformatted(label.c_str());
+                } else {
+                    // The name, like Find, looks where they are pointing.
+                    const float buttons = 34.0f * s + 104.0f * s + (host ? 76.0f * s : 0.0f) + 3.0f * ImGui::GetStyle().ItemSpacing.x;
+                    if (ImGui::Selectable(label.c_str(), false, 0, ImVec2(std::max(40.0f * s, right - ImGui::GetCursorPosX() - buttons), 0)))
+                        lookAtPlayer(p->id);
+                    if (ImGui::IsItemHovered()) ui::tooltip({p->name.c_str(), pointing ? "Click to look where they are pointing" : "Not pointing at the map"});
+                }
                 if (p->id != me) {
                     // Find (their pointer), Message and, for the host, Kick at the right of the row.
                     const float find = 34.0f * s, message = 104.0f * s, kick = 76.0f * s, gap = ImGui::GetStyle().ItemSpacing.x;
                     ImGui::SameLine(right - find - gap - message - (host ? gap + kick : 0.0f));
-                    const auto pointer = cursorDisplay_.find(p->id);
-                    ImGui::BeginDisabled(pointer == cursorDisplay_.end());
-                    if (ui::button("##find", ui::Icon::Target, ui::Btn::Ghost, ImVec2(find, 0)) && pointer != cursorDisplay_.end()) {
-                        followVehicle_ = {};
-                        followPerson_ = false;
-                        camera_.targetGoal = pointer->second;
-                    }
+                    ImGui::BeginDisabled(!pointing);
+                    if (ui::button("##find", ui::Icon::Target, ui::Btn::Ghost, ImVec2(find, 0))) lookAtPlayer(p->id);
                     ImGui::EndDisabled();
                     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                        ui::tooltip({"Find", pointer == cursorDisplay_.end() ? "Not pointing at the map" : "Look where they are pointing"});
+                        ui::tooltip({"Find", pointing ? "Look where they are pointing" : "Not pointing at the map"});
                     ImGui::SameLine();
                     if (ui::button("Message", ui::Icon::Chat, ui::Btn::Ghost, ImVec2(message, 0))) {
                         chatScope_ = static_cast<int>(net::ChatScope::Private);
@@ -305,6 +309,47 @@ void App::drawPlayersWindow() {
         if (ui::button("League and graphs", ui::Icon::Star, ui::Btn::Secondary, ImVec2(-1.0f, 0))) showCompanies_ = true;
     }
     ui::endPanel();
+}
+
+std::optional<glm::dvec3> App::playerPointer(u16 client) {
+    std::vector<net::CursorInfo> all;
+    if (auto* c = netClient()) all = c->cursors();
+    else if (auto* h = netHost()) all = h->net().cursors();
+    for (const net::CursorInfo& c : all)
+        if (c.client == client)
+            return glm::dvec3(c.x, c.y, c.z) / static_cast<double>(net::kCursorScale);
+    return std::nullopt;
+}
+
+bool App::lookAtPlayer(u16 client) {
+    const auto pointer = playerPointer(client);
+    if (!pointer) return false;
+    followVehicle_ = {};
+    followPerson_ = false;
+    camera_.targetGoal = *pointer;
+    return true;
+}
+
+void App::drawPlayerRoster() {
+    const float s = uiScale_;
+    const u16 me = localClientId();
+    ui::FontScope f(ui::fonts().small);
+    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    if (ImGui::SmallButton("Players (Tab)")) showClients_ = !showClients_;
+    for (const net::ClientInfo& p : players()) {
+        if (p.id == me) continue;
+        ImGui::PushID(p.id);
+        // Names flow along the line in their company colour, wrapping when it is full.
+        const float width = 12.0f * s + ImGui::CalcTextSize(p.name.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width < right) ImGui::SameLine();
+        colourChip(colourOf(world(), p.company), 8.0f * s);
+        ImGui::SameLine(0, 4.0f * s);
+        const bool pointing = playerPointer(p.id).has_value();
+        if (ImGui::SmallButton(p.name.c_str())) lookAtPlayer(p.id);
+        if (ImGui::IsItemHovered())
+            ui::tooltip({p.name.c_str(), pointing ? "Click to look where they are pointing" : "Not pointing at the map"});
+        ImGui::PopID();
+    }
 }
 
 void App::drawPlayerCursors(std::vector<gfx::OverlayQuad>& overlays) {

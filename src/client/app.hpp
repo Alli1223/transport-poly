@@ -120,6 +120,11 @@ private:
     bool colourPicker(const char* id, int& colour, CompanyId own);
     void drawCompanyLobby();
     void drawPlayersWindow();
+    // The other players' names under the chat; clicking one looks where they are pointing.
+    void drawPlayerRoster();
+    // Where a player is pointing on the map (nothing when they are not), and moving the camera there.
+    std::optional<glm::dvec3> playerPointer(u16 client);
+    bool lookAtPlayer(u16 client);
     void drawPlayerCursors(std::vector<gfx::OverlayQuad>& overlays);
     void updateBots(double dt);
 
@@ -380,6 +385,8 @@ private:
     float uiScale_ = 1.0f;
     u64 seed_ = 20261017;
     bool showDebug_ = false; // F3
+    i64 debugHashTick_ = -1; // the debug window's state hash, worked out once per tick
+    u64 debugHash_ = 0;
     std::optional<double> fixedTimeOfDay_; // overrides the game clock for screenshots
     bool daylightOnly_ = false; // local lighting preference; simulation clock keeps running
 

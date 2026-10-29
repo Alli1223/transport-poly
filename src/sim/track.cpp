@@ -1163,6 +1163,46 @@ int platformNumber(const World& w, StationId s, TPoint p) {
     return 0;
 }
 
+StationPlatforms::StationPlatforms(const World& w, StationId s) : w_(w) {
+    const auto platforms = platformsOf(w, s);
+    for (const auto [id, e] : w.trackEdges) {
+        if (e.kind != TrackKind::Platform || e.station != s || e.samples.empty()) continue;
+        Edge edge{id, 0, e.samples.front().p, e.samples.front().p};
+        for (usize i = 0; i < platforms.size() && !edge.number; ++i)
+            if (std::ranges::find(platforms[i], id) != platforms[i].end()) edge.number = static_cast<int>(i) + 1;
+        for (const TrackSample& sample : e.samples) {
+            edge.min = {std::min(edge.min.x, sample.p.x), std::min(edge.min.z, sample.p.z)};
+            edge.max = {std::max(edge.max.x, sample.p.x), std::max(edge.max.z, sample.p.z)};
+        }
+        edges_.push_back(edge);
+    }
+}
+
+TrackEdgeId StationPlatforms::near(TPoint p, i32 radius) const {
+    TrackEdgeId best;
+    i64 bestD = static_cast<i64>(radius) + 1;
+    for (const Edge& edge : edges_) {
+        // The edge's bounding box is no further than the edge: skip edges that cannot be nearer.
+        const i64 dx = std::max<i64>({0, static_cast<i64>(edge.min.x) - p.x, static_cast<i64>(p.x) - edge.max.x});
+        const i64 dz = std::max<i64>({0, static_cast<i64>(edge.min.z) - p.z, static_cast<i64>(p.z) - edge.max.z});
+        if (dx * dx + dz * dz >= bestD * bestD) continue;
+        const i64 d = nearest(w_.trackEdges[edge.id].samples, p).d;
+        if (d < bestD) {
+            bestD = d;
+            best = edge.id;
+        }
+    }
+    return best;
+}
+
+int StationPlatforms::numberOf(TrackEdgeId e) const {
+    for (const Edge& edge : edges_)
+        if (edge.id == e) return edge.number;
+    return 0;
+}
+
+int StationPlatforms::number(TPoint p) const { return numberOf(near(p)); }
+
 bool edgeCovers(const World& w, TrackEdgeId e, TilePos t) {
     const auto it = w.trackTiles.find(tileKey(t));
     return it != w.trackTiles.end() && std::ranges::find(it->second, e) != it->second.end();

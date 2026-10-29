@@ -132,8 +132,22 @@ void assignShop(World& w, PersonId id);
 // Matches unemployed people with vacancies in nearby towns (towns linked by public transport
 // first, and further away).
 void jobMarket(World& w);
-// The towns a town is linked to by public transport.
+// The towns a town is linked to by public transport. townLinks() only reads, so many threads
+// may call it at once, after refreshTownLinks() has caught up with the routing.
 const std::vector<TownLink>& linkedTowns(World& w, TownId town);
+void refreshTownLinks(World& w);
+const std::vector<TownLink>& townLinks(const World& w, TownId town);
+
+// A person's next departure from home: what for, where to (a visit) and when. Planning only reads
+// the world and the person (after refreshTownLinks), so everyone at home can plan in parallel;
+// applying the plans in id order then gives the same game as planning one by one.
+struct HomePlan {
+    TripPurpose purpose = TripPurpose::None;
+    BuildingRef visit;
+    i64 tick = 0;
+};
+HomePlan planFromHome(const World& w, const Person& p);
+void applyHomePlan(World& w, PersonId id, const HomePlan& plan);
 // Rebuilds the event queue from the people pool (after loading a game).
 void rebuildEvents(World& w);
 std::string_view stateName(PersonState s);
