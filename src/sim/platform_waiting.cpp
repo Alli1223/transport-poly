@@ -2,6 +2,7 @@
 #include "core/hash.hpp"
 #include "sim/world.hpp"
 #include <algorithm>
+#include <climits>
 #include <map>
 #include <tuple>
 
