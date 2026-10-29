@@ -238,7 +238,7 @@ public:
         if constexpr (std::is_same_v<T, std::monostate>) {
             // nothing to write
         } else if constexpr (std::is_same_v<T, bool>) {
-            out_.le<u8>(v ? 1 : 0);
+            out_.template le<u8>(v ? 1 : 0);
         } else if constexpr (std::is_enum_v<T>) {
             write(static_cast<std::underlying_type_t<T>>(v));
         } else if constexpr (std::is_integral_v<T>) {
