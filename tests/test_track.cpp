@@ -680,3 +680,181 @@ TEST_CASE("track: a station's platforms run side by side whichever way it points
         CHECK(std::abs(gap - 2.0 * kTrackUnits * static_cast<double>(k)) < kTrackUnits / 4.0);
     }
 }
+
+namespace {
+
+// The edge running over a point, with the anchor for joining it there.
+TrackAnchor alongAnchor(const World& w, TPoint p, TDir into = {0, 0}) {
+    TrackAnchor a;
+    a.edge = track::edgeNear(w, p, 64);
+    a.pos = p;
+    a.into = into;
+    return a;
+}
+
+// Total length of the edges with both ends on the line z = row (tiles).
+i64 lengthAlong(const World& w, double row) {
+    i64 total = 0;
+    for (const auto [id, e] : w.trackEdges) {
+        const TrackNode& a = w.trackNodes[e.a];
+        const TrackNode& b = w.trackNodes[e.b];
+        if (std::abs(a.pos.z - row * kTrackUnits) < 4 && std::abs(b.pos.z - row * kTrackUnits) < 4) total += e.length;
+    }
+    return total;
+}
+
+} // namespace
+
+TEST_CASE("track: new track joins existing track part way along a piece, at either end") {
+    TrackWorld tw;
+    REQUIRE(tw.run(CmdBuildTrack{freeAnchor(at(5, 12)), freeAnchor(at(25, 12))}).ok);
+    REQUIRE(tw.w.trackEdges.size() == 3u);
+    const i64 before = lengthAlong(tw.w, 12);
+
+    // Too near a joint to split: use the joint itself.
+    const TrackAnchor nearJoint = alongAnchor(tw.w, at(11.8, 12), TDir{kDirOne, 0});
+    CHECK(!tw.run(CmdBuildTrack{nearJoint, freeAnchor(at(20, 18))}).ok);
+    // Branching must leave in line with the track.
+    CHECK(!tw.run(CmdBuildTrack{alongAnchor(tw.w, at(8, 12), TDir{0, kDirOne}), freeAnchor(at(8, 20))}).ok);
+    // Nor may it run along on top of the track.
+    CHECK(!tw.run(CmdBuildTrack{alongAnchor(tw.w, at(8, 12), TDir{kDirOne, 0}), freeAnchor(at(11, 12))}).ok);
+
+    // Starting part way along the first piece: a switch appears there.
+    const TrackAnchor from = alongAnchor(tw.w, at(8, 12), TDir{kDirOne, 0});
+    REQUIRE(from.edge.valid());
+    REQUIRE(tw.run(CmdBuildTrack{from, freeAnchor(at(17, 19))}).ok);
+    const TrackNodeId first = track::nodeNear(tw.w, at(8, 12), 32, true);
+    REQUIRE(first.valid());
+    CHECK(tw.w.trackNodes[first].count(0) == 2);
+    CHECK(tw.w.trackNodes[first].count(1) == 1);
+    CHECK(std::abs(tw.w.trackNodes[first].h - tw.w.trackNodes[track::nodeNear(tw.w, at(5, 12), 32, true)].h) < 4);
+
+    // Ending part way along the second piece, arriving from the north heading east.
+    const TrackAnchor to = alongAnchor(tw.w, at(15, 12), TDir{-kDirOne, 0});
+    REQUIRE(to.edge.valid());
+    REQUIRE(tw.run(CmdBuildTrack{freeAnchor(at(4, 5)), to}).ok);
+    const TrackNodeId second = track::nodeNear(tw.w, at(15, 12), 32, true);
+    REQUIRE(second.valid());
+    CHECK(tw.w.trackNodes[second].count(1) == 2);
+    CHECK(tw.w.trackNodes[second].count(0) == 1);
+
+    // The main line keeps its shape, in four pieces now.
+    CHECK(std::abs(lengthAlong(tw.w, 12) - before) < 16);
+    for (const auto [id, e] : tw.w.trackEdges) CHECK(e.minRadius == 0 || e.minRadius >= kTrackMinRadius);
+    CHECK(tw.w.map.tile({8, 12})->type == TileType::Track);
+    CHECK(tw.w.map.tile({15, 12})->type == TileType::Track);
+
+    // Saves keep the network; removing everything leaves clear land.
+    const auto bytes = toBytes(tw.w, kSaveVersion);
+    World copy;
+    fromBytes(bytes, copy, kSaveVersion);
+    CHECK_EQ(copy.stateHash(), tw.w.stateHash());
+    std::vector<TrackEdgeId> ids;
+    for (const auto [id, e] : tw.w.trackEdges) ids.push_back(id);
+    for (const TrackEdgeId id : ids) CHECK(tw.run(CmdRemoveTrack{id}).ok);
+    CHECK_EQ(tw.w.trackNodes.size(), 0u);
+    CHECK(tw.w.trackTiles.empty());
+    for (i32 x = 4; x <= 26; ++x) CHECK(tw.w.map.tile({x, 12})->type == TileType::Clear);
+}
+
+TEST_CASE("track: signals go anywhere along track, change, come off again, and divide blocks") {
+    TrackWorld tw;
+    REQUIRE(tw.run(CmdBuildTrack{freeAnchor(at(5, 12)), freeAnchor(at(13, 12))}).ok);
+    REQUIRE(tw.w.trackEdges.size() == 1u);
+    const TrackEdgeId edge = track::edgeNear(tw.w, at(9, 12), 32);
+    const Money money = tw.w.companies[tw.co].money;
+    // Not too near an open end, nor at the end itself.
+    CHECK(!tw.run(CmdTrackSignal{{}, edge, at(5.2, 12), 3}).ok);
+    CHECK(!tw.run(CmdTrackSignal{track::nodeNear(tw.w, at(5, 12), 32, true)}).ok);
+
+    // A one-way signal part way along: a node is added for it.
+    const CommandResult placed = tw.run(CmdTrackSignal{{}, edge, at(9, 12.2), 1});
+    REQUIRE(placed.ok);
+    CHECK(tw.w.companies[tw.co].money < money);
+    const TrackNodeId node(placed.createdId);
+    REQUIRE(tw.w.trackNodes.contains(node));
+    CHECK(tw.w.trackNodes[node].signals == 1);
+    CHECK(distance(tw.w.trackNodes[node].pos, at(9, 12)) < 8);
+    CHECK(tw.w.trackEdges.size() == 2u);
+    const TrackEdgeId west = tw.w.trackNodes[node].edges[2], east = tw.w.trackNodes[node].edges[0];
+    {
+        const auto blocks = track::signalBlocks(tw.w);
+        CHECK(blocks.at(west.value) != blocks.at(east.value));
+    }
+    // Two-way, then the same again (refused), then off.
+    CHECK(tw.run(CmdTrackSignal{node, {}, {}, 3}).ok);
+    CHECK(tw.w.trackNodes[node].signals == 3);
+    CHECK(!tw.run(CmdTrackSignal{node, {}, {}, 3}).ok);
+    CHECK(tw.run(CmdTrackSignal{node, {}, {}, 0}).ok);
+    CHECK(tw.w.trackNodes[node].signals == 0);
+    CHECK(!tw.run(CmdTrackSignal{node, {}, {}, 0}).ok);
+    const auto blocks = track::signalBlocks(tw.w);
+    CHECK(blocks.at(west.value) == blocks.at(east.value));
+}
+
+TEST_CASE("track: splitting track a train holds keeps the train on its way") {
+    TrackWorld tw;
+    REQUIRE(tw.run(CmdBuildTrackStation{freeAnchor(at(8, 16)), at(14, 16)}).ok);
+    REQUIRE(tw.run(CmdBuildTrack{nodeAnchor(tw.w, at(14, 16), TDir{kDirOne, 0}), freeAnchor(at(40, 18))}).ok);
+    TrackAnchor bStart;
+    bStart.node = track::nodeNear(tw.w, at(40, 18), 40);
+    REQUIRE(tw.run(CmdBuildTrackStation{bStart, at(46, 20)}).ok);
+    const CommandResult dep = tw.run(CmdBuildTrackDepot{track::nodeNear(tw.w, at(8, 16), 40)});
+    REQUIRE(dep.ok);
+    const StationId a = stationAt(tw.w, at(11, 16));
+    const StationId b = stationAt(tw.w, at(43, 19));
+    const CommandResult buy = tw.run(CmdBuyVehicle{DepotId(dep.createdId), 7});
+    REQUIRE(buy.ok);
+    const VehicleId train(buy.createdId);
+    REQUIRE(tw.run(CmdAddCarriage{train, 11}).ok);
+    Order oa, ob;
+    oa.station = a;
+    ob.station = b;
+    REQUIRE(tw.run(CmdSetOrders{train, {oa, ob}}).ok);
+    REQUIRE(tw.run(CmdStartStopVehicle{train}).ok);
+
+    // Wait until the train is out on the line with its head part way along a piece of it.
+    const Vehicle& v = tw.w.vehicles[train];
+    const auto headOnLine = [&] {
+        if (v.runs.empty() || v.speed == 0) return false;
+        const TrackEdge& e = tw.w.trackEdges[v.runs.front().edge];
+        return e.kind == TrackKind::Plain && e.length > 3 * kTrackUnits && v.progress > kTrackUnits &&
+               e.length - v.progress > 2 * kTrackUnits;
+    };
+    for (i64 t = 0; t < kTicksPerDay && !headOnLine(); ++t) tw.w.tick();
+    REQUIRE(headOnLine());
+    const EdgeRun head = v.runs.front();
+    const TrackEdge& under = tw.w.trackEdges[head.edge];
+    const TPoint headAt = track::pointOn(under, head.forward, v.progress).p;
+    // Signals just behind and just ahead of the head, on the piece it is on.
+    const TPoint behind = track::pointOn(under, head.forward, v.progress - kTrackUnits / 2).p;
+    REQUIRE(tw.run(CmdTrackSignal{{}, head.edge, behind, 3}).ok);
+    const TrackEdgeId now = v.runs.front().edge;
+    const TrackSample ahead = track::pointOn(tw.w.trackEdges[now], v.runs.front().forward, v.progress + kTrackUnits);
+    REQUIRE(tw.run(CmdTrackSignal{{}, now, ahead.p, 3}).ok);
+    // The head has not moved, and the train holds every piece it is on or has reserved.
+    CHECK(distance(track::pointOn(tw.w.trackEdges[v.runs.front().edge], v.runs.front().forward, v.progress).p, headAt) < 8);
+    for (const auto* runs : {&v.runs, &v.runsAhead})
+        for (const EdgeRun r : *runs) {
+            REQUIRE(tw.w.trackEdges.contains(r.edge));
+            CHECK(tw.w.trackEdges[r.edge].reservedBy == train);
+        }
+    // Consecutive runs meet at a node.
+    for (usize i = 0; i + 1 < v.runs.size(); ++i) CHECK(track::runStart(tw.w, v.runs[i]) == track::runEnd(tw.w, v.runs[i + 1]));
+
+    i64 lastA = tw.w.stations[a].lastVisitTick, lastB = tw.w.stations[b].lastVisitTick;
+    int visits = 0;
+    for (i64 t = 0; t < kTicksPerDay; ++t) {
+        tw.w.tick();
+        if (tw.w.stations[a].lastVisitTick != lastA) {
+            lastA = tw.w.stations[a].lastVisitTick;
+            ++visits;
+        }
+        if (tw.w.stations[b].lastVisitTick != lastB) {
+            lastB = tw.w.stations[b].lastVisitTick;
+            ++visits;
+        }
+    }
+    CHECK(!v.lost);
+    CHECK(visits >= 4);
+}

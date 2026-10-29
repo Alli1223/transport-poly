@@ -5,6 +5,28 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
 
 ## [Unreleased]
 
+### Track and signals
+- New track can join existing track anywhere along it, not only at its ends and
+  joints: a switch is put in where it branches off or joins.
+- Signals go anywhere along track. Pointing at a signal shows what it does: the block
+  it guards, the way trains may pass and, for one-way signals, where they can't.
+- Clicking a signal opens it to make it two-way or one-way, turn it round or remove
+  it, with the blocks either side and any train holding them.
+- The Signal tool places two-way or one-way signals; a one-way signal stands on the
+  side of the track pointed at.
+- Signal blocks: the Track and Signal tools can colour the track by block (B).
+- Signals can be added or changed on track a train is using.
+
+### Trains
+- Trains run at half their rated speed and have weight and momentum: long, heavy and
+  fully loaded trains take longer to get going, climbs slow them and descents speed
+  them up. The train window shows the train's weight.
+
+### Fixes
+- Passengers waiting at some stations walked off in a straight line forever, and were
+  still counted as waiting. Waiting spots are now always on the platform, and anyone
+  who had wandered off is called back.
+
 ## [0.5.0] - 2026-10-28
 
 ### Passenger and freight stations

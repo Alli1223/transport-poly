@@ -159,6 +159,30 @@ private:
     void handleStationTool(std::vector<gfx::OverlayQuad>& overlays);
     void handleDepotTool(std::vector<gfx::OverlayQuad>& overlays);
     void handleSignalTool(std::vector<gfx::OverlayQuad>& overlays);
+    // Signals on free-form track: the blocks they divide it into (coloured overlay), what one
+    // signal does (the blocks either side and its directions), and the panel to change it.
+    struct SignalBlocks {
+        const World* world = nullptr;
+        u32 revision = 0;
+        std::unordered_map<u32, u32> block; // edge -> block
+        std::unordered_map<u32, u8> colour; // block -> palette entry
+    };
+    struct SignalView {
+        struct Side {
+            bool valid = false;
+            u32 block = 0;
+            i64 length = 0;     // units
+            VehicleId heldBy;   // a train holding part of the block
+        } sides[2];
+    };
+    const SignalBlocks& currentSignalBlocks();
+    void drawSignalBlocks(std::vector<gfx::OverlayQuad>& overlays, TrackNodeId focus = {});
+    bool nearCamera(const TrackEdge& e) const;
+    SignalView signalView(TrackNodeId node);
+    void highlightSignal(std::vector<gfx::OverlayQuad>& overlays, TrackNodeId node);
+    std::string signalSummary(TrackNodeId node);
+    void drawSignalWindow();
+    void previewSignalling(TPoint lineStart); // automation for --preview-signals and --preview-branch
     void handleElectrifyTool(std::vector<gfx::OverlayQuad>& overlays);
     bool pickTrackOrder(std::vector<gfx::OverlayQuad>& overlays);
     void drawStationUpgradePreview(std::vector<gfx::OverlayQuad>& overlays);
@@ -278,6 +302,9 @@ private:
     std::optional<TilePos> dragStart_;
     std::optional<TrackAnchor> trackStart_; // free-form track being laid (start of the next piece)
     std::optional<TrackAnchor> stationStart_; // first end of a station platform being placed
+    TrackNodeId selSignal_;          // the signal open in the signal panel
+    bool newSignalOneWay_ = false;   // the signal tool puts in one-way signals
+    SignalBlocks signalBlocks_;
     bool elevationView_ = false;     // the elevation view turned on (H) outside the track tools
     float elevationStrength_ = 0.0f; // fades the view in and out
 
@@ -408,6 +435,8 @@ private:
     bool previewDemolition_ = false;
     bool previewStation_ = false;   // automation: show the station tool placing a platform
     bool previewTrack_ = false;     // automation: show the track tool laying track, in the elevation view
+    bool previewSignals_ = false;   // automation: the demo railway with signals, their blocks and one open
+    bool previewBranch_ = false;    // automation: the demo railway with track branching off part way along
     std::string previewStationUpgradeAction_; // automation: left, right, west or east
     bool previewConsist_ = false;
     bool previewConsistPopup_ = false;

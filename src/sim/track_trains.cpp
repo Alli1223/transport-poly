@@ -99,15 +99,31 @@ i32 reservedDistance(const World& w, const Vehicle& v) {
     return d;
 }
 
-i32 acceleration(const Vehicle& v) {
-    i32 powered = 0;
-    for (const u16 m : v.cars) powered += vehicleModel(m).powered ? 1 : 0;
-    const i32 cars = std::max<i32>(1, static_cast<i32>(v.cars.size()));
-    return std::max(1, 4 * std::max(1, powered) / cars);
+// The grade under a train in fine height units per tile (positive climbing): its head's height
+// against its tail's, so it feels a hill more as more of it runs onto the slope.
+i32 gradeUnder(const World& w, const Vehicle& v) {
+    const i32 head = track::pointOn(w.trackEdges[v.runs.front().edge], v.runs.front().forward, v.progress).h;
+    i32 span = std::max(kTrackUnits, trains::consistLength(v));
+    i32 back = span;
+    usize j = 0;
+    i32 at = v.progress;
+    while (back > at) {
+        if (j + 1 >= v.runs.size()) {
+            span -= back - at;
+            at = 0;
+            break;
+        }
+        back -= at;
+        ++j;
+        at = runLen(w, v.runs[j]);
+    }
+    if (back <= at) at -= back;
+    const i32 tail = track::pointOn(w.trackEdges[v.runs[j].edge], v.runs[j].forward, at).h;
+    return span > 0 ? (head - tail) * kTrackUnits / span : 0;
 }
 
 // Speed limit for a curve of radius r (units): sharper curves are slower.
-i32 curveLimit(i32 r) { return speedUnits(30 + r * 12 / kTrackUnits); }
+i32 curveLimit(i32 r) { return speedUnits(30 + r * 12 / kTrackUnits) * trains::kRailSpeedPercent / 100; }
 
 template <class GoalFn>
 std::optional<std::vector<EdgeRun>> findPath(const World& w, EdgeRun from, GoalFn&& goal, DepotId allowDepot, VehicleId train) {
@@ -462,15 +478,7 @@ void tick(World& w, VehicleId id) {
     const i32 dist = std::max(0, reservedDistance(w, v) - kStopMargin);
     i32 desired = std::min<i32>(vmax, static_cast<i32>(isqrt(static_cast<u64>(2 * kDecel * dist))));
     desired = std::min(desired, speedLimit(w, v));
-    {
-        // Climbing is slower.
-        const TrackEdge& e = w.trackEdges[v.runs.front().edge];
-        const TrackSample here = track::pointOn(e, v.runs.front().forward, v.progress);
-        const TrackSample ahead = track::pointOn(e, v.runs.front().forward, std::min(e.length, v.progress + 128));
-        if (ahead.h - here.h >= 2 && desired > vmax * 3 / 4) desired = vmax * 3 / 4;
-    }
-    if (v.speed < desired) v.speed = std::min(desired, v.speed + acceleration(v));
-    else v.speed = std::max(desired, v.speed - kDecel * 2);
+    trains::accelerate(v, desired, gradeUnder(w, v));
     const i32 move = std::min(v.speed, std::max(0, reservedDistance(w, v)));
     if (move > 0) advance(w, id, move);
     if (v.state != VehicleState::Driving) return;

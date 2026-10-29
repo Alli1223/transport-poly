@@ -16,6 +16,7 @@
 
 #include <array>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace tp {
@@ -182,11 +183,26 @@ struct TrackAnchor {
     TrackNodeId node; // join this node; if invalid, a node at `pos` is joined when there is one
     TPoint pos;
     TDir into{0, 0};  // direction from this end into the new track; zero lets the planner choose
+    TrackEdgeId edge; // with no node: branch off this track part way along, at the point nearest `pos`
 
     template <class Ar>
     void serialize(Ar& ar) {
-        ar(node, pos, into);
+        ar(node, pos, into, edge);
     }
+};
+
+// A point part way along an edge where a new node could split it in two: what that node would be.
+struct TrackSplit {
+    bool ok = false;
+    std::string error;
+    TrackEdgeId edge;
+    i64 t = 0;     // curve parameter, of 65536
+    i32 s = 0;     // distance from node a
+    i64 miss = 0;  // how far the point asked for lies from the track
+    TPoint pos;
+    i32 h = 0;
+    TDir dir;      // along the edge, from node a towards node b
+    i64 grade = 0; // along dir
 };
 
 struct TrackPlan {
@@ -209,6 +225,7 @@ struct TrackPlan {
 
     // Resolved ends.
     TrackNodeId startNode, endNode; // existing nodes joined, if any
+    TrackSplit startSplit, endSplit; // or existing track joined part way along (split as it is built)
     u8 startSide = 0, endSide = 0;
     bool levelStart = false, levelEnd = false; // level track ends on a gentle slope (for platforms)
     struct Piece {
@@ -231,6 +248,16 @@ std::vector<TrackEdgeId> build(World& w, CompanyId company, const TrackPlan& pla
 // Removes an edge, its exclusive tiles and any nodes left without edges (and a platform's
 // station tiles).
 void remove(World& w, TrackEdgeId id);
+// Where an edge would be split nearest to `p`. Fails on platforms, depot track and level
+// crossings, and within half a tile of either end (join the node there instead).
+TrackSplit splitAt(const World& w, TrackEdgeId edge, TPoint p);
+// Splits an edge at a point found by splitAt: a new node joins the two halves, which take over
+// the edge's bridges, tunnels and any train holding it. Returns the new node.
+TrackNodeId split(World& w, const TrackSplit& at);
+// Signal blocks: stretches of track between signals, which trains reserve their way through
+// whole. Edges meeting at a node without signals (and the branches of a switch) share a block.
+// Maps every edge to its block, numbered by the lowest edge id in it.
+std::unordered_map<u32, u32> signalBlocks(const World& w);
 i32 halfWidthOf(TrackKind kind);
 
 // A straight, level station platform from `from` towards `to` (snapped onto the start's line).

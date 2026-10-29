@@ -12,6 +12,7 @@ struct Platforms {
     CompanyId company;
     StationId station, east, west;
     std::vector<std::vector<TrackEdgeId>> platforms;
+    BuildingId home;
     Platforms() {
         for (i32 y = 0; y < 2; ++y)
             for (i32 x = 0; x < 2; ++x) w.map.activate({x, y});
@@ -61,8 +62,15 @@ struct Platforms {
     std::vector<PersonId> queue(StationId destination, usize count) {
         std::vector<PersonId> out;
         const auto point = offset(track::platformPoint(w, platforms[0]), {0, kDirOne}, 200);
+        // A home to come from: people without one move away when they next reconsider.
+        if (!w.buildings.contains(home)) {
+            home = w.buildings.create();
+            w.buildings[home].serial = ++w.nextSerial;
+            w.buildings[home].pos = {40, 40};
+        }
         for (usize i = 0; i < count; ++i) {
             Person p;
+            p.home = w.buildings[home].ref(home);
             p.serial = static_cast<u32>(w.people.size() + 1);
             p.state = PersonState::Waiting;
             p.station = station;
@@ -323,4 +331,25 @@ TEST_CASE("platform waiting: loading progresses while station walkers do not ext
         vehicles::tickAll(f.w);
     CHECK(v.state == VehicleState::Driving);
     CHECK_EQ(f.w.stations[f.station].waitingCount(), approaching.size());
+}
+
+TEST_CASE("platform waiting: every waiting spot is on the platform, either side of the track") {
+    Platforms f;
+    const auto destination = f.east;
+    const auto queue = f.queue(destination, 64);
+    f.service(destination, 0);
+    passengers::positionWaiting(f.w, f.station);
+    const TPoint middle = track::platformPoint(f.w, f.platforms[0]);
+    int left = 0, right = 0;
+    for (const PersonId id : queue) {
+        const Person& p = f.w.people[id];
+        REQUIRE(!p.walkPath.empty());
+        const TPoint spot = p.walkPath.back().p;
+        // On the platform: within a few tiles of its middle, never off across the map.
+        CHECK(distance(spot, middle) < 6 * kTrackUnits);
+        CHECK(p.walkEnd - p.walkBegin < 4 * kTicksPerHour);
+        (spot.z < middle.z ? left : right) += 1;
+    }
+    CHECK(left > 0);
+    CHECK(right > 0);
 }

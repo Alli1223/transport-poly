@@ -107,12 +107,17 @@ struct CmdBuildTrackDepot {
     }
 };
 
-// Cycles the path signals at a node: none, both ways, one way, the other way.
+// Sets the path signals at a node, or on track part way along `edge` (at the point nearest `at`,
+// where a node is added). `signals` holds bit s for trains leaving through side s of the node
+// (both bits: two-way, none: removed); -1 cycles none, both ways, one way, the other way.
 struct CmdTrackSignal {
     TrackNodeId node;
+    TrackEdgeId edge;
+    TPoint at;
+    i32 signals = -1;
     template <class Ar>
     void serialize(Ar& ar) {
-        ar(node);
+        ar(node, edge, at, signals);
     }
 };
 

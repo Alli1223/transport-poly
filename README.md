@@ -196,8 +196,9 @@ every five. Track that follows a contour stays level, and a gold line marks the
 height of the track being laid (before the first click, the height under the
 pointer). The plan's tooltip draws its height profile, the track over the ground,
 so cuttings, embankments and bridges show at a glance. **H** shows or hides the
-elevation view, with the track tools or at any other time. Start on a track or station end to continue it (or to branch off
-through a switch), and finish on one to join up. The planner keeps to a minimum
+elevation view, with the track tools or at any other time. Start on a track or station end to continue it, or anywhere
+along existing track to branch off it (a switch is put in there), and finish on a
+track end or part way along a track to join up. The planner keeps to a minimum
 curve radius and a gentle gradient, and shapes the ground under the track into a
 level bed with embankments and cuttings. Where the rails would run high above the
 ground, or over water, roads and other railways, the track goes onto a bridge;
@@ -208,10 +209,17 @@ takes away the piece of track under the pointer.
 **Station** places a straight platform at any angle: click where it starts (on a
 track end to line it up) and again to set its length. While placing, a ghost shows
 the platform and the reshaped ground, with the cost of levelling it. **Depot** goes
-on an open track end. **Signal** adds path signals where track joins track; click
-again for one-way (either direction) and once more to remove them. Trains reserve
-their route from signal to signal, slow for curves and climbs, and reverse at
-terminus platforms.
+on an open track end. **Signal** puts a path signal anywhere along track: two-way,
+or one-way (choose in the tool's bar) for trains passing it on their right, so
+point at the side of the track it should stand on. Point at a signal to see what it
+does: the block it guards and the way trains may pass are drawn on the track (for a
+one-way signal, a red arrow where trains can't pass). Click it to open it, where the
+blocks ahead are listed with any train holding them, and change it between two-way
+and one-way, turn it round or remove it. **Signal blocks** in the bar of the Track
+and Signal tools (or **B**) colours the track by block, the stretches between
+signals that a train takes its way through whole; blocks a train holds part of are
+drawn stronger. Trains reserve their route from signal to signal, slow for curves
+and climbs, and reverse at terminus platforms.
 
 Click a placed rail station to open **Station layout and road access**. Use
 **Add road entrance**, then click a surface road or a cleared plot beside it within 64 tiles. A station gate
@@ -471,6 +479,16 @@ per cargo type. The new catalogue also includes an electric locomotive, intercit
 coach, regional EMU and heavy freight diesel, subject to introduction dates.
 Passenger choices also include suburban, compartment, panorama, dining, sleeper
 and double-deck carriages with distinct bodies, seating capacities and running costs.
+
+Trains have weight and momentum. Each car weighs according to its length and kind
+(engines most, then coaches, then wagons), and every passenger and unit of freight
+aboard adds to it. The engines' pull is shared by the whole train, so a long, heavy
+or fully loaded train takes much longer to get up to speed than a short, empty one,
+and adding a second engine helps. Climbs slow a train to where its engines can hold
+it against the hill, and an overloaded train crawls up steep grades rather than
+stopping; going downhill it gathers speed sooner. Trains run at a steady pace, half
+the speed they are rated for on the map, though speeds are shown on the rated scale.
+The train window shows its weight and the depot window its empty weight.
 
 Every nearby walking, waiting, boarding, riding and alighting citizen is drawn
 individually. Articulated trams turn their sections independently, following their

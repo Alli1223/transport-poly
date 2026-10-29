@@ -271,6 +271,7 @@ void App::drawWindows() {
     drawCitizens();
     drawFeedbackWindow();
     drawSubsidiesWindow();
+    drawSignalWindow();
 }
 
 void App::drawNews(double now) {
@@ -647,8 +648,8 @@ void App::drawDepotWindow() {
                 }
                 ImGui::EndChild();
                 const double trainTiles = trains::consistLength(v) / static_cast<double>(kTrackUnits);
-                ui::mutedText(std::format("{} vehicles | {:.1f} tiles long | {} seats | Engines may push from the rear",
-                                          v.cars.size(), trainTiles, v.capacity()).c_str());
+                ui::mutedText(std::format("{} vehicles | {:.1f} tiles long | {} t empty | {} seats | Engines may push from the rear",
+                                          v.cars.size(), trainTiles, trains::weight(v).empty / 4, v.capacity()).c_str());
                 // The platform each stop will use (or the longest at the station), against the train.
                 for (const Order& o : v.orders) {
                     const Station* stop = o.kind == OrderKind::Station ? w.stations.tryGet(o.station) : nullptr;
@@ -735,7 +736,8 @@ void App::drawVehicleWindow() {
         }
         ImGui::Dummy(ImVec2(0, 2.0f * s));
         const float cw = ui::columnWidth(3);
-        const std::string speed = std::format("{} km/h", displayKmh(v->speed));
+        const std::string speed = std::format(
+            "{} km/h", displayKmh(v->info().type == VehicleType::Rail ? v->speed * 100 / trains::kRailSpeedPercent : v->speed));
         const std::string load = std::format("{} / {}", v->passengers.size(), v->capacity());
         // Freight space by class (each class's cargo shares it), then what is aboard.
         for (const CargoType c : {CargoType::Grain, CargoType::Food, CargoType::Goods, CargoType::Logs})
@@ -751,6 +753,10 @@ void App::drawVehicleWindow() {
                 ui::statRow(carModel.name.data(), std::format("{} / {} {}", v->carLoad(k),
                     carModel.cargoCapacity ? carModel.cargoCapacity : carModel.capacity, cargoName(carModel.cargoType)).c_str());
             }
+            // Heavier trains take longer to get up to speed and climb more slowly.
+            const trains::TrainWeight weight = trains::weight(*v);
+            ui::statRow("Weight", std::format("{} t ({} t aboard)", (weight.empty + weight.load) / 4, weight.load / 4).c_str());
+            ui::itemTooltip({"Weight", "Heavier trains take longer to get up to speed and climb hills more slowly. More engines pull harder."});
         }
         const std::string profit = formatMoney(v->profitThisYear);
         ui::statCard(ui::Icon::Gauge, speed.c_str(), "Speed", ui::col::kBlue, cw);

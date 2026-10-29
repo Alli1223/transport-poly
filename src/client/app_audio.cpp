@@ -44,7 +44,8 @@ void App::updateAudio(double now) {
         std::vector<gfx::CarPose> cars;
         for (const auto& near : nearby) {
             const auto& v = *near.vehicle;
-            const float speed = std::clamp(static_cast<float>(v.speed) / std::max(1, speedUnits(v.info().maxSpeedKmh)), 0.0f, 1.0f);
+            const i32 top = v.info().type == VehicleType::Rail ? trains::maxSpeed(v) : std::max(1, speedUnits(v.info().maxSpeedKmh));
+            const float speed = std::clamp(static_cast<float>(v.speed) / static_cast<float>(top), 0.0f, 1.0f);
             glm::dvec3 position;
             if (v.info().type == VehicleType::Rail) {
                 cars.clear(); gfx::trainCarPoses(w, v, session_->tickFraction(), cars);

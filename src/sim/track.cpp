@@ -5,6 +5,7 @@
 #include "sim/prices.hpp"
 #include "sim/rail.hpp"
 #include "sim/road.hpp"
+#include "sim/vehicle.hpp"
 #include "sim/world.hpp"
 
 #include <algorithm>
@@ -450,6 +451,7 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
     struct End {
         bool existing = false;
         TrackNodeId id;
+        TrackSplit split; // joining part way along an edge (a node is added there)
         u8 side = 0;
         TPoint pos;
         i32 h = 0;
@@ -458,6 +460,24 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
     };
     const auto resolve = [&](const TrackAnchor& a, End& e) -> std::string {
         TrackNodeId id = a.node.valid() ? a.node : nodeAt(w, a.pos);
+        if (!id.valid() && a.edge.valid()) {
+            // A switch part way along existing track: the node there would carry on along it.
+            const TrackSplit sp = splitAt(w, a.edge, a.pos);
+            if (!sp.ok) return sp.error;
+            if (w.trackEdges[a.edge].owner != company) return "Owned by another company";
+            TrackNode n;
+            n.dir = sp.dir;
+            const int s = a.into.isZero() ? 0 : sideFor(n, a.into);
+            if (s < 0) return "Track can only branch off in line with the existing track";
+            e.existing = true;
+            e.split = sp;
+            e.side = static_cast<u8>(s);
+            e.pos = sp.pos;
+            e.h = sp.h;
+            e.into = n.side(e.side);
+            e.grade = s == 0 ? sp.grade : -sp.grade;
+            return {};
+        }
         if (!id.valid()) {
             e.pos = a.pos;
             e.into = a.into.isZero() ? TDir{0, 0} : normalised(a.into.x, a.into.z);
@@ -483,7 +503,7 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
     End a, b;
     if (std::string why = resolve(from, a); !why.empty()) return fail(why);
     if (std::string why = resolve(to, b); !why.empty()) return fail(why);
-    if (a.existing && b.existing && a.id == b.id) return fail("Drag to another point");
+    if (a.existing && b.existing && a.id.valid() && a.id == b.id) return fail("Drag to another point");
     const i64 chord = distance(a.pos, b.pos);
     if (chord < kTrackUnits / 2) return fail("Too short");
     if (chord > kTrackMaxLength) return fail("Too long - build it in shorter sections");
@@ -732,6 +752,14 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
                 for (const TrackEdgeId e : it->second) nearby.insert(e.value);
         const TPoint ends[2] = {a.pos, b.pos};
         const TrackNodeId joined[2] = {a.existing ? a.id : TrackNodeId{}, b.existing ? b.id : TrackNodeId{}};
+        const bool branching[2] = {a.split.ok, b.split.ok};
+        // However its ends join, new track may not simply run along on top of existing track
+        // (a branch leaving a switch is well clear of the main line half way along).
+        const TrackSample& middle = pl.samples[n / 2];
+        for (const u32 id : nearby) {
+            const Nearest o = nearest(w.trackEdges[TrackEdgeId{id}].samples, middle.p);
+            if (o.d < 48 && std::abs(middle.h - o.h) < kOverpassClearance) return fail("That would run on top of existing track");
+        }
         for (const u32 id : nearby) {
             const TrackEdge& other = w.trackEdges[TrackEdgeId{id}];
             const i32 spacing = (halfWidthOf(other.kind) + options.halfWidth) / 2 + kTrackSpacing - kTrackBedHalfWidth;
@@ -739,7 +767,8 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
             // branch for a while as the two diverge.
             i64 exclusion[2] = {3 * kTrackUnits / 2, 3 * kTrackUnits / 2};
             for (int j = 0; j < 2; ++j)
-                if (joined[j].valid() && w.trackNodes[joined[j]].count(0) > 0 && w.trackNodes[joined[j]].count(1) > 0)
+                if (branching[j] ||
+                    (joined[j].valid() && w.trackNodes[joined[j]].count(0) > 0 && w.trackNodes[joined[j]].count(1) > 0))
                     exclusion[j] = 7 * kTrackUnits;
             for (usize i = 0; i < n; ++i) {
                 const TrackSample& sm = pl.samples[i];
@@ -852,8 +881,10 @@ TrackPlan plan(const World& w, CompanyId company, const TrackAnchor& from, const
         pl.pieces.push_back(pc);
     }
     pl.startNode = a.existing ? a.id : TrackNodeId{};
+    pl.startSplit = a.split;
     pl.startSide = a.side;
     pl.endNode = b.existing ? b.id : TrackNodeId{};
+    pl.endSplit = b.split;
     pl.endSide = b.side;
     pl.ok = true;
     return pl;
@@ -863,6 +894,23 @@ std::vector<TrackEdgeId> build(World& w, CompanyId company, const TrackPlan& pl)
     const TrackKind kind = pl.options.kind;
     std::vector<TrackEdgeId> edges;
     if (!pl.ok || pl.pieces.empty()) return edges;
+    // Ends part way along existing track: split it there first. When both ends are on the same
+    // edge, the end lies on one of the halves the start leaves.
+    TrackNodeId startNode = pl.startNode, endNode = pl.endNode;
+    if (pl.startSplit.ok) startNode = split(w, pl.startSplit);
+    if (pl.endSplit.ok) {
+        TrackSplit at = pl.endSplit;
+        if (!w.trackEdges.contains(at.edge) && startNode.valid()) {
+            at.ok = false;
+            for (const TrackEdgeId half : w.trackNodes[startNode].edges) {
+                if (!half.valid() || half == at.edge) continue;
+                const TrackSplit other = splitAt(w, half, pl.endSplit.pos);
+                if (other.ok && (!at.ok || other.miss < at.miss)) at = other;
+            }
+        }
+        if (!at.ok) return edges;
+        endNode = split(w, at);
+    }
     // Level the end of the track a platform joins: its edges ease out flat into the node.
     for (const auto& [level, nid] : {std::pair{pl.levelStart, pl.startNode}, std::pair{pl.levelEnd, pl.endNode}}) {
         if (!level || !w.trackNodes.contains(nid)) continue;
@@ -887,17 +935,17 @@ std::vector<TrackEdgeId> build(World& w, CompanyId company, const TrackPlan& pl)
         n.grade = grade;
         return id;
     };
-    TrackNodeId prev = pl.startNode.valid() ? pl.startNode
-                                            : newNode(pl.pieces.front().p0, pl.pieces.front().d0, pl.pieces.front().h0,
-                                                      pl.pieces.front().g0);
-    u8 prevSide = pl.startNode.valid() ? pl.startSide : 0;
+    TrackNodeId prev = startNode.valid() ? startNode
+                                         : newNode(pl.pieces.front().p0, pl.pieces.front().d0, pl.pieces.front().h0,
+                                                   pl.pieces.front().g0);
+    u8 prevSide = startNode.valid() ? pl.startSide : 0;
     for (usize j = 0; j < pl.pieces.size(); ++j) {
         const TrackPlan::Piece& pc = pl.pieces[j];
         const bool last = j + 1 == pl.pieces.size();
         TrackNodeId next;
         u8 nextSide = 1;
-        if (last && pl.endNode.valid()) {
-            next = pl.endNode;
+        if (last && endNode.valid()) {
+            next = endNode;
             nextSide = pl.endSide;
         } else {
             // New nodes point along the direction of travel: the edge arrives on side 1.
@@ -1016,6 +1064,226 @@ void remove(World& w, TrackEdgeId id) {
     for (const TrackNodeId nid : nodes)
         if (const TrackNode* n = w.trackNodes.tryGet(nid); n && n->empty()) w.trackNodes.destroy(nid);
     ++w.trackRevision;
+}
+
+TrackSplit splitAt(const World& w, TrackEdgeId id, TPoint p) {
+    TrackSplit r;
+    r.edge = id;
+    const TrackEdge* e = w.trackEdges.tryGet(id);
+    if (!e || e->samples.size() < 2) {
+        r.error = "No track there";
+        return r;
+    }
+    if (e->kind == TrackKind::Platform) {
+        r.error = "Not part way along a platform";
+        return r;
+    }
+    if (e->kind == TrackKind::Depot) {
+        r.error = "Not on the track into a depot";
+        return r;
+    }
+    // The nearest point, and its curve parameter (samples lie at even steps of the parameter).
+    const Nearest n = nearest(e->samples, p);
+    const TrackSample& s0 = e->samples[static_cast<usize>(n.i)];
+    const TrackSample& s1 = e->samples[static_cast<usize>(n.i) + 1];
+    const i64 seg = std::max(1, s1.s - s0.s);
+    const i64 along = std::clamp<i64>(distance(s0.p, n.q), 0, seg);
+    const i64 count = static_cast<i64>(e->samples.size()) - 1;
+    r.t = kT * (n.i * seg + along) / (seg * count);
+    r.s = static_cast<i32>(s0.s + along);
+    r.miss = n.d;
+    if (r.s < kTrackUnits / 2 || e->length - r.s < kTrackUnits / 2) {
+        r.error = "Too near the end of this track - use the joint there";
+        return r;
+    }
+    const Curve c = edgeCurve(w, *e);
+    r.pos = at(c, r.t);
+    if (std::ranges::find(e->crossings, tileAt(r.pos)) != e->crossings.end()) {
+        r.error = "Not on a level crossing";
+        return r;
+    }
+    const TPoint behind = blossom(c, 0, r.t, r.t), ahead = blossom(c, r.t, r.t, kT);
+    r.dir = normalised(static_cast<i64>(ahead.x) - behind.x, static_cast<i64>(ahead.z) - behind.z);
+    if (r.dir.isZero()) {
+        r.error = "No track there";
+        return r;
+    }
+    // The height profile the edge was sampled with (see computeSamples).
+    const TrackNode& a = w.trackNodes[e->a];
+    const TrackNode& b = w.trackNodes[e->b];
+    const i64 g0 = e->sideA == 0 ? a.grade : -a.grade;
+    const i64 g1 = e->sideB == 0 ? -b.grade : b.grade;
+    const i64 len = std::max(1, e->length);
+    const i64 t0 = g0 * len / kGradeOne, t1 = g1 * len / kGradeOne;
+    const i64 u = r.s * kT / len;
+    r.h = static_cast<i32>(hermite(u, a.h, t0, b.h, t1));
+    r.grade = hermiteDeriv(u, a.h, t0, b.h, t1) * kGradeOne / len;
+    r.ok = true;
+    return r;
+}
+
+TrackNodeId split(World& w, const TrackSplit& at) {
+    if (!at.ok || !w.trackEdges.contains(at.edge)) return {};
+    const TrackEdge old = w.trackEdges[at.edge];
+    const Curve c = edgeCurve(w, old);
+    const TrackNodeId mid = w.trackNodes.create();
+    {
+        TrackNode& m = w.trackNodes[mid];
+        m.pos = at.pos;
+        m.dir = at.dir;
+        m.h = at.h;
+        m.grade = at.grade;
+    }
+    // Off the tile index; the ground keeps its track until the halves have claimed theirs.
+    std::vector<TilePos> oldGround, oldAll;
+    edgeTiles(old, &oldGround, &oldAll);
+    for (const TilePos t : oldAll) {
+        if (const auto it = w.trackTiles.find(tileKey(t)); it != w.trackTiles.end()) {
+            std::erase(it->second, at.edge);
+            if (it->second.empty()) w.trackTiles.erase(it);
+        }
+        w.map.touch(t);
+    }
+    for (const TilePos t : oldGround)
+        if (Tile* tile = w.map.tile(t); tile && tile->type == TileType::Track && tile->extra > 0) --tile->extra;
+
+    // The halves: the parts of the curve either side of the parameter, arriving at the new node
+    // through its side 1 and leaving through its side 0.
+    const auto half = [&](TrackNodeId a, u8 sideA, i32 handleA, TrackNodeId b, u8 sideB, i32 handleB) {
+        const TrackEdgeId id = w.trackEdges.create();
+        TrackEdge& e = w.trackEdges[id];
+        e.a = a;
+        e.b = b;
+        e.sideA = sideA;
+        e.sideB = sideB;
+        e.handleA = handleA;
+        e.handleB = handleB;
+        e.owner = old.owner;
+        e.kind = old.kind;
+        e.station = old.station;
+        e.depot = old.depot;
+        e.reservedBy = old.reservedBy;
+        e.electrified = old.electrified;
+        e.serial = ++w.nextSerial;
+        return id;
+    };
+    const i64 t = at.t;
+    const TrackEdgeId first = half(old.a, old.sideA, static_cast<i32>(distance(c.p[0], blossom(c, 0, 0, t))), mid, 1,
+                                   static_cast<i32>(distance(at.pos, blossom(c, 0, t, t))));
+    const TrackEdgeId second = half(mid, 0, static_cast<i32>(distance(at.pos, blossom(c, t, t, kT))), old.b, old.sideB,
+                                    static_cast<i32>(distance(c.p[3], blossom(c, t, kT, kT))));
+    for (const auto& [nid, replacement] : {std::pair{old.a, first}, std::pair{old.b, second}})
+        for (TrackEdgeId& slot : w.trackNodes[nid].edges)
+            if (slot == at.edge) slot = replacement;
+    w.trackNodes[mid].edges[2] = first;  // side 1
+    w.trackNodes[mid].edges[0] = second; // side 0
+    w.trackEdges.destroy(at.edge);
+
+    const i64 cut = std::clamp(at.s, 1, std::max(1, old.length - 1));
+    const i64 rest = std::max<i64>(1, old.length - cut);
+    for (const TrackEdgeId id : {first, second}) {
+        TrackEdge& e = w.trackEdges[id];
+        computeSamples(w, e);
+        // Bridges and tunnels, in the half's own distances.
+        const bool isFirst = id == first;
+        for (const TrackSpan& sp : old.spans) {
+            const i64 from = isFirst ? sp.s0 : std::max<i64>(sp.s0, cut) - cut;
+            const i64 to = isFirst ? std::min<i64>(sp.s1, cut) : sp.s1 - cut;
+            if (from >= to) continue;
+            const i64 scale = isFirst ? cut : rest;
+            e.spans.push_back({static_cast<i32>(from * e.length / scale), static_cast<i32>(to * e.length / scale), sp.kind});
+        }
+        computeCrossings(w, e);
+        std::vector<TilePos> ground, all;
+        edgeTiles(e, &ground, &all);
+        for (const TilePos tp : all) {
+            w.trackTiles[tileKey(tp)].push_back(id);
+            w.map.touch(tp);
+        }
+        for (const TilePos tp : ground) {
+            Tile* tile = w.map.tile(tp);
+            if (!tile) continue;
+            if (tile->type == TileType::Clear) {
+                tile->type = TileType::Track;
+                tile->trees = 0;
+                tile->extra = 0;
+                tile->owner = old.owner.value;
+            }
+            if (tile->type == TileType::Track && tile->extra < 255) ++tile->extra;
+        }
+    }
+    for (const TilePos tp : oldGround)
+        if (Tile* tile = w.map.tile(tp); tile && tile->type == TileType::Track && tile->extra == 0) {
+            tile->type = TileType::Clear;
+            tile->owner = kOwnerNone;
+        }
+
+    // A train holding the edge holds both halves, in the order it drives them.
+    if (Vehicle* v = w.vehicles.tryGet(old.reservedBy)) {
+        const i32 len1 = w.trackEdges[first].length, len2 = w.trackEdges[second].length;
+        const auto halves = [&](bool forward) {
+            return forward ? std::pair{EdgeRun{first, true}, EdgeRun{second, true}}
+                           : std::pair{EdgeRun{second, false}, EdgeRun{first, false}};
+        };
+        for (usize i = 0; i < v->runsAhead.size(); ++i) {
+            if (v->runsAhead[i].edge != at.edge) continue;
+            const auto [x, y] = halves(v->runsAhead[i].forward);
+            v->runsAhead[i] = y;
+            v->runsAhead.insert(v->runsAhead.begin() + static_cast<std::ptrdiff_t>(i), x);
+            ++i;
+        }
+        // Behind the head, runs are listed from the front of the train backwards.
+        for (usize i = 1; i < v->runs.size(); ++i) {
+            if (v->runs[i].edge != at.edge) continue;
+            const auto [x, y] = halves(v->runs[i].forward);
+            v->runs[i] = x;
+            v->runs.insert(v->runs.begin() + static_cast<std::ptrdiff_t>(i), y);
+            ++i;
+        }
+        if (!v->runs.empty() && v->runs.front().edge == at.edge) {
+            // The head: on whichever half it has reached, with the other half ahead or behind.
+            const bool forward = v->runs.front().forward;
+            const i64 fromA = forward ? v->progress : old.length - v->progress;
+            const bool onFirst = fromA <= cut;
+            const i64 into = onFirst ? fromA * len1 / cut : (fromA - cut) * len2 / rest;
+            const TrackEdgeId on = onFirst ? first : second, other = onFirst ? second : first;
+            const i32 onLen = onFirst ? len1 : len2;
+            v->runs.front() = {on, forward};
+            v->progress = static_cast<i32>(std::clamp<i64>(forward ? into : onLen - into, 0, onLen));
+            if (onFirst == forward) v->runsAhead.push_front({other, forward});
+            else v->runs.insert(v->runs.begin() + 1, EdgeRun{other, forward});
+        }
+    }
+    ++w.trackRevision;
+    return mid;
+}
+
+std::unordered_map<u32, u32> signalBlocks(const World& w) {
+    std::unordered_map<u32, u32> parent;
+    for (const auto [id, e] : w.trackEdges) parent.emplace(id.value, id.value);
+    const auto find = [&](u32 x) {
+        while (parent[x] != x) x = parent[x] = parent[parent[x]];
+        return x;
+    };
+    const auto join = [&](u32 a, u32 b) {
+        a = find(a);
+        b = find(b);
+        if (a != b) parent[std::max(a, b)] = std::min(a, b);
+    };
+    for (const auto [nid, n] : w.trackNodes) {
+        TrackEdgeId sides[2];
+        for (u8 s = 0; s < 2; ++s)
+            for (u8 slot = 0; slot < 2; ++slot)
+                if (const TrackEdgeId e = n.edges[s * 2u + slot]; e.valid() && parent.contains(e.value)) {
+                    if (sides[s].valid()) join(sides[s].value, e.value);
+                    else sides[s] = e;
+                }
+        // A signal (either way) divides the track on one side of the node from the other.
+        if (!n.signals && sides[0].valid() && sides[1].valid()) join(sides[0].value, sides[1].value);
+    }
+    std::unordered_map<u32, u32> blocks;
+    for (const auto& [e, unused] : parent) blocks[e] = find(e);
+    return blocks;
 }
 
 } // namespace track

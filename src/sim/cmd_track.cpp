@@ -142,23 +142,40 @@ CommandResult handle(World& w, const Command& c, const CmdBuildTrackDepot& x, bo
 }
 
 CommandResult handle(World& w, const Command& c, const CmdTrackSignal& x, bool exec) {
-    TrackNode* n = w.trackNodes.tryGet(x.node);
-    if (!n) return CommandResult::failure("No track there");
-    for (const TrackEdgeId e : n->edges) {
-        if (!e.valid()) continue;
-        const TrackEdge& edge = w.trackEdges[e];
-        if (edge.owner != c.company) return CommandResult::failure("Owned by another company");
-        if (edge.reservedBy.valid()) return CommandResult::failure("A train is using this track");
-        if (edge.kind == TrackKind::Depot) return CommandResult::failure("No signals at depots");
+    // Signals may change under a passing train: it already holds its way through.
+    TrackSplit along;
+    const TrackNode* n = nullptr;
+    if (x.node.valid()) {
+        n = w.trackNodes.tryGet(x.node);
+        if (!n) return CommandResult::failure("No track there");
+        for (const TrackEdgeId e : n->edges) {
+            if (!e.valid()) continue;
+            const TrackEdge& edge = w.trackEdges[e];
+            if (edge.owner != c.company) return CommandResult::failure("Owned by another company");
+            if (edge.kind == TrackKind::Depot) return CommandResult::failure("No signals at depots");
+        }
+        if (n->count(0) == 0 || n->count(1) == 0) return CommandResult::failure("Signals go where track continues on both sides");
+    } else {
+        const TrackEdge* e = w.trackEdges.tryGet(x.edge);
+        if (!e) return CommandResult::failure("No track there");
+        if (e->owner != c.company) return CommandResult::failure("Owned by another company");
+        along = track::splitAt(w, x.edge, x.at);
+        if (!along.ok) return CommandResult::failure(along.error);
     }
-    if (n->count(0) == 0 || n->count(1) == 0) return CommandResult::failure("Signals go where track continues on both sides");
     static constexpr u8 kNext[4] = {3, 2, 0, 1}; // none -> both ways -> one way -> the other way -> none
-    const Money cost = n->signals == 0 ? prices::kSignal : 0;
+    const u8 current = n ? n->signals & 3 : 0;
+    const u8 next = x.signals < 0 ? kNext[current] : static_cast<u8>(x.signals & 3);
+    if (next == current) return CommandResult::failure(next ? "The signal is already set that way" : "No signal there");
+    const Money cost = current == 0 ? prices::kSignal : 0;
+    CommandResult r = CommandResult::success(cost, Expense::Construction);
     if (exec) {
-        n->signals = kNext[n->signals & 3];
+        const TrackNodeId node = n ? x.node : track::split(w, along);
+        if (!node.valid()) return CommandResult::failure("No track there");
+        w.trackNodes[node].signals = next;
         ++w.trackRevision;
+        r.createdId = node.value;
     }
-    return CommandResult::success(cost, Expense::Construction);
+    return r;
 }
 
 } // namespace tp::cmd

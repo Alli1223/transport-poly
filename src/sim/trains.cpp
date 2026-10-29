@@ -86,12 +86,20 @@ i32 reservedDistance(const Vehicle& v) {
     return d;
 }
 
-i32 acceleration(const Vehicle& v) {
-    i32 powered = 0;
-    for (const u16 m : v.cars) powered += vehicleModel(m).powered ? 1 : 0;
-    const i32 cars = std::max<i32>(1, static_cast<i32>(v.cars.size()));
-    return std::max(1, 4 * std::max(1, powered) / cars);
+// Weight of a car in quarter tonnes: engines are heaviest for their length, then motor coaches,
+// passenger coaches and freight wagons.
+i32 carWeight(const VehicleModel& m) {
+    const i32 perLength = m.powered ? (m.capacity ? 16 : 28) : m.cargoCapacity ? 8 : 12;
+    return std::max<i32>(1, m.length) * perLength;
 }
+
+// Low-speed pull of a car: longer engines are stronger, faster ones more powerful.
+i32 carPull(const VehicleModel& m) { return m.powered ? m.length * 2800 + m.maxSpeedKmh * 200 : 0; }
+
+constexpr i32 kPassengerWeight = 1; // quarter tonnes, with luggage
+constexpr i32 kCargoWeight = 2;     // per unit of freight
+constexpr i32 kRolling = 4;         // 1/256 unit per tick per tick lost to rolling resistance
+constexpr i32 kClimb = 9;           // ... and to each fine height unit per tile of climb
 
 // Reserves the next block towards the current destination.
 Extend extend(World& w, VehicleId id) {
@@ -318,12 +326,50 @@ i32 consistLength(const Vehicle& v) {
 i32 maxSpeed(const Vehicle& v) {
     i32 kmh = v.info().maxSpeedKmh;
     for (const u16 m : v.cars) kmh = std::min<i32>(kmh, vehicleModel(m).maxSpeedKmh);
-    return std::max(1, speedUnits(kmh));
+    return std::max(1, speedUnits(kmh) * kRailSpeedPercent / 100);
+}
+
+TrainWeight weight(const Vehicle& v) {
+    TrainWeight t;
+    if (v.cars.empty()) t.empty = carWeight(v.info());
+    for (const u16 m : v.cars) t.empty += carWeight(vehicleModel(m));
+    t.load = static_cast<i32>(v.passengers.size()) * kPassengerWeight;
+    for (const CargoBatch& b : v.cargo) t.load += static_cast<i32>(b.quantity) * kCargoWeight;
+    return t;
+}
+
+i32 tractiveForce(const Vehicle& v) {
+    i32 pull = v.cars.empty() ? carPull(v.info()) : 0;
+    for (const u16 m : v.cars) pull += carPull(vehicleModel(m));
+    return pull;
+}
+
+void accelerate(Vehicle& v, i32 desired, i32 grade) {
+    i64 s = static_cast<i64>(v.speed) * 256 + v.speedSub; // 1/256 unit per tick
+    const i64 target = static_cast<i64>(std::max(0, desired)) * 256;
+    if (s > target) {
+        s = std::max(target, s - kDecel * 2 * 256);
+    } else {
+        const TrainWeight t = weight(v);
+        const i64 mass = std::max(1, t.empty + t.load);
+        // Full pull up to half the top speed, then the engines' power spread over more speed.
+        const i64 vmax = maxSpeed(v);
+        const i64 full = std::max<i64>(256, vmax * 128);
+        const i64 force = static_cast<i64>(tractiveForce(v)) * full / std::max(s, full);
+        const i64 a = force / mass - kRolling - static_cast<i64>(grade) * kClimb;
+        // Too heavy for the climb: it slows, but keeps going at a crawl.
+        const i64 crawl = std::max<i64>(2 * 256, vmax * 256 / 6);
+        if (a > 0) s += a;
+        else s = s > crawl ? std::max(crawl, s + a) : std::min(crawl, s + 32);
+        s = std::min(s, target);
+    }
+    v.speed = static_cast<i32>(s >> 8);
+    v.speedSub = static_cast<i32>(s & 255);
 }
 
 i32 trackSpeedLimit(const Vehicle& v) {
     i32 limit = maxSpeed(v);
-    const i32 curve = speedUnits(60);
+    const i32 curve = speedUnits(60) * kRailSpeedPercent / 100;
     if (v.trail.empty() || limit <= curve) return limit;
     // Keep the restriction until the last carriage has cleared the curve.
     for (const TrackSeg& s : v.trail)
@@ -411,11 +457,11 @@ void tick(World& w, VehicleId id) {
     const i32 dist = std::max(0, reservedDistance(v) - kStopMargin);
     i32 desired = std::min<i32>(vmax, static_cast<i32>(isqrt(static_cast<u64>(2 * kDecel * dist))));
     desired = std::min(desired, trackSpeedLimit(v));
-    if (const auto up = w.map.slope(v.tile).rampUphill(); up && *up == v.exit && desired > vmax * 3 / 4 &&
-        (!w.map.tile(v.tile) || !w.map.tile(v.tile)->span))
-        desired = vmax * 3 / 4; // climbing
-    if (v.speed < desired) v.speed = std::min(desired, v.speed + acceleration(v));
-    else v.speed = std::max(desired, v.speed - kDecel * 2);
+    // A ramp climbs (or falls) a whole level over the tile; bridges and tunnels run level.
+    i32 grade = 0;
+    if (const auto up = w.map.slope(v.tile).rampUphill(); up && (!w.map.tile(v.tile) || !w.map.tile(v.tile)->span))
+        grade = *up == v.exit ? 6 : *up == opposite(v.exit) ? -6 : 0;
+    accelerate(v, desired, grade);
     const i32 move = std::min(v.speed, std::max(0, reservedDistance(v)));
     if (move > 0) advance(w, id, move);
     if (v.state != VehicleState::Driving) return;

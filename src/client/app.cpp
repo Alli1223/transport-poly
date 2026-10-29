@@ -553,6 +553,12 @@ bool App::parseArgs(int argc, char** argv) {
             previewStation_ = true;
         } else if (arg == "--preview-track") {
             previewTrack_ = true;
+        } else if (arg == "--preview-signals") {
+            demoTrack_ = true;
+            previewSignals_ = true;
+        } else if (arg == "--preview-branch") {
+            demoTrack_ = true;
+            previewBranch_ = true;
         } else if (arg == "--ground-detail") {
             // Automation: grass, flowers and stones 0 (none) to 2 (lush).
             if (const char* v = next()) preferenceArgs_.push_back([g = std::atoi(v)](ClientPreferences& p) { p.groundDetail = g; });
@@ -1215,6 +1221,10 @@ void App::handleHotkeys() {
     if (ImGui::IsKeyPressed(ImGuiKey_C, false)) showCitizens_ = !showCitizens_;
     if (ImGui::IsKeyPressed(ImGuiKey_P, false)) showFeedback_ = !showFeedback_;
     if (ImGui::IsKeyPressed(ImGuiKey_U, false)) showSubsidies_ = !showSubsidies_;
+    if (ImGui::IsKeyPressed(ImGuiKey_B, false) && (tool_ == Tool::Signal || tool_ == Tool::RailTrack)) {
+        preferences_.signalBlocks = !preferences_.signalBlocks;
+        preferences_.save("settings.cfg");
+    }
     if (ImGui::IsKeyPressed(ImGuiKey_H, false)) {
         // With a track tool the choice is remembered for next time.
         if (elevationTool()) {
@@ -1440,6 +1450,7 @@ int App::run(int argc, char** argv) {
                             camera_.distanceGoal = 16.0;
                             camera_.snapToGoals();
                         }
+                        if (previewSignals_ || previewBranch_) previewSignalling(*at);
                     } else if (frameCount >= 600) {
                         demoTrack_ = false;
                         log::warn("No site found for the demo track");

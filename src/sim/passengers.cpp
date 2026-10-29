@@ -279,7 +279,7 @@ void updateRouting(World& w) {
         if ((v.stopped && v.state == VehicleState::InDepot) || v.capacity() == 0) continue;
         const std::vector<StationId> stops = stationOrders(w, v);
         if (stops.size() < 2) continue;
-        const i32 speed = std::max(1, speedUnits(v.info().maxSpeedKmh));
+        const i32 speed = v.info().type == VehicleType::Rail ? trains::maxSpeed(v) : std::max(1, speedUnits(v.info().maxSpeedKmh));
         struct Leg {
             u32 a, b;
             i64 travel;

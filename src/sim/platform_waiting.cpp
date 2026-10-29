@@ -59,7 +59,7 @@ WalkPoint waitingPoint(const World& w, const std::vector<TrackEdgeId>& chain, u3
     // Stable per-person positions across both platform strips. New arrivals never move people
     // already waiting; keep a margin from the track and the outer platform edges.
     const u32 across = mix32(hash ^ 0x85ebca6bu);
-    const i64 lateral = (108 + across % 121) * ((across & 0x80000000u) ? -1 : 1);
+    const i64 lateral = static_cast<i64>(108 + across % 121) * ((across & 0x80000000u) ? -1 : 1);
     return {offset(centre, {-direction.z, direction.x}, lateral), start.h};
 }
 } // namespace
@@ -86,6 +86,15 @@ void positionWaiting(World& w, StationId sid) {
         for (usize i = 0; i < people.size(); ++i) {
             auto& p = w.people[people[i]];
             const auto target = waitingPoint(w, platforms[platform], p.serial);
+            // Waiting spots used to be miscalculated far off to one side, sending passengers on
+            // walks lasting years: call anyone heading that far from the station straight back.
+            bool astray = false;
+            if (!p.walkPath.empty() && p.walkEnd > w.clock.tick &&
+                distance(p.walkPath.back().p, tileCentre(station->sign)) > 64 * kTrackUnits) {
+                p.walkPath.clear();
+                p.walkEnd = w.clock.tick;
+                astray = true;
+            }
             // Finish an existing walk first, including transfers across the footbridge.
             if (p.walkEnd > w.clock.tick || p.transitEnd > w.clock.tick) continue;
             if (!p.walkPath.empty() && p.walkPath.back().p == target.p) continue;
@@ -96,7 +105,7 @@ void positionWaiting(World& w, StationId sid) {
             auto path = walking::withinStation(w, sid, from, target.p);
             walking::begin(w, people[i], std::move(path), w.clock.tick);
             // Review the service after the passenger reaches their assigned waiting area.
-            if (p.nextEvent >= 0 && p.nextEvent <= p.walkEnd)
+            if (astray || (p.nextEvent >= 0 && p.nextEvent <= p.walkEnd))
                 people::schedule(w, people[i], p.walkEnd + 3 * kTicksPerHour);
         }
     }

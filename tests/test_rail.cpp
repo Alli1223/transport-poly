@@ -22,18 +22,19 @@ TEST_CASE("rail: trains brake before curves and wait for the tail to clear") {
             break;
         }
     REQUIRE(v.info().type == VehicleType::Rail);
+    const i32 curve = speedUnits(60) * trains::kRailSpeedPercent / 100;
     v.trail.push_back({{0, 0}, Dir::W, Dir::E});
     CHECK_EQ(trains::trackSpeedLimit(v), trains::maxSpeed(v));
     v.ahead.push_back({{1, 0}, Dir::W, Dir::N});
     const i32 approach = trains::trackSpeedLimit(v);
     CHECK(approach < trains::maxSpeed(v));
-    CHECK(approach > speedUnits(60));
+    CHECK(approach > curve);
     v.progress = kTileUnits;
-    CHECK_EQ(trains::trackSpeedLimit(v), speedUnits(60));
+    CHECK_EQ(trains::trackSpeedLimit(v), curve);
     v.trail.push_back({{-1, 0}, Dir::S, Dir::E});
     v.ahead.clear();
     v.progress = 0;
-    CHECK_EQ(trains::trackSpeedLimit(v), speedUnits(60));
+    CHECK_EQ(trains::trackSpeedLimit(v), curve);
     v.trail.pop_back();
     CHECK_EQ(trains::trackSpeedLimit(v), trains::maxSpeed(v));
     // A distant bend must not slow a train before its braking distance.
@@ -594,4 +595,78 @@ TEST_CASE("vehicles: clones copy the consist and can share orders") {
     REQUIRE(rw.run(CmdSetOrders{c2, {ob, oa}}).ok);
     CHECK_EQ(rw.w.vehicles[line.train].orders.size(), 1u);
     CHECK(!rw.run(CmdUnshareOrders{c2}).ok);
+}
+
+namespace {
+
+u16 railModel(std::string_view name) {
+    for (u16 i = 0; i < vehicleModels().size(); ++i)
+        if (vehicleModel(i).name == name) return i;
+    return 0;
+}
+
+// A train of one engine and `coaches` coaches (or hoppers).
+Vehicle consist(std::string_view engine, std::string_view car, int count) {
+    Vehicle v;
+    v.model = railModel(engine);
+    v.cars.push_back(v.model);
+    for (int i = 0; i < count; ++i) v.cars.push_back(railModel(car));
+    return v;
+}
+
+// Ticks to reach `speed` from a standstill on a steady grade (capped at a long time).
+int ticksTo(Vehicle v, i32 speed, i32 grade) {
+    for (int t = 0; t < 20000; ++t) {
+        if (v.speed >= speed) return t;
+        trains::accelerate(v, trains::maxSpeed(v), grade);
+    }
+    return 20000;
+}
+
+} // namespace
+
+TEST_CASE("rail: trains run at half their rated speed, heavy and loaded trains take longer to get going") {
+    const Vehicle short_ = consist("Highball Express", "Steel Coach", 2);
+    const Vehicle long_ = consist("Highball Express", "Steel Coach", 8);
+    CHECK_EQ(trains::maxSpeed(short_), speedUnits(160) / 2);
+    const i32 cruise = trains::maxSpeed(short_) * 3 / 4;
+    const int quick = ticksTo(short_, cruise, 0), slow = ticksTo(long_, cruise, 0);
+    CHECK(quick > 30); // no longer near instant
+    CHECK(slow > quick * 2);
+    // Freight aboard makes a train heavier still.
+    Vehicle empty = consist("Heavy Freight Diesel", "Grain Hopper", 6);
+    Vehicle loaded = empty;
+    CargoBatch grain;
+    grain.type = CargoType::Grain;
+    grain.quantity = 300;
+    loaded.cargo.push_back(grain);
+    CHECK(trains::weight(loaded).load == 600);
+    CHECK(ticksTo(loaded, trains::maxSpeed(loaded) / 2, 0) > ticksTo(empty, trains::maxSpeed(empty) / 2, 0));
+}
+
+TEST_CASE("rail: trains slow on climbs, crawl rather than stall, and gather speed downhill") {
+    const Vehicle light = consist("Kirby Tank Engine", "Wooden Coach", 2);
+    Vehicle heavy = consist("Kirby Tank Engine", "Grain Hopper", 10);
+    CargoBatch grain;
+    grain.type = CargoType::Grain;
+    grain.quantity = 500;
+    heavy.cargo.push_back(grain);
+    const auto settle = [](Vehicle v, i32 grade) {
+        v.speed = trains::maxSpeed(v);
+        for (int t = 0; t < 4000; ++t) trains::accelerate(v, trains::maxSpeed(v), grade);
+        return v.speed;
+    };
+    const i32 top = trains::maxSpeed(light);
+    CHECK_EQ(settle(light, 0), top);
+    CHECK(settle(light, 5) < top);
+    CHECK(settle(light, 5) > top / 3);
+    // Too heavy for the climb: it crawls up at a sixth of its top speed or so, never stopping.
+    const i32 crawl = settle(heavy, 5);
+    CHECK(crawl > 0);
+    CHECK(crawl < settle(light, 5));
+    Vehicle stopped = heavy;
+    for (int t = 0; t < 400; ++t) trains::accelerate(stopped, trains::maxSpeed(stopped), 5);
+    CHECK(stopped.speed > 0);
+    // Downhill it gets up to speed sooner than on the level.
+    CHECK(ticksTo(heavy, trains::maxSpeed(heavy) / 2, -5) < ticksTo(heavy, trains::maxSpeed(heavy) / 2, 0));
 }

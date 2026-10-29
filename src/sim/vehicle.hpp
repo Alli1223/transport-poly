@@ -168,6 +168,7 @@ struct Vehicle {
     Dir exit = Dir::N;
     i32 progress = 0;
     i32 speed = 0; // current speed, units per tick
+    i32 speedSub = 0; // trains: the part of a unit per tick above `speed`, in 1/256
     bool stopAtMiddle = false;
     i32 blockedTicks = 0; // ticks spent waiting behind another vehicle (gridlock breaker)
 
@@ -307,6 +308,7 @@ struct Vehicle {
         if (ar.version == 0 || ar.version >= 17) ar(cargo, cargoExchangeTick, cargoExchangeUnits, loadingStartTick, cargoLoaded, cargoUnloaded);
         if (ar.version == 0 || ar.version >= 24) ar(passengerSeats);
         if (ar.version == 0 || ar.version >= 29) ar(departures, holdingSince, heldTicks, cycleTicks, satisfactionSum, satisfactionCount);
+        if (ar.version == 0 || ar.version >= 32) ar(speedSub);
     }
 };
 
@@ -356,7 +358,22 @@ bool leaveDepot(World& w, VehicleId id);
 // Releases every track reservation held by the train.
 void releaseAll(World& w, VehicleId id);
 i32 consistLength(const Vehicle& v); // in progress units
+// Trains run at this share of the speed their models are rated for; windows show the rated scale.
+inline constexpr i32 kRailSpeedPercent = 50;
 i32 maxSpeed(const Vehicle& v);      // units per tick
+// A train's weight in quarter tonnes: the cars themselves, and the passengers and freight aboard.
+struct TrainWeight {
+    i32 empty = 0;
+    i32 load = 0;
+};
+TrainWeight weight(const Vehicle& v);
+// The pull of a train's engines at low speed: quarter tonnes accelerated by 1/256 unit per tick
+// each tick.
+i32 tractiveForce(const Vehicle& v);
+// Speeds a train up towards `desired` (units per tick) as hard as its engines can pull its weight
+// up the grade under it (fine height units per tile, negative downhill), or brakes down to it.
+// Heavy trains take longer to get going and slow down on climbs, though never below a crawl.
+void accelerate(Vehicle& v, i32 desired, i32 grade);
 // Limit for curves under the consist and braking for curves on reserved track ahead.
 i32 trackSpeedLimit(const Vehicle& v);
 

@@ -237,7 +237,8 @@ void App::updateHover() {
         title = vehicleName(*veh);
         body = vehicleStatus(*veh);
         if (veh->capacity()) body += std::format("\n{} / {} passengers", veh->passengers.size(), veh->capacity());
-        body += std::format("\n{} km/h", veh->speed * 100 / 80);
+        const i32 units = veh->info().type == VehicleType::Rail ? veh->speed * 100 / trains::kRailSpeedPercent : veh->speed;
+        body += std::format("\n{} km/h", units * 100 / 80);
     } else if (const Person* person = w.people.tryGet(hoverPerson_)) {
         title = personName(*person);
         const Trip trip = tripOf(w, *person);

@@ -448,15 +448,15 @@ constexpr ToolInfo kTools[] = {
     {Tool::TramDepot, ToolGroup::Tram, ui::Icon::Depot, "Depot", "Build a tram depot next to tram track",
      false},
     {Tool::RailTrack, ToolGroup::Rail, ui::Icon::Track, "Track",
-     "Click to start, click again to lay curved track; it carries on from there. Start on a track end to "
-     "continue it, finish on one to join up. Bridges, tunnels and level crossings are added where needed",
+     "Click to start, click again to lay curved track; it carries on from there. Start or finish on existing "
+     "track to join it - at its end or anywhere along it. Bridges, tunnels and level crossings are added where needed",
      false},
     {Tool::RemoveRail, ToolGroup::Rail, ui::Icon::Track, "Remove", "Click a piece of track to remove it",
      true},
     {Tool::DemolishBuilding, ToolGroup::Rail, ui::Icon::Bulldoze, "Demolish",
      "Click a building to preview its demolition cost, then clear it", true},
     {Tool::Signal, ToolGroup::Rail, ui::Icon::Signal, "Signal",
-     "Click where track joins track to add path signals; click again for one-way and back to none", false},
+     "Click track to put in a signal; click a signal to see what it does, change or remove it. B: show the blocks", false},
     {Tool::RailStation, ToolGroup::Rail, ui::Icon::Station, "Station",
      "Click to start a platform (on a track end to line it up), click again to set its length. The ground is "
      "levelled for it",
@@ -577,6 +577,37 @@ void App::drawToolbar() {
             for (int i = 0; i < 4; ++i)
                 if (brushRadius_ == kRadii[i]) current = i;
             if (const int clicked = ui::segmented("##brush", kSizes, current); clicked >= 0) brushRadius_ = kRadii[clicked];
+            ImGui::EndGroup();
+        }
+        if (tool_ == Tool::Signal) {
+            // What new signals are, and the block overlay.
+            ImGui::SameLine(0, 14.0f * s);
+            ImGui::BeginGroup();
+            ImGui::Dummy(ImVec2(0, 6.0f * s));
+            ui::fieldLabel("New signals");
+            static constexpr ui::Segment kKinds[] = {
+                {"Two-way", ui::Icon::None, "Trains going either way wait at the signal until the block ahead is clear"},
+                {"One-way", ui::Icon::None,
+                 "For trains passing the signal on their right: point at that side of the track. Trains can't pass "
+                 "it the other way"}};
+            if (const int clicked = ui::segmented("##signalKind", kKinds, newSignalOneWay_ ? 1 : 0); clicked >= 0)
+                newSignalOneWay_ = clicked == 1;
+            ImGui::EndGroup();
+        }
+        if (tool_ == Tool::Signal || tool_ == Tool::RailTrack) {
+            ImGui::SameLine(0, 14.0f * s);
+            ImGui::BeginGroup();
+            ImGui::Dummy(ImVec2(0, 6.0f * s));
+            ui::fieldLabel("Signal blocks (B)");
+            static constexpr ui::Segment kBlocks[] = {
+                {"Hide", ui::Icon::None, "Track in its usual colours"},
+                {"Show", ui::Icon::None,
+                 "Colour the track by block: the stretches between signals that a train takes its way through whole. "
+                 "Blocks a train holds are drawn stronger"}};
+            if (const int clicked = ui::segmented("##blocks", kBlocks, preferences_.signalBlocks ? 1 : 0); clicked >= 0) {
+                preferences_.signalBlocks = clicked == 1;
+                preferences_.save("settings.cfg");
+            }
             ImGui::EndGroup();
         }
         if (tool_ == Tool::RailStation && !stationEditTarget_.valid()) {

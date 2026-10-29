@@ -10,6 +10,6 @@ inline constexpr std::string_view kVersionString = "0.5.0";
 
 // Bumped whenever the network protocol or simulation rules change in an incompatible way.
 // Clients and servers must match exactly because the simulation runs in lockstep.
-inline constexpr std::uint32_t kProtocolVersion = 40;
+inline constexpr std::uint32_t kProtocolVersion = 41;
 
 } // namespace tp

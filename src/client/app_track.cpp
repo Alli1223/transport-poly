@@ -2,6 +2,8 @@
 
 #include "client/app.hpp"
 #include "client/ui/widgets.hpp"
+#include "core/hash.hpp"
+#include "core/log.hpp"
 
 #include <imgui.h>
 
@@ -10,6 +12,8 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <map>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -123,6 +127,54 @@ void addRing(std::vector<gfx::OverlayQuad>& out, const glm::dvec3& c, double rad
                         {c.x + d0.x * (radius - w), c.y, c.z + d0.y * (radius - w)}},
                        color});
     }
+}
+
+// A flat arrow on the track at p pointing along d, `length` tiles long (crossed through when
+// `barred`: no way past).
+void addArrow(std::vector<gfx::OverlayQuad>& out, TPoint p, i32 h, TDir d, double length, u32 color, double lift = 0.1,
+              bool barred = false) {
+    const glm::dvec2 f(d.x / double(kDirOne), d.z / double(kDirOne));
+    const glm::dvec2 r(-f.y, f.x);
+    const glm::dvec3 base = toWorld(p, h, lift);
+    const auto at = [&](double along, double side) {
+        return glm::dvec3(base.x + f.x * along + r.x * side, base.y, base.z + f.y * along + r.y * side);
+    };
+    const double start = 0.18, shaft = length * 0.62, half = 0.06, head = 0.2;
+    out.push_back({{at(start, -half), at(shaft, -half), at(shaft, half), at(start, half)}, color, true});
+    out.push_back({{at(shaft, -head), at(length, 0.0), at(length, 0.0), at(shaft, head)}, color, true});
+    if (barred) {
+        const double mid = (start + length) * 0.5;
+        out.push_back({{at(mid - 0.05, -0.3), at(mid + 0.05, -0.3), at(mid + 0.05, 0.3), at(mid - 0.05, 0.3)}, color, true});
+    }
+}
+
+// A highlighted signal: the block it guards, the other way through a two-way signal, and the
+// block trains reach a one-way signal from.
+constexpr u32 kGuardedColour = gfx::rgba(92, 230, 140, 240);
+constexpr u32 kOtherWayColour = gfx::rgba(255, 186, 66, 240);
+constexpr u32 kApproachColour = gfx::rgba(110, 170, 255, 240);
+
+// Colours for telling signal blocks apart.
+constexpr u8 kBlockColours = 8;
+constexpr u32 kBlockPalette[kBlockColours] = {
+    gfx::rgba(255, 186, 66), gfx::rgba(88, 166, 255), gfx::rgba(92, 214, 144), gfx::rgba(255, 108, 168),
+    gfx::rgba(196, 140, 255), gfx::rgba(72, 206, 218), gfx::rgba(255, 140, 72), gfx::rgba(200, 230, 90)};
+
+// The point along the nearest track within `radius` where it could be split (for a switch or
+// a signal), if there is one.
+TrackSplit splitNear(const World& w, TPoint p, i32 radius) {
+    const TrackEdgeId e = track::edgeNear(w, p, radius);
+    return e.valid() ? track::splitAt(w, e, p) : TrackSplit{};
+}
+
+// The node a split would add, for choosing its sides.
+TrackNode switchAt(const TrackSplit& at) {
+    TrackNode n;
+    n.pos = at.pos;
+    n.h = at.h;
+    n.dir = at.dir;
+    n.grade = at.grade;
+    return n;
 }
 
 // The side of `n` an edge heading towards `towards` would leave through (preferring a free end).
@@ -384,7 +436,9 @@ void App::handleTrackTool(std::vector<gfx::OverlayQuad>& overlays) {
     const CompanyId company = session_->localCompany();
     constexpr u32 kEnd = gfx::rgba(255, 210, 70, 200);
     constexpr u32 kSnap = gfx::rgba(120, 240, 140, 230);
+    constexpr u32 kBranch = gfx::rgba(110, 215, 255, 230);
 
+    if (preferences_.signalBlocks) drawSignalBlocks(overlays);
     // Mark open track ends nearby: these are where new track joins.
     for (const auto [id, n] : w.trackNodes) {
         if (n.count(0) != 0 && n.count(1) != 0) continue;
@@ -395,21 +449,31 @@ void App::handleTrackTool(std::vector<gfx::OverlayQuad>& overlays) {
     if (!hover_.hit || mouseOverUi_) return;
     const TPoint cursor = toTrack(hover_.point);
     const TrackNodeId snap = track::nodeNear(w, cursor, kSnapRadius);
+    // Away from the joints, anywhere along a piece of track: a switch goes in there.
+    const TrackSplit along = snap.valid() ? TrackSplit{} : splitNear(w, cursor, kSnapRadius);
     if (snap.valid()) {
         const TrackNode& n = w.trackNodes[snap];
         addRing(overlays, toWorld(n.pos, n.h, 0.09), 0.45, kSnap);
+    } else if (along.ok) {
+        addRing(overlays, toWorld(along.pos, along.h, 0.09), 0.45, kBranch);
     }
 
     if (!trackStart_) {
         const char* contours = preferences_.trackContours ? "Contour lines join ground of equal height: track that follows one stays "
                                                             "level.\nThe gold line runs at the pointer's height. H: hide the elevation view"
                                                           : "H: show the elevation view (height colours and contour lines)";
-        ImGui::SetTooltip("%s\n%s", snap.valid() ? "Click to continue this track" : "Click to start a track", contours);
+        const char* what = snap.valid() ? "Click to continue this track"
+                           : along.ok    ? "Click to branch off this track here (a switch is put in)"
+                                         : "Click to start a track";
+        ImGui::SetTooltip("%s\n%s", what, contours);
         if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             TrackAnchor a;
             if (snap.valid()) {
                 a.node = snap;
                 a.pos = w.trackNodes[snap].pos;
+            } else if (along.ok) {
+                a.edge = along.edge;
+                a.pos = along.pos;
             } else {
                 a.pos = cursor;
             }
@@ -418,11 +482,17 @@ void App::handleTrackTool(std::vector<gfx::OverlayQuad>& overlays) {
         return;
     }
 
-    // The start: a node chooses its side towards the pointer.
+    // The start: a node (or the switch to be put in part way along track) chooses its side
+    // towards the pointer.
     TrackAnchor from = *trackStart_;
     if (from.node.valid()) {
         if (const TrackNode* n = w.trackNodes.tryGet(from.node)) from.into = sideTowards(*n, cursor);
         else from.node = {};
+    } else if (from.edge.valid()) {
+        // Pieces are renumbered when track is split, so find the one there now.
+        const TrackSplit start = splitNear(w, from.pos, 16);
+        from.edge = start.ok ? start.edge : TrackEdgeId{};
+        if (start.ok) from.into = sideTowards(switchAt(start), cursor);
     }
     TrackAnchor to;
     bool joined = false;
@@ -435,6 +505,11 @@ void App::handleTrackTool(std::vector<gfx::OverlayQuad>& overlays) {
             to.into = side;
             joined = true;
         }
+    } else if (along.ok) {
+        to.edge = along.edge;
+        to.pos = along.pos;
+        to.into = sideTowards(switchAt(along), from.pos);
+        joined = true;
     }
     if (!joined) to.pos = cursor;
 
@@ -630,29 +705,319 @@ void App::handleDepotTool(std::vector<gfx::OverlayQuad>& overlays) {
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && plan.ok) session_->submit(CmdBuildTrackDepot{snap});
 }
 
+const App::SignalBlocks& App::currentSignalBlocks() {
+    const World& w = world();
+    if (signalBlocks_.world == &w && signalBlocks_.revision == w.trackRevision) return signalBlocks_;
+    signalBlocks_.world = &w;
+    signalBlocks_.revision = w.trackRevision;
+    signalBlocks_.block = track::signalBlocks(w);
+    // Blocks meeting at a signal get different colours, so the boundary shows.
+    std::map<u32, std::set<u32>> next;
+    for (const auto [nid, n] : w.trackNodes) {
+        if (!n.signals || !n.edges[0].valid() || !n.edges[2].valid()) continue;
+        const u32 a = signalBlocks_.block.at(n.edges[0].value), b = signalBlocks_.block.at(n.edges[2].value);
+        next[a].insert(b);
+        next[b].insert(a);
+    }
+    std::set<u32> blocks;
+    for (const auto& [edge, block] : signalBlocks_.block) blocks.insert(block);
+    signalBlocks_.colour.clear();
+    for (const u32 block : blocks) {
+        u32 used = 0;
+        for (const u32 other : next[block])
+            if (const auto it = signalBlocks_.colour.find(other); it != signalBlocks_.colour.end()) used |= 1u << it->second;
+        u8 pick = static_cast<u8>(mix32(block) % kBlockColours);
+        for (u8 k = 0; k < kBlockColours && (used >> pick & 1u); ++k) pick = static_cast<u8>((pick + 1) % kBlockColours);
+        signalBlocks_.colour[block] = pick;
+    }
+    return signalBlocks_;
+}
+
+void App::drawSignalBlocks(std::vector<gfx::OverlayQuad>& overlays, TrackNodeId focus) {
+    const World& w = world();
+    const SignalBlocks& blocks = currentSignalBlocks();
+    std::unordered_set<u32> held;
+    for (const auto [id, e] : w.trackEdges)
+        if (e.reservedBy.valid()) held.insert(blocks.block.at(id.value));
+    // The blocks either side of a highlighted signal are left to its highlight.
+    std::unordered_set<u32> skip;
+    if (focus.valid())
+        for (const auto& side : signalView(focus).sides)
+            if (side.valid) skip.insert(side.block);
+    for (const auto [id, e] : w.trackEdges) {
+        if (!nearCamera(e)) continue;
+        const u32 block = blocks.block.at(id.value);
+        if (skip.contains(block)) continue;
+        const u32 colour = kBlockPalette[blocks.colour.at(block)];
+        // Blocks a train holds part of are drawn stronger.
+        addRibbon(overlays, e.samples, e.kind == TrackKind::Platform ? 0.22 : 0.3,
+                  (colour & 0x00ffffffu) | (held.contains(block) ? 0xb4000000u : 0x78000000u), 0.075);
+    }
+    // Which way each signal faces.
+    for (const auto [nid, n] : w.trackNodes) {
+        if (!n.signals) continue;
+        const double dx = n.pos.x / double(kTrackUnits) - camera_.target.x, dz = n.pos.z / double(kTrackUnits) - camera_.target.z;
+        if (dx * dx + dz * dz > 90.0 * 90.0) continue;
+        for (u8 side = 0; side < 2; ++side)
+            if (n.signals & (1u << side)) addArrow(overlays, n.pos, n.h, n.side(side), 0.9, gfx::rgba(255, 255, 255, 210));
+    }
+}
+
+bool App::nearCamera(const TrackEdge& e) const {
+    if (e.samples.empty()) return false;
+    for (const TrackSample* sm : {&e.samples.front(), &e.samples.back()}) {
+        const double dx = sm->p.x / double(kTrackUnits) - camera_.target.x, dz = sm->p.z / double(kTrackUnits) - camera_.target.z;
+        if (dx * dx + dz * dz < 90.0 * 90.0) return true;
+    }
+    return false;
+}
+
+App::SignalView App::signalView(TrackNodeId node) {
+    const World& w = world();
+    SignalView view;
+    const TrackNode* n = w.trackNodes.tryGet(node);
+    if (!n) return view;
+    const SignalBlocks& blocks = currentSignalBlocks();
+    for (u8 side = 0; side < 2; ++side) {
+        const TrackEdgeId first = n->edges[side * 2u];
+        if (!first.valid()) continue;
+        SignalView::Side& out = view.sides[side];
+        out.block = blocks.block.at(first.value);
+        out.valid = true;
+        for (const auto [id, e] : w.trackEdges) {
+            if (blocks.block.at(id.value) != out.block) continue;
+            out.length += e.length;
+            if (e.reservedBy.valid() && !out.heldBy.valid()) out.heldBy = e.reservedBy;
+        }
+    }
+    return view;
+}
+
+void App::highlightSignal(std::vector<gfx::OverlayQuad>& overlays, TrackNodeId node) {
+    const World& w = world();
+    const TrackNode* n = w.trackNodes.tryGet(node);
+    if (!n || !n->signals) return;
+    const SignalView view = signalView(node);
+    const SignalBlocks& blocks = currentSignalBlocks();
+    const bool oneWay = (n->signals & 3) != 3;
+    for (u8 side = 0; side < 2; ++side) {
+        if (!view.sides[side].valid) continue;
+        // The block a signal guards the way into (green; amber for the other way through a
+        // two-way signal), and for a one-way signal the block trains reach it from (blue).
+        const bool guarded = n->signals & (1u << side);
+        const u32 colour = !guarded ? kApproachColour : side == 0 || oneWay ? kGuardedColour : kOtherWayColour;
+        for (const auto [id, e] : w.trackEdges)
+            if (blocks.block.at(id.value) == view.sides[side].block && nearCamera(e))
+                addRibbon(overlays, e.samples, e.kind == TrackKind::Platform ? 0.24 : 0.32, (colour & 0x00ffffffu) | 0x8c000000u, 0.08);
+        if (guarded) addArrow(overlays, n->pos, n->h, n->side(side), 1.8, colour, 0.11);
+        else addArrow(overlays, n->pos, n->h, n->side(side), 1.1, gfx::rgba(250, 90, 80, 240), 0.11, true);
+    }
+    addRing(overlays, toWorld(n->pos, n->h, 0.1), 0.5, gfx::rgba(255, 255, 255, 230));
+}
+
+std::string App::signalSummary(TrackNodeId node) {
+    const World& w = world();
+    const TrackNode& n = w.trackNodes[node];
+    if ((n.signals & 3) == 3)
+        return "Two-way signal: trains going either way wait here until their way through the block ahead is clear "
+               "(green and amber: the two blocks it divides).";
+    return "One-way signal: trains heading along the green arrow wait here until their way through the green block "
+           "is clear. Trains can't pass it the other way (red arrow).";
+}
+
 void App::handleSignalTool(std::vector<gfx::OverlayQuad>& overlays) {
     World& w = world();
-    if (!hover_.hit || mouseOverUi_) return;
-    const TrackNodeId node = track::nodeNear(w, toTrack(hover_.point), kSnapRadius, true);
-    if (!node.valid() || w.trackNodes[node].count(0) == 0 || w.trackNodes[node].count(1) == 0) {
-        ImGui::SetTooltip("Point where one piece of track joins the next");
+    const bool pointing = hover_.hit && !mouseOverUi_;
+    const TPoint cursor = toTrack(hover_.point);
+    TrackNodeId node = pointing ? track::nodeNear(w, cursor, kSnapRadius, true) : TrackNodeId{};
+    if (node.valid() && !w.trackNodes[node].signals && (w.trackNodes[node].count(0) == 0 || w.trackNodes[node].count(1) == 0))
+        node = {}; // an open end
+    // The signal pointed at, or else the one open in the signal panel, shows what it does.
+    const bool selected = selSignal_.valid() && w.trackNodes.contains(selSignal_) && w.trackNodes[selSignal_].signals;
+    const TrackNodeId focus = node.valid() && w.trackNodes[node].signals ? node : selected ? selSignal_ : TrackNodeId{};
+    if (preferences_.signalBlocks) drawSignalBlocks(overlays, focus);
+    if (focus.valid()) highlightSignal(overlays, focus);
+    if (!pointing) return;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * uiScale_, 7.0f * uiScale_));
+
+    // An existing signal: what it does, and a click opens it to change or remove.
+    if (node.valid() && w.trackNodes[node].signals) {
+        if (ImGui::BeginTooltip()) {
+            const bool twoWay = (w.trackNodes[node].signals & 3) == 3;
+            ui::iconText(ui::Icon::Signal, ui::col::kGreen,
+                         std::format("{} signal - click to change or remove it", twoWay ? "Two-way" : "One-way").c_str());
+            ui::FontScope small(ui::fonts().small);
+            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
+            ui::mutedText(signalSummary(node).c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndTooltip();
+        }
+        ImGui::PopStyleVar();
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) selSignal_ = node;
         return;
     }
-    const TrackNode& n = w.trackNodes[node];
-    addRing(overlays, toWorld(n.pos, n.h, 0.09), 0.45, gfx::rgba(120, 240, 140, 230));
+
+    // Somewhere new: at a joint, or anywhere along a piece of track.
+    const TrackSplit along = node.valid() ? TrackSplit{} : splitNear(w, cursor, kSnapRadius);
+    if (!node.valid() && !along.ok) {
+        const bool onTrack = track::edgeNear(w, cursor, kSnapRadius).valid();
+        ImGui::SetTooltip("%s", onTrack && !along.error.empty() ? along.error.c_str()
+                                                                : "Point at track to put a signal there, or at a signal to change it");
+        ImGui::PopStyleVar();
+        return;
+    }
+    const TrackNode at = node.valid() ? w.trackNodes[node] : switchAt(along);
+    // A one-way signal is for trains passing it on their right: the side of the track pointed at.
+    const i64 rx = static_cast<i64>(cursor.x) - at.pos.x, rz = static_cast<i64>(cursor.z) - at.pos.z;
+    const bool rightOfSide0 = rz * at.dir.x - rx * at.dir.z > 0;
+    const u8 value = newSignalOneWay_ ? (rightOfSide0 ? 1 : 2) : 3;
     Command c;
     c.company = session_->localCompany();
-    c.payload = CmdTrackSignal{node};
+    c.payload = CmdTrackSignal{node, along.edge, along.pos, value};
     const CommandResult r = testCommand(w, c);
-    static constexpr const char* kStates[4] = {"No signals", "One-way signal", "One-way signal", "Two-way signals"};
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * uiScale_, 7.0f * uiScale_));
+    const u32 tint = r.ok ? gfx::rgba(92, 240, 140, 240) : gfx::rgba(250, 90, 80, 240);
+    addRing(overlays, toWorld(at.pos, at.h, 0.09), 0.45, tint);
+    for (u8 side = 0; side < 2; ++side)
+        if (value & (1u << side)) addArrow(overlays, at.pos, at.h, at.side(side), 1.1, tint, 0.11);
     if (ImGui::BeginTooltip()) {
-        ui::iconText(ui::Icon::Signal, ui::col::kGreen, std::format("{} - click to change", kStates[n.signals & 3]).c_str());
-        if (!r.ok) ui::iconText(ui::Icon::Warning, ui::col::kRed, r.error.c_str(), ui::col::kRed);
+        if (r.ok) {
+            ui::iconText(ui::Icon::Signal, ui::col::kGreen,
+                         std::format("Click to put a {} signal here ({})", newSignalOneWay_ ? "one-way" : "two-way", formatMoney(r.cost))
+                             .c_str());
+            ui::FontScope small(ui::fonts().small);
+            ui::mutedText(newSignalOneWay_ ? "For trains heading along the arrow: point at the other side of the track to turn it round"
+                                           : "Trains going either way wait here until the block ahead is clear");
+        } else {
+            ui::iconText(ui::Icon::Warning, ui::col::kRed, r.error.c_str(), ui::col::kRed);
+        }
         ImGui::EndTooltip();
     }
     ImGui::PopStyleVar();
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && r.ok) session_->submit(CmdTrackSignal{node});
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && r.ok) session_->submit(c.payload);
+}
+
+void App::previewSignalling(TPoint lineStart) {
+    auto* local = dynamic_cast<LocalSession*>(session_.get());
+    if (!local) return;
+    World& w = local->world();
+    const auto point = [&](double dx, double dz) {
+        return TPoint{lineStart.x + static_cast<i32>(dx * kTrackUnits), lineStart.z + static_cast<i32>(dz * kTrackUnits)};
+    };
+    const auto run = [&](CommandPayload p) {
+        Command c;
+        c.company = local->localCompany();
+        c.payload = std::move(p);
+        return executeCommand(w, c);
+    };
+    // The demo line runs east from its start, then bends south-east through the hills.
+    const auto signalAt = [&](TPoint p, i32 value) {
+        const TrackSplit at = splitNear(w, p, 3 * kTrackUnits);
+        if (!at.ok) return TrackNodeId{};
+        const CommandResult r = run(CmdTrackSignal{{}, at.edge, at.pos, value});
+        if (!r.ok) log::warn("Signal preview: {}", r.error);
+        return r.ok ? TrackNodeId(r.createdId) : TrackNodeId{};
+    };
+    const TrackSplit fork = splitNear(w, point(12, 0), 2 * kTrackUnits);
+    TrackAnchor from;
+    from.edge = fork.edge;
+    from.pos = fork.pos;
+    from.into = TDir{kDirOne, 0};
+    tool_ = previewBranch_ ? Tool::RailTrack : Tool::Signal;
+    toolGroup_ = ToolGroup::Rail;
+    if (previewBranch_) {
+        // Part way through laying a siding off the straight beyond the first station.
+        trackStart_ = from;
+        previewHover_ = glm::dvec3(lineStart.x / double(kTrackUnits) + 25.0, 0.0, lineStart.z / double(kTrackUnits) - 7.0);
+        camera_.targetGoal = glm::dvec3(lineStart.x / double(kTrackUnits) + 17.0, 0.0, lineStart.z / double(kTrackUnits) - 3.0);
+        camera_.distanceGoal = 26.0;
+    } else {
+        TrackAnchor siding;
+        siding.pos = point(25, -7);
+        if (const CommandResult r = run(CmdBuildTrack{from, siding}); !r.ok)
+            log::warn("Signal preview siding: {}", r.error);
+        selSignal_ = signalAt(point(17, 0), 3);
+        signalAt(point(38, 9.5), 1);
+        signalAt(point(60, 13), 3);
+        preferences_.signalBlocks = true;
+        newSignalOneWay_ = true;
+        const TrackSplit hover = splitNear(w, point(27, 2), 3 * kTrackUnits);
+        const TPoint p = hover.ok ? hover.pos : point(27, 2);
+        previewHover_ = glm::dvec3(p.x / double(kTrackUnits) + 0.25, 0.0, p.z / double(kTrackUnits) + 0.25);
+        camera_.targetGoal = glm::dvec3(lineStart.x / double(kTrackUnits) + 20.0, 0.0, lineStart.z / double(kTrackUnits) - 1.0);
+        camera_.distanceGoal = 30.0;
+    }
+    camera_.targetGoal.y = gfx::terrainHeightAt(w.map, camera_.targetGoal.x, camera_.targetGoal.z);
+    camera_.snapToGoals();
+    renderer_.invalidateAll();
+}
+
+void App::drawSignalWindow() {
+    if (!selSignal_.valid()) return;
+    World& w = world();
+    const TrackNode* n = w.trackNodes.tryGet(selSignal_);
+    if (tool_ != Tool::Signal || !n || !n->signals) {
+        selSignal_ = {};
+        return;
+    }
+    const float s = uiScale_;
+    const TrackNodeId node = selSignal_;
+    const bool twoWay = (n->signals & 3) == 3;
+    const u8 signals = n->signals;
+    ui::PanelSpec spec;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    spec.pos = ImVec2(vp->WorkPos.x + vp->WorkSize.x - 400.0f * s, vp->WorkPos.y + 80.0f * s);
+    spec.width = 380.0f;
+    spec.accent = ui::col::kRail;
+    spec.subtitle = twoWay ? "Two-way" : "One-way";
+    bool open = true;
+    if (ui::beginPanel("###signalPanel", "Signal", ui::Icon::Signal, &open, spec)) {
+        {
+            ui::FontScope small(ui::fonts().small);
+            ImGui::PushTextWrapPos(0.0f);
+            ui::mutedText(signalSummary(node).c_str());
+            ImGui::PopTextWrapPos();
+        }
+        ImGui::Dummy(ImVec2(0, 4.0f * s));
+        const SignalView view = signalView(node);
+        for (u8 side = 0; side < 2; ++side) {
+            if (!(signals & (1u << side)) || !view.sides[side].valid) continue;
+            const auto& block = view.sides[side];
+            const std::string held = block.heldBy.valid() && w.vehicles.contains(block.heldBy)
+                                         ? std::format("held by {}", vehicleName(w.vehicles[block.heldBy]))
+                                         : std::string("clear");
+            const char* label = twoWay ? (side == 0 ? "Block ahead (green)" : "Block ahead (amber)") : "Block ahead";
+            ui::statRow(label, std::format("{:.1f} tiles, {}", block.length / double(kTrackUnits), held).c_str(),
+                        block.heldBy.valid() ? ui::col::kRed : ui::col::kGreen);
+        }
+        ImGui::Dummy(ImVec2(0, 4.0f * s));
+        const auto attempt = [&](u8 value) {
+            Command c;
+            c.company = session_->localCompany();
+            c.payload = CmdTrackSignal{node, {}, {}, value};
+            return std::pair{testCommand(w, c), c.payload};
+        };
+        ui::fieldLabel("Kind");
+        static constexpr ui::Segment kKinds[] = {
+            {"Two-way", ui::Icon::None, "Trains going either way wait here until the block ahead is clear"},
+            {"One-way", ui::Icon::None, "Only trains heading one way may pass, once the block ahead is clear"}};
+        if (const int clicked = ui::segmented("##signalKind", kKinds, twoWay ? 0 : 1); clicked >= 0 && (clicked == 0) != twoWay)
+            session_->submit(CmdTrackSignal{node, {}, {}, clicked == 0 ? 3 : 1});
+        ImGui::Dummy(ImVec2(0, 4.0f * s));
+        if (!twoWay) {
+            const auto [flip, payload] = attempt(static_cast<u8>(signals ^ 3));
+            if (ui::button("Turn round") && flip.ok) session_->submit(payload);
+            ui::itemTooltip({"Turn round", "Make it a one-way signal for trains going the other way"});
+            ImGui::SameLine();
+        }
+        const auto [removal, removePayload] = attempt(0);
+        if (ui::button("Remove", ui::Icon::Trash, ui::Btn::Danger) && removal.ok) {
+            session_->submit(removePayload);
+            open = false;
+        }
+        if (!removal.ok) ui::iconText(ui::Icon::Warning, ui::col::kRed, removal.error.c_str(), ui::col::kRed);
+    }
+    ui::endPanel();
+    if (!open) selSignal_ = {};
 }
 
 // Order picking for trains on free-form track: a platform (that platform in particular), a
