@@ -5,6 +5,8 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-29
+
 ### Track and signals
 - New track can join existing track anywhere along it, not only at its ends and
   joints: a switch is put in where it branches off or joins.
@@ -21,11 +23,6 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
 - Trains run at half their rated speed and have weight and momentum: long, heavy and
   fully loaded trains take longer to get going, climbs slow them and descents speed
   them up. The train window shows the train's weight.
-
-### Fixes
-- Passengers waiting at some stations walked off in a straight line forever, and were
-  still counted as waiting. Waiting spots are now always on the platform, and anyone
-  who had wandered off is called back.
 
 ### Smooth multiplayer
 - Trains, cars, trams, ships and people move smoothly for players who join a game.
@@ -45,7 +42,13 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
   Names in the players window do the same.
 - The dedicated server takes `--threads N` to leave cores free, and
   `--bench ticks` measures how fast a saved game runs.
-- Network protocol 42: hosts and players need this version.
+
+### Station entrances
+- A rail station passengers can't reach shows **No road access** in its window, which
+  highlights **Add road entrance** with a short explanation.
+- An entrance can go on a house beside a road: the house is demolished in the same command
+  at the usual demolition cost, which the entrance's price includes and its tooltip names.
+  Industries, and buildings the town won't let you demolish, are refused with the reason.
 
 ### Autosaves
 - The game autosaves every five minutes of play (time paused doesn't count) and keeps the
@@ -56,13 +59,13 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
   server's monthly `--autosave months` is unchanged.
 - The load menu says how long ago each save was written and marks autosaves with a clock.
 
-### Station entrances
-- A rail station passengers can't reach shows **No road access** in its window, which
-  highlights **Add road entrance** with a short explanation.
-- An entrance can go on a house beside a road: the house is demolished in the same command
-  at the usual demolition cost, which the entrance's price includes and its tooltip names.
-  Industries, and buildings the town won't let you demolish, are refused with the reason.
-- Network protocol 43.
+### Fixes
+- Passengers waiting at some stations walked off in a straight line forever, and were
+  still counted as waiting. Waiting spots are now always on the platform, and anyone
+  who had wandered off is called back.
+- The Linux game no longer hangs on a black window at startup.
+- Save format 32 loads older saves; multiplayer protocol 43 requires matching game
+  versions.
 
 ## [0.5.0] - 2026-10-28
 
@@ -276,7 +279,8 @@ Transport Fever, with deterministic lockstep multiplayer.
 - Multiplayer through a dedicated server or a hosted game, with chat, a
   player list and host-controlled pause and speed; save, load and autosave.
 
-[Unreleased]: https://github.com/Alli1223/transport-poly/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Alli1223/transport-poly/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Alli1223/transport-poly/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Alli1223/transport-poly/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Alli1223/transport-poly/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Alli1223/transport-poly/compare/v0.2.0...v0.3.0

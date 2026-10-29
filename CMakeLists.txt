@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(transport_poly
-    VERSION 0.5.0
+    VERSION 0.6.0
     DESCRIPTION "Low poly transport simulation game"
     LANGUAGES C CXX)
 
