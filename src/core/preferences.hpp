@@ -15,7 +15,7 @@ struct ClientPreferences {
     int panPercent = 100;
     int orbitPercent = 100;
     int zoomPercent = 100;
-    int autosaveMonths = 1; // zero disables automatic saves
+    bool autosave = true; // every five minutes of play, keeping the last five
     int startYear = 1950;
     int interestPercent = 4;
     bool inflation = false;

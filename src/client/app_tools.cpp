@@ -338,9 +338,39 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
             cmd = CmdBuildShipDepot{hover_.tile, facing};
         break;
     }
-    case Tool::StationEntrance:
-        cmd = CmdStationEntrance{selStation_,hover_.tile};
-        break;
+    case Tool::StationEntrance: {
+        const CmdStationEntrance entrance{selStation_, hover_.tile};
+        const Tile* t = w.map.tile(hover_.tile);
+        const Building* house = t && t->type == TileType::Building ? w.buildings.tryGet(BuildingId(t->index)) : nullptr;
+        if (!house) {
+            cmd = entrance;
+            break;
+        }
+        // On a house: the whole building is demolished with the entrance, so show it and its share of the cost
+        // (lifted over the open station's catchment).
+        const CommandResult r = test(entrance);
+        for (i32 y = 0; y < house->size(); ++y)
+            for (i32 x = 0; x < house->size(); ++x)
+                addTileOverlay(overlays, {house->pos.x + x, house->pos.y + y}, r.ok ? gfx::rgba(250, 160, 70, 130) : kBad, 0.08);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * uiScale_, 7.0f * uiScale_));
+        if (ImGui::BeginTooltip()) {
+            if (r.ok) {
+                const Money demolition = test(CmdDemolishBuilding{house->ref(BuildingId(t->index))}).cost;
+                ui::iconText(ui::Icon::Coins, ui::col::kAccent, std::format("Cost {}", formatMoney(r.cost)).c_str());
+                ui::iconText(ui::Icon::Warning, ui::col::kOrange,
+                             std::format("Demolishes the {} ({})", house->info().name, formatMoney(demolition)).c_str(),
+                             ui::col::kOrange);
+                ImGui::Text("%u residents, %u workers. Lowers the town's opinion of your company.",
+                            static_cast<unsigned>(house->residents), static_cast<unsigned>(house->workers));
+            } else {
+                ui::iconText(ui::Icon::Warning, ui::col::kRed, r.error.c_str(), ui::col::kRed);
+            }
+            ImGui::EndTooltip();
+        }
+        ImGui::PopStyleVar();
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) session_->submit(entrance);
+        return;
+    }
     case Tool::PickOrder: {
         const Tile* t = w.map.tile(hover_.tile);
         std::vector<Order> orders;
@@ -380,7 +410,7 @@ void App::handleTools(std::vector<gfx::OverlayQuad>& overlays) {
         addCatchmentOverlay(overlays, {hover_.tile}, catchmentRadius(kind), gfx::rgba(90, 170, 255, 45));
     }
     if (tool_ != Tool::Raise && tool_ != Tool::Lower && tool_ != Tool::PickOrder)
-        addTileOverlay(overlays, hover_.tile, r.ok ? kOk : kBad);
+        addTileOverlay(overlays, hover_.tile, r.ok ? kOk : kBad, tool_ == Tool::StationEntrance ? 0.08 : 0.04);
     showResult(r);
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) session_->submit(*cmd);
 }

@@ -146,8 +146,12 @@ clear the server password), `unlock <company id>` (clear a company password),
 `save <file>` and `quit`.
 
 Press **F5** in a game to write `saves/quicksave.tpsave`; load it through the
-normal load menu. In multiplayer the host saves the game. Monthly autosaves
-continue independently.
+normal load menu. In multiplayer the host saves the game. Every five minutes of
+play (time paused doesn't count) the game also autosaves, keeping the last five as
+`saves/autosave-1.tpsave` to `autosave-5.tpsave` and overwriting the oldest; the load
+menu lists them newest first with how long ago each was saved. Single player games
+and multiplayer hosts autosave, joined players don't, and the dedicated server keeps
+its own monthly `--autosave months`.
 
 The sky has weather that changes from day to day, the same for every player:
 clouds drift over the land with the wind and cast moving shadows, overcast days
@@ -226,7 +230,10 @@ and climbs, and reverse at terminus platforms.
 Click a placed rail station to open **Station layout and road access**. Use
 **Add road entrance**, then click a surface road or a cleared plot beside it within 64 tiles. A station gate
 and a protected paved approach connect the road to a platform; leave clear land
-between them. Rail passengers need a connected entrance. Catchment coverage is
+between them. Rail passengers need a connected entrance: until a station has one,
+its window shows **No road access** and highlights the button. Clicking a house
+beside the road demolishes it for the entrance at the usual demolition cost (below);
+the tooltip names the building and the price includes it. Catchment coverage is
 measured from the entrance roads. You can add up to eight entrances, and remove
 them from the station window or with the demolition tool.
 
@@ -333,8 +340,8 @@ tree distances, clouds, mist, and individual visual effects. **Alt+Enter** switc
 fullscreen on or off. Low, Balanced and High presets provide starting points;
 individual controls can then be adjusted. Anti-aliasing takes effect after saving
 and restarting; other graphics changes apply immediately.
-Settings also include camera sensitivity and autosave intervals (0 disables
-autosaving). Save preferences to retain them in `settings.cfg`.
+Settings also include camera sensitivity and turning autosaves off. Save
+preferences to retain them in `settings.cfg`.
 Starting year and interest apply to new worlds.
 Clicking the clock also remembers the daylight preference.
 
@@ -558,6 +565,11 @@ connected-town demand when loaded; current saves preserve planned departure time
 `transport-poly --demo-station --time 12 --no-debug --screenshot station.png --frames 600`
 renders a repeatable station scene with road entrances, two platforms, a walkway,
 commuters and the station upgrade panel.
+
+`transport-poly --preview-entrance --time 12 --no-debug --screenshot entrance.png --frames 150`
+shows a station without road access and the entrance tool over a house; with
+`--preview-entrance build` the entrance is built there, demolishing the house.
+`--autosave-interval <seconds>` shortens the autosave interval for testing.
 
 `transport-poly --preview-passengers --time 12 --no-debug --screenshot passengers.png --frames 50`
 shows occupied carriages and a tram from outside, including both decks of a coach.

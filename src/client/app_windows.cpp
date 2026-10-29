@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <cmath>
 #include <format>
 #include <map>
 #include <string>
@@ -1045,6 +1046,13 @@ void App::drawStationWindow() {
         facility(kFacilityTram, "Tram", ui::col::kTram);
         facility(kFacilityRail, "Rail", ui::col::kRail);
         facility(kFacilityDock, "Dock", ui::col::kWater);
+        // Passengers only walk in through a road entrance, so say so before anything else.
+        const bool noRoadAccess = st->takesPassengers() && st->entrances.empty() && track::hasPlatform(w, selStation_);
+        if (noRoadAccess) {
+            ImGui::SameLine();
+            ui::badge("No road access", ui::col::kOrange);
+            ui::itemTooltip({"No road access", "Passengers can't walk to this station until a road entrance connects it to a road."});
+        }
         if (st->facilities & kFacilityRail) {
             // Passenger and freight stations each handle only their own; older stations take both.
             ui::fieldLabel("Station for");
@@ -1091,10 +1099,29 @@ void App::drawStationWindow() {
             const bool mine = st->owner == session_->localCompany();
             ImGui::BeginDisabled(!mine);
             if (st->takesPassengers()) {
-                ui::statRow("Road entrances",std::format("{}",st->entrances.size()).c_str());
-                if (st->entrances.empty()) ImGui::TextWrapped("Connect this station to a road so passengers can walk here.");
-                if (ImGui::Button("Add road entrance")) tool_ = Tool::StationEntrance;
-                ui::itemTooltip({"Road entrance","Click a nearby surface road or a cleared plot beside it. A gate and paved approach connect it to a platform."});
+                constexpr ui::Tip kEntranceTip{"Road entrance", "Click a nearby surface road, or a plot or house beside it (a house is "
+                                                                "demolished at the usual cost). A gate and paved approach connect it to a platform."};
+                if (noRoadAccess) {
+                    ui::statRow("Road entrances", "None", ui::col::kOrange);
+                    ui::iconText(ui::Icon::Warning, ui::col::kOrange, "Not reached from a road", ui::col::kOrange);
+                    ImGui::PushStyleColor(ImGuiCol_Text, ui::vec(ui::col::kTextMuted));
+                    ImGui::TextWrapped("Passengers can't walk here yet. Add an entrance on a road beside the station.");
+                    ImGui::PopStyleColor();
+                    if (ui::button("Add road entrance", ui::Icon::Road, ui::Btn::Primary, ImVec2(-1.0f, 0.0f)))
+                        tool_ = Tool::StationEntrance;
+                    if (mine && tool_ != Tool::StationEntrance) {
+                        // A slow pulse around the button until the tool is picked.
+                        const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(ImGui::GetTime()) * 4.0f);
+                        const ImVec2 pad(3.0f * s, 3.0f * s), mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
+                        ImGui::GetWindowDrawList()->AddRect(ImVec2(mn.x - pad.x, mn.y - pad.y), ImVec2(mx.x + pad.x, mx.y + pad.y),
+                                                            ui::withAlpha(ui::col::kAccent, 0.25f + 0.5f * pulse), 11.0f * s, 0, 2.0f * s);
+                    }
+                    ui::itemTooltip(kEntranceTip);
+                } else {
+                    ui::statRow("Road entrances", std::format("{}", st->entrances.size()).c_str());
+                    if (ImGui::Button("Add road entrance")) tool_ = Tool::StationEntrance;
+                    ui::itemTooltip(kEntranceTip);
+                }
                 if (!st->entrances.empty()) {
                     ImGui::SameLine();
                     if (ImGui::Button("Remove entrances")) session_->submit(CmdStationEntrance{selStation_,{},true});

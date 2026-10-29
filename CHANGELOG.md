@@ -47,6 +47,23 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
   `--bench ticks` measures how fast a saved game runs.
 - Network protocol 42: hosts and players need this version.
 
+### Autosaves
+- The game autosaves every five minutes of play (time paused doesn't count) and keeps the
+  last five, `autosave-1` to `autosave-5`, overwriting the oldest. This replaces the monthly
+  `autosave.tpsave`, which is no longer written. Settings turns autosaves on or off; an older
+  settings file's monthly interval counts as on.
+- Single player games and multiplayer hosts autosave; joined players don't. The dedicated
+  server's monthly `--autosave months` is unchanged.
+- The load menu says how long ago each save was written and marks autosaves with a clock.
+
+### Station entrances
+- A rail station passengers can't reach shows **No road access** in its window, which
+  highlights **Add road entrance** with a short explanation.
+- An entrance can go on a house beside a road: the house is demolished in the same command
+  at the usual demolition cost, which the entrance's price includes and its tooltip names.
+  Industries, and buildings the town won't let you demolish, are refused with the reason.
+- Network protocol 43.
+
 ## [0.5.0] - 2026-10-28
 
 ### Passenger and freight stations

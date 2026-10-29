@@ -32,7 +32,7 @@ TEST_CASE("preferences: validated settings round trip and malformed files leave 
     original.daylightOnly = true;
     original.viewDistance = 700;
     original.panPercent = 180;
-    original.autosaveMonths = 3;
+    original.autosave = false;
     original.inflation = true;
     original.sounds = true;
     original.aiCompetitors = 3;
@@ -62,7 +62,7 @@ TEST_CASE("preferences: validated settings round trip and malformed files leave 
     CHECK(copy.daylightOnly);
     CHECK_EQ(copy.viewDistance, 700);
     CHECK_EQ(copy.panPercent, 180);
-    CHECK_EQ(copy.autosaveMonths, 3);
+    CHECK(!copy.autosave);
     CHECK(copy.inflation);
     CHECK(copy.sounds);
     CHECK_EQ(copy.aiCompetitors, 3);
@@ -90,7 +90,6 @@ TEST_CASE("preferences: validated settings round trip and malformed files leave 
     CHECK_EQ(copy.viewDistance, 700);
     original.viewDistance = 99999;
     original.panPercent = -10;
-    original.autosaveMonths = 99;
     original.brightnessPercent = -10;
     original.shadowQuality = 99;
     original.frameCap = 99;
@@ -100,7 +99,6 @@ TEST_CASE("preferences: validated settings round trip and malformed files leave 
     REQUIRE(copy.load(path));
     CHECK_EQ(copy.viewDistance, 900);
     CHECK_EQ(copy.panPercent, 25);
-    CHECK_EQ(copy.autosaveMonths, 12);
     CHECK_EQ(copy.brightnessPercent, 50);
     CHECK_EQ(copy.shadowQuality, 3);
     CHECK_EQ(copy.frameRateLimit(), 240);
@@ -120,6 +118,14 @@ TEST_CASE("preferences: validated settings round trip and malformed files leave 
     CHECK(!copy.sounds); // Keep an existing player's mute choice.
     CHECK_EQ(copy.musicVolume, 55);
     CHECK(copy.muteUnfocused);
+    // The old monthly autosave interval: any number of months turns on the five-minute autosaves.
+    CHECK(copy.autosave);
+    { std::ofstream out(path); out << "7\n1 1 0 460 100 100 100 3 1950 4 0 1 0 0 0 2 2 2 0 1 1 -\n"; }
+    REQUIRE(copy.load(path));
+    CHECK(copy.autosave);
+    { std::ofstream out(path); out << "7\n1 1 0 460 100 100 100 0 1950 4 0 1 0 0 0 2 2 2 0 1 1 -\n"; }
+    REQUIRE(copy.load(path));
+    CHECK(!copy.autosave);
     { std::ofstream out(path); out << "8\n1 1 0 460 100 100 100 1 1950 4 0 1 0 0 0 2 2 2 0 1 1 -\n1 0 3\n"; }
     CHECK(!copy.load(path));
     CHECK(copy.fullscreen);

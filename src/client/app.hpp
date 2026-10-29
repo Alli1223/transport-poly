@@ -203,7 +203,8 @@ private:
     void returnToMainMenu();
     void applyScreenTransition();
     void updatePreview(double dt);
-    void autosave();
+    void autosave(); // to the next of the rolling autosave slots
+    void updateAutosave(double dt);
     void quicksave();
     void drawSettings();
     void applyPreferences();
@@ -281,7 +282,9 @@ private:
     bool pickForLine_ = false;
     bool cameraPlaced_ = false;
     std::deque<std::string> chatLines_;
-    i32 lastAutosaveMonth_ = -1;
+    double autosaveClock_ = 0.0; // seconds played (not paused) since the last autosave
+    i64 autosaveTick_ = -1;      // the world tick it saved, so an unchanged world is not saved again
+    double autosaveInterval_ = 300.0; // automation can shorten it (--autosave-interval)
     gfx::WorldRenderer renderer_;
     gfx::Camera camera_;
     std::unique_ptr<GameSession> session_;
@@ -438,6 +441,8 @@ private:
     bool demoTrack_ = false;        // automation: lay curved free-form track near the camera
     bool demoStation_ = false;      // automation: road entrances, walking and station upgrades
     bool previewStationDetails_ = false;
+    bool previewEntrance_ = false; // automation: a station without road access, the entrance tool on a house
+    bool previewEntranceBuild_ = false;
     bool previewPassengers_ = false; // automation: occupied coaches and tram with intact roofs
     bool previewDemolition_ = false;
     bool previewStation_ = false;   // automation: show the station tool placing a platform

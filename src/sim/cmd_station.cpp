@@ -1,9 +1,11 @@
 #include "core/math.hpp"
 #include "sim/command_handlers.hpp"
+#include "sim/industries.hpp"
 #include "sim/prices.hpp"
 #include "sim/road.hpp"
 #include "sim/world.hpp"
 #include <algorithm>
+#include <format>
 #include <map>
 #include <queue>
 
@@ -32,18 +34,26 @@ bool ours(const World& w, StationId id, CompanyId co) {
     const auto* s = w.stations.tryGet(id);
     return s && s->owner == co;
 }
-bool clear(const World& w, TilePos p, StationId id, CompanyId co) {
+// The footprint of a town building an entrance is placed on. It counts as cleared land while the
+// route is checked; the building is only demolished once the whole entrance is known to fit.
+struct Clearance {
+    TilePos pos;
+    i32 size = 0;
+    bool covers(TilePos p) const { return p.x >= pos.x && p.y >= pos.y && p.x < pos.x + size && p.y < pos.y + size; }
+};
+bool clear(const World& w, TilePos p, StationId id, CompanyId co, const Clearance& demolish = {}) {
     const auto* t = w.map.tile(p);
-    return t && !t->span && !w.map.slope(p).isSteep() &&
-           ((t->type == TileType::Clear && (t->owner == kOwnerNone || t->owner == co.value)) ||
-            (t->type == TileType::Footpath && t->index == id.value));
+    if (!t || t->span || w.map.slope(p).isSteep()) return false;
+    if (demolish.covers(p)) return t->ground != Ground::Water;
+    return (t->type == TileType::Clear && (t->owner == kOwnerNone || t->owner == co.value)) ||
+           (t->type == TileType::Footpath && t->index == id.value);
 }
 struct Approach {
     TPoint end;
     std::vector<TilePos> paving;
 };
 std::optional<Approach> platformApproach(const World& w, TilePos from, TrackEdgeId platform,
-                                         CompanyId company) {
+                                         CompanyId company, const Clearance& demolish) {
     const auto& edge = w.trackEdges[platform];
     const auto centre = tileCentre(from);
     const TrackSample* sample = &edge.samples.front();
@@ -62,7 +72,7 @@ std::optional<Approach> platformApproach(const World& w, TilePos from, TrackEdge
     for (i64 n = 0; n <= steps; ++n) {
         const auto tile = tileAt({static_cast<i32>(centre.x + (i64(end.x) - centre.x) * n / steps),
                                   static_cast<i32>(centre.z + (i64(end.z) - centre.z) * n / steps)});
-        if (clear(w, tile, edge.station, company)) {
+        if (clear(w, tile, edge.station, company, demolish)) {
             if (std::ranges::find(approach.paving, tile) == approach.paving.end())
                 approach.paving.push_back(tile);
             continue;
@@ -92,9 +102,16 @@ CommandResult handle(World& w, const Command& c, const CmdStationEntrance& x, bo
     };
     TilePos road = x.road;
     std::optional<TilePos> plot;
+    Clearance demolish;
+    Money demolition = 0;
     if (!surfaceRoad(road)) {
-        if (!clear(w, x.road, x.station, c.company))
-            return CommandResult::failure("Choose a road or a cleared building plot beside a road");
+        // A house on the plot is demolished along with building the entrance.
+        const auto* tile = w.map.tile(x.road);
+        const Building* house =
+            tile && tile->type == TileType::Building ? w.buildings.tryGet(BuildingId(tile->index)) : nullptr;
+        if (house) demolish = {house->pos, house->size()};
+        if (!clear(w, x.road, x.station, c.company, demolish))
+            return CommandResult::failure("Choose a road, or a level plot or house beside a road");
         bool found = false;
         for (const auto d : kDirs) {
             const auto adjacent = neighbour(x.road, d);
@@ -106,6 +123,14 @@ CommandResult handle(World& w, const Command& c, const CmdStationEntrance& x, bo
             }
         }
         if (!found) return CommandResult::failure("The entrance plot must be directly beside a surface road");
+        if (house) {
+            if (industries::isCountryside(house->type))
+                return CommandResult::failure(
+                    std::format("{} in the way: industries can't be demolished for an entrance", house->info().name));
+            const CommandResult razed = demolishTile(w, c.company, house->pos, false, {});
+            if (!razed.ok) return CommandResult::failure(std::format("{} can't be demolished: {}", house->info().name, razed.error));
+            demolition = razed.cost;
+        }
     }
     if (station.entrances.size() >= 8) return CommandResult::failure("Station already has eight entrances");
     for (const auto& e : station.entrances)
@@ -115,7 +140,7 @@ CommandResult handle(World& w, const Command& c, const CmdStationEntrance& x, bo
     for (auto d : kDirs) {
         const auto p = neighbour(road, d);
         if (plot && p != *plot) continue;
-        if (clear(w, p, x.station, c.company) &&
+        if (clear(w, p, x.station, c.company, demolish) &&
             std::abs(int(w.map.tileBaseHeight(p)) - int(w.map.tileBaseHeight(road))) <= 1) {
             previous[p] = p;
             queue.push(p);
@@ -124,21 +149,21 @@ CommandResult handle(World& w, const Command& c, const CmdStationEntrance& x, bo
     std::optional<TilePos> finish;
     TrackEdgeId platform;
     if (queue.empty())
-        return CommandResult::failure("Clear and level a plot beside this road for the entrance");
+        return CommandResult::failure("Clear and level a plot beside this road, or click a house beside it to build the entrance there");
     std::optional<Approach> landing;
     while (!queue.empty() &&
            previous.size() < static_cast<usize>((2 * kEntranceReach + 1) * (2 * kEntranceReach + 1))) {
         const auto p = queue.front();
         queue.pop();
         platform = track::platformNear(w, x.station, tileCentre(p), 2 * kTrackUnits + 32);
-        if (platform.valid() && (landing = platformApproach(w, p, platform, c.company))) {
+        if (platform.valid() && (landing = platformApproach(w, p, platform, c.company, demolish))) {
             finish = p;
             break;
         }
         for (auto d : kDirs) {
             const auto next = neighbour(p, d);
             if (previous.contains(next) || chebyshev(next.x - road.x, next.y - road.y) > kEntranceReach ||
-                !clear(w, next, x.station, c.company))
+                !clear(w, next, x.station, c.company, demolish))
                 continue;
             if (std::abs(int(w.map.tileBaseHeight(p)) - int(w.map.tileBaseHeight(next))) > 1) continue;
             previous[next] = p;
@@ -174,13 +199,14 @@ CommandResult handle(World& w, const Command& c, const CmdStationEntrance& x, bo
     entry.path.push_back(curb);
     for (usize n = 0; n < approachTiles; ++n) entry.path.push_back(tileCentre(entry.tiles[n]));
     entry.path.push_back(landing->end);
-    Money cost = 5'000;
+    Money cost = 5'000 + demolition;
     for (auto p : entry.tiles) {
         cost += 500 + w.map.tile(p)->trees * prices::kRemoveTree;
         if (auto why = towns::authorityRefusal(w, c.company, p, kRatingRefuseBuild); !why.empty())
             return CommandResult::failure(why);
     }
     if (exec) {
+        if (demolish.size > 0) demolishTile(w, c.company, demolish.pos, true, {});
         for (auto p : entry.tiles) {
             auto& t = *w.map.tile(p);
             t.type = TileType::Footpath;

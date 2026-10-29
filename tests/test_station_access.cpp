@@ -1,8 +1,11 @@
 #include "core/serialize.hpp"
 #include "sim/commands.hpp"
+#include "sim/industries.hpp"
 #include "sim/prices.hpp"
 #include "sim/world.hpp"
 #include "test.hpp"
+#include <algorithm>
+#include <string_view>
 using namespace tp;
 namespace {
 struct AccessSite {
@@ -141,4 +144,80 @@ TEST_CASE("station access: a clear approach beyond sixteen tiles reaches the pla
     const auto& entry = f.w.stations[f.station].entrances.front();
     CHECK(entry.tiles.size() > 16);
     REQUIRE(walking::toStation(f.w, entry.path.front(), f.station));
+}
+TEST_CASE("station access: an entrance placed on a house demolishes it and charges for the demolition") {
+    // A one-tile house, and a department store whose whole 2x2 footprint goes.
+    for (const u16 type : {u16{1}, u16{7}}) {
+        AccessSite f;
+        const auto house = f.building(type == 7 ? TilePos{12, 16} : TilePos{12, 17}, type);
+        f.w.buildings[house.id].residents = 4;
+        const auto& b = f.w.buildings[house.id];
+        const TilePos corner = b.pos;
+        const i32 size = b.size();
+        const auto command = f.command(CmdStationEntrance{f.station, {12, 17}});
+        Command restored;
+        fromBytes(toBytes(command, kSaveVersion), restored, kSaveVersion);
+        // Copies to replay the same command on, and to build the same entrance in two steps.
+        World replay, twoSteps;
+        fromBytes(toBytes(f.w, kSaveVersion), replay, kSaveVersion);
+        fromBytes(toBytes(f.w, kSaveVersion), twoSteps, kSaveVersion);
+        const auto demolition = executeCommand(twoSteps, f.command(CmdDemolishBuilding{house}));
+        REQUIRE(demolition.ok);
+        CHECK_EQ(demolition.cost, prices::kDemolishBuilding + 4 * prices::kDemolishPerResident);
+        const auto entrance = executeCommand(twoSteps, command);
+        REQUIRE(entrance.ok);
+
+        const auto before = f.w.stateHash();
+        const auto quote = testCommand(f.w, command);
+        REQUIRE(quote.ok);
+        CHECK_EQ(before, f.w.stateHash());
+        CHECK_EQ(quote.cost, demolition.cost + entrance.cost);
+        const auto money = f.w.companies[f.company].money;
+        const auto built = executeCommand(f.w, command);
+        REQUIRE(built.ok);
+        CHECK_EQ(built.cost, quote.cost);
+        CHECK_EQ(f.w.companies[f.company].money, money - quote.cost);
+        CHECK(!f.w.buildings.contains(house.id));
+        CHECK(std::ranges::find(f.w.towns[f.town].buildings, house.id) == f.w.towns[f.town].buildings.end());
+        for (i32 y = 0; y < size; ++y)
+            for (i32 x = 0; x < size; ++x) CHECK(f.w.map.tile({corner.x + x, corner.y + y})->type != TileType::Building);
+        const auto& entry = f.w.stations[f.station].entrances.front();
+        CHECK(entry.road == (TilePos{12, 18}));
+        CHECK(entry.tiles.front() == (TilePos{12, 17}));
+        REQUIRE(walking::toStation(f.w, entry.path.front(), f.station));
+        // Every peer that runs the command ends with the same world, the same as doing it in two steps.
+        REQUIRE(executeCommand(replay, restored).ok);
+        CHECK_EQ(replay.stateHash(), f.w.stateHash());
+        CHECK_EQ(twoSteps.stateHash(), f.w.stateHash());
+    }
+}
+TEST_CASE("station access: an entrance on a building that can't be demolished is refused and changes nothing") {
+    AccessSite f;
+    const auto refused = [&](TilePos at, std::string_view why, std::source_location where = std::source_location::current()) {
+        const auto before = f.w.stateHash();
+        const auto money = f.w.companies[f.company].money;
+        const auto r = f.run(CmdStationEntrance{f.station, at});
+        if (r.ok || r.error.find(why) == std::string::npos) test::reportFailure("refusal", r.ok ? "built" : r.error, where);
+        CHECK_EQ(before, f.w.stateHash());
+        CHECK_EQ(money, f.w.companies[f.company].money);
+        CHECK(f.w.stations[f.station].entrances.empty());
+    };
+    const auto farm = f.building({20, 15}, industries::kGrainFarm);
+    refused({21, 17}, "industries can't be demolished");
+    CHECK(f.w.buildings.contains(farm.id));
+    const auto inland = f.building({12, 14});
+    refused({12, 14}, "directly beside a surface road");
+    CHECK(f.w.buildings.contains(inland.id));
+    const auto house = f.building({12, 17});
+    f.w.towns[f.town].ratings[f.company.value] = -1;
+    refused({12, 17}, "local authority refuses");
+    f.w.towns[f.town].ratings[f.company.value] = 0;
+    const auto quote = testCommand(f.w, f.command(CmdStationEntrance{f.station, {12, 17}}));
+    REQUIRE(quote.ok);
+    f.w.companies[f.company].money = quote.cost - 1;
+    refused({12, 17}, "Not enough money");
+    CHECK(f.w.buildings.contains(house.id));
+    f.w.companies[f.company].money = quote.cost;
+    CHECK(f.run(CmdStationEntrance{f.station, {12, 17}}).ok);
+    CHECK(!f.w.buildings.contains(house.id));
 }
