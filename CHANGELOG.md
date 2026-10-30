@@ -5,6 +5,8 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-30
+
 ### Curved roads
 - A **Curve** tool in the road toolbar lays curved roads, much as the track tool lays
   curved track: click a road end (or open land), then click where the road should go.
@@ -311,7 +313,8 @@ Transport Fever, with deterministic lockstep multiplayer.
 - Multiplayer through a dedicated server or a hosted game, with chat, a
   player list and host-controlled pause and speed; save, load and autosave.
 
-[Unreleased]: https://github.com/Alli1223/transport-poly/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Alli1223/transport-poly/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Alli1223/transport-poly/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Alli1223/transport-poly/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Alli1223/transport-poly/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Alli1223/transport-poly/compare/v0.3.0...v0.4.0
