@@ -506,6 +506,14 @@ void drawIcon(ImDrawList* dl, Icon icon, ImVec2 centre, float size, ImU32 color)
         g.fillPoly({{-0.55f, 0.0f}, {-0.15f, -0.44f}, {0.32f, -0.44f}, {0.82f, 0.0f}, {0.32f, 0.44f}, {-0.15f, 0.44f}});
         g.tri(-0.5f, 0.0f, -0.96f, -0.46f, -0.96f, 0.46f);
         break;
+    case Icon::Bread:
+        // A loaf with three cuts across its crust.
+        dl->PathArcTo(g.p(0.0f, 0.05f), 0.88f * g.h, kPi, 2.0f * kPi, 0);
+        dl->PathLineTo(g.p(0.88f, 0.72f));
+        dl->PathLineTo(g.p(-0.88f, 0.72f));
+        dl->PathStroke(color, ImDrawFlags_Closed, g.t);
+        for (const float x : {-0.42f, 0.0f, 0.42f}) g.line(x - 0.14f, -0.1f, x + 0.14f, -0.46f);
+        break;
     }
 }
 

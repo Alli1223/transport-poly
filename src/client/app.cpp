@@ -1,4 +1,5 @@
 #include "client/app.hpp"
+#include "client/badges.hpp"
 #include "client/terrain_options.hpp"
 #include "sim/industries.hpp"
 #include "client/demo_station.hpp"
@@ -514,6 +515,11 @@ bool App::parseArgs(int argc, char** argv) {
             // Automation: look at the nearest countryside industry, optionally one whose name contains the next argument.
             gotoIndustry_ = std::string();
             if (i + 1 < argc && argv[i + 1][0] != '-') gotoIndustry_ = std::string(next());
+        } else if (arg == "--show-supplies") {
+            // Automation: with --goto-industry, show its nearest supplies, zoomed out to this distance (default 90).
+            showSupplies_ = true;
+            showSuppliesDistance_ = 90.0;
+            if (i + 1 < argc && argv[i + 1][0] != '-') showSuppliesDistance_ = std::max(6.0, std::atof(next()));
         } else if (arg == "--goto-water") {
             gotoWater_ = true;
         } else if (arg == "--goto-mountain") {
@@ -1068,39 +1074,17 @@ namespace {
 
 constexpr double kIndustryLabelDistance = 220.0; // industry signs show while the camera is closer than this
 
-struct IndustryBadge {
-    ui::Icon icon;
-    ImU32 colour;
-};
-
-// The icon and colour of an industry's sign: farms green and gold, mines and quarries in the
-// colours of their rock, mills and factories blue and purple, fish farms the colour of water.
-IndustryBadge industryBadge(const Building& b) {
-    switch (b.type) {
-    case industries::kGrainFarm: return {ui::Icon::Wheat, ui::col::kAccent};
-    case industries::kSheepFarm: return {ui::Icon::Sheep, ui::col::kLeaf};
-    case industries::kDairyFarm: return {ui::Icon::Milk, ui::col::kLeaf};
-    case industries::kLoggingCamp: return {ui::Icon::Tree, ui::col::kGreen};
-    case industries::kQuarry: return {ui::Icon::Stone, IM_COL32(206, 190, 160, 255)};
-    case industries::kIronMine: return {ui::Icon::MineCart, ui::col::kOrange};
-    case industries::kCoalMine: return {ui::Icon::Pickaxe, ui::col::kTextMuted};
-    case industries::kCheeseDairy: return {ui::Icon::Cheese, ui::col::kAccent};
-    case industries::kTextileMill: return {ui::Icon::Spool, ui::col::kPurple};
-    case industries::kSawmill: return {ui::Icon::Saw, ui::col::kOrange};
-    case industries::kBrickworks: return {ui::Icon::Bricks, ui::col::kRed};
-    case industries::kSteelMill: return {ui::Icon::Anvil, ui::col::kBlue};
-    case industries::kGoodsFactory: return {ui::Icon::Factory, ui::col::kBlue};
-    case industries::kFurnitureFactory: return {ui::Icon::Chair, ui::col::kPurple};
-    case industries::kFishFarm: return {ui::Icon::Fish, ui::col::kTeal};
-    default: return {ui::Icon::Cart, ui::col::kAccent}; // shops taking deliveries
-    }
-}
-
 } // namespace
 
 void App::drawTownLabels() {
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     const World& w = world();
+    // The need chip under the mouse is explained once every sign is drawn (the last one drawn is on top).
+    std::string tipTitle, tipBody;
+    std::vector<ui::SignChip> chips;
+    std::vector<CargoType> chipCargo; // what each chip stands for
+    // Towns: a badge for the size of the place and a chip for everything it needs delivered,
+    // ticked off when it was met last month.
     const double maxDist = camera_.distance * 3.0 + 150.0;
     for (const auto [id, t] : w.towns) {
         const double dx = t.centre.x + 0.5 - camera_.target.x;
@@ -1109,42 +1093,78 @@ void App::drawTownLabels() {
         const double y = w.map.cornerHeight(t.centre.x, t.centre.y) * gfx::kHeightStep + 2.5;
         const auto sp = worldToScreen({t.centre.x + 0.5, y, t.centre.y + 0.5});
         if (!sp) continue;
-        const ImU32 dot = t.cls == TownClass::City ? ui::col::kAccent
-                          : t.cls == TownClass::Town ? ui::col::kBlue
-                                                     : ui::col::kLeaf;
-        const float scale = t.cls == TownClass::City ? 1.15f : (t.cls == TownClass::Town ? 1.05f : 0.95f);
-        const std::string pop = std::format("{}", t.population);
-        ui::worldLabel(dl, ImVec2(sp->x, sp->y), t.name.c_str(), pop.c_str(), dot, scale);
+        chipCargo.clear();
+        if (w.settings.industries) chipCargo.assign(t.needs.begin(), t.needs.end());
+        chips.clear();
+        for (const CargoType c : chipCargo) {
+            const Badge cb = cargoBadge(c);
+            chips.push_back({cb.icon, cb.colour, towns::needMet(t, c)});
+        }
+        const Badge badge = townBadge(t.cls);
+        const std::string pop = std::format("{} people", t.population);
+        const float scale = t.cls == TownClass::City ? 1.12f : (t.cls == TownClass::Town ? 1.02f : 0.92f);
+        const int chip = ui::worldSign(dl, ImVec2(sp->x, sp->y),
+                                       {badge.icon, badge.colour, t.name.c_str(), pop.c_str(), chips, scale, id == selTown_});
+        if (chip >= 0) {
+            const CargoType c = chipCargo[static_cast<usize>(chip)];
+            tipTitle = std::format("{} needs {}", t.name, cargoName(c));
+            tipBody = std::format("{} of {} delivered this month{}. Deliver it to the town's shops, offices or civic buildings.",
+                                  t.supplied[static_cast<usize>(c)], towns::needDemand(t),
+                                  towns::needMet(t, c) ? " (met last month)" : "");
+        }
     }
-    // Industries: large signs with an icon for what they are, readable from well out; what they
-    // make and take shows once zoomed in.
+    // Industries: the badge of what they make, readable from well out, and a chip for each thing
+    // they take; what they make from what shows once zoomed in.
     if (camera_.distance < kIndustryLabelDistance) {
         const double reach = std::max(100.0, camera_.distance * 2.0 + 60.0);
         const bool details = camera_.distance < 100.0;
+        const bool supplying = supplyArrows_.valid() && supplyArrows_ == selIndustry_;
+        const std::vector<SupplyLink> links = supplying ? nearestSupplies(w, supplyArrows_) : std::vector<SupplyLink>{};
         for (const auto& industry : w.industries) {
             const auto* b = w.buildings.tryGet(industry.building.id);
             if (!b || b->serial != industry.building.serial) continue;
             const double half = b->size() * 0.5;
             const double dx = b->pos.x + half - camera_.target.x, dz = b->pos.y + half - camera_.target.z;
             if (dx * dx + dz * dz > reach * reach) continue;
+            chipCargo.clear();
             std::string detail;
-            if (const IndustryRecipe* r = recipeFor(b->type)) {
+            const IndustryRecipe* r = recipeFor(b->type);
+            if (r) {
+                for (const CargoType in : r->inputs)
+                    if (in != CargoType::None) chipCargo.push_back(in);
                 if (r->inputs[0] == CargoType::None) detail = std::format("Makes {} | {} in stock", cargoName(r->output), industry.stock[static_cast<usize>(r->output)]);
                 else if (r->inputs[1] == CargoType::None) detail = std::format("{} -> {}", cargoName(r->inputs[0]), cargoName(r->output));
                 else detail = std::format("{} + {} -> {}", cargoName(r->inputs[0]), cargoName(r->inputs[1]), cargoName(r->output));
             } else if (b->info().category == BuildingCategory::Retail) {
-                detail = "Takes food and goods";
+                chipCargo = {CargoType::Food, CargoType::Goods, CargoType::Fish};
+                detail = "Takes food, goods and fish";
             } else {
                 continue;
+            }
+            chips.clear();
+            for (const CargoType c : chipCargo) {
+                const Badge cb = cargoBadge(c);
+                chips.push_back({cb.icon, cb.colour});
             }
             const double y = gfx::terrainHeightAt(w.map, b->pos.x + half, b->pos.y + half) + 3.0;
             const auto sp = worldToScreen({b->pos.x + half, y, b->pos.y + half});
             if (!sp) continue;
-            const IndustryBadge badge = industryBadge(*b);
-            ui::iconWorldLabel(dl, {sp->x, sp->y}, badge.icon, badge.colour, b->info().name.data(),
-                               details ? detail.c_str() : nullptr, 1.1f);
+            const BuildingId bid = industry.building.id;
+            const bool lit = bid == selIndustry_ ||
+                             std::ranges::any_of(links, [&](const SupplyLink& l) { return l.from == bid; });
+            const Badge badge = industryBadge(b->type);
+            const int chip = ui::worldSign(dl, {sp->x, sp->y},
+                                           {badge.icon, badge.colour, b->info().name.data(), details ? detail.c_str() : nullptr,
+                                            chips, 1.0f, lit});
+            if (chip >= 0) {
+                const CargoType c = chipCargo[static_cast<usize>(chip)];
+                tipTitle = std::format("{} takes {}", b->info().name, cargoName(c));
+                tipBody = r ? std::format("Open it and choose Show nearest supplies to see where {} comes from.", cargoName(c))
+                            : std::string("Shops sell food, goods and fish to the town.");
+            }
         }
     }
+    if (!tipTitle.empty() && !mouseOverUi_) ui::tooltip({tipTitle.c_str(), tipBody.c_str()});
     // Station signs when zoomed in.
     if (camera_.distance > 110.0) return;
     const double stationDist = camera_.distance * 2.0 + 40.0;
@@ -1633,9 +1653,13 @@ int App::run(int argc, char** argv) {
                     const double size = best->size();
                     camera_.targetGoal = glm::dvec3(best->pos.x + size * 0.5, 0.0, best->pos.y + size * 0.5);
                     camera_.targetGoal.y = gfx::terrainHeightAt(w.map, camera_.targetGoal.x, camera_.targetGoal.z);
-                    camera_.distanceGoal = 9.0;
+                    camera_.distanceGoal = showSupplies_ ? showSuppliesDistance_ : 9.0;
                     camera_.snapToGoals();
                     selIndustry_ = bestId; // and open its window
+                    if (showSupplies_) {
+                        supplyArrows_ = bestId;
+                        supplyArrowsShown_ = timeSeconds_;
+                    }
                     gotoIndustry_.reset();
                 } else if (frameCount > 600) {
                     log::warn("No industry found to look at");
@@ -1846,6 +1870,7 @@ int App::run(int argc, char** argv) {
                 addCatchmentOverlay(overlays, st->catchmentTiles(), st->catchment, gfx::rgba(90, 170, 255, 55));
             handleTools(overlays);
             handleHotkeys();
+            drawSupplyArrows();
             drawTownLabels();
 
             drawHud();

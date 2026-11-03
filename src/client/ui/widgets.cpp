@@ -578,27 +578,65 @@ void worldLabel(ImDrawList* dl, ImVec2 centre, const char* title, const char* de
     if (detail) dl->AddText(df, ds, ImVec2(x + tsz.x + gap, centre.y - dsz.y * 0.5f), col::kTextMuted, detail);
 }
 
-void iconWorldLabel(ImDrawList* dl, ImVec2 centre, Icon icon, ImU32 badge, const char* title, const char* detail, float k) {
+int worldSign(ImDrawList* dl, ImVec2 centre, const WorldSign& sign) {
     ImFont* tf = fonts().heading ? fonts().heading : ImGui::GetFont();
     ImFont* df = fonts().small ? fonts().small : ImGui::GetFont();
+    const float k = sign.scale;
     const float ts = tf->FontSize * k, ds = df->FontSize * k;
-    const ImVec2 tsz = tf->CalcTextSizeA(ts, FLT_MAX, 0.0f, title);
-    const ImVec2 dsz = detail ? df->CalcTextSizeA(ds, FLT_MAX, 0.0f, detail) : ImVec2(0, 0);
+    const ImVec2 tsz = tf->CalcTextSizeA(ts, FLT_MAX, 0.0f, sign.title);
+    const ImVec2 dsz = sign.detail ? df->CalcTextSizeA(ds, FLT_MAX, 0.0f, sign.detail) : ImVec2(0, 0);
     const float padX = px(7) * k, padY = px(5) * k, gap = px(8) * k, lineGap = px(1) * k;
-    const float textH = tsz.y + (detail ? lineGap + dsz.y : 0.0f);
+    const float textH = tsz.y + (sign.detail ? lineGap + dsz.y : 0.0f);
     const float badgeD = std::max(textH, tsz.y * 1.3f);
     const float h = badgeD + padY * 2;
-    const float w = padX + badgeD + gap + std::max(tsz.x, dsz.x) + padX + px(6) * k;
+    // Chips sit in a row after a divider.
+    const auto chipCount = static_cast<float>(sign.chips.size());
+    const float chipD = std::max(badgeD * 0.6f, tsz.y * 0.85f), chipGap = px(4) * k;
+    const float chipsW = sign.chips.empty() ? 0.0f : gap * 2 + chipCount * chipD + (chipCount - 1.0f) * chipGap;
+    const float w = padX + badgeD + gap + std::max(tsz.x, dsz.x) + chipsW + padX + px(6) * k;
     const ImVec2 mn(centre.x - w * 0.5f, centre.y - h * 0.5f), mx(centre.x + w * 0.5f, centre.y + h * 0.5f);
-    dropShadow(dl, mn, mx, h * 0.5f, 10.0f * k, 0.32f);
-    dl->AddRectFilled(mn, mx, withAlpha(col::kBar, 0.94f), h * 0.5f);
-    dl->AddRect(mn, mx, withAlpha(badge, 0.6f), h * 0.5f, 0, 1.5f * k);
+    const float r = h * 0.5f;
+    dropShadow(dl, mn, mx, r, 10.0f * k, 0.32f);
+    if (sign.highlight) {
+        const float grow = px(4) * k;
+        dl->AddRectFilled(ImVec2(mn.x - grow, mn.y - grow), ImVec2(mx.x + grow, mx.y + grow), withAlpha(sign.badge, 0.22f),
+                          r + grow);
+    }
+    dl->AddRectFilled(mn, mx, withAlpha(col::kBar, 0.94f), r);
+    // A faint sheen along the top edge.
+    dl->AddRectFilled(ImVec2(mn.x + r * 0.6f, mn.y + px(1)), ImVec2(mx.x - r * 0.6f, mn.y + px(1) + h * 0.32f),
+                      withAlpha(kWhite, 0.035f), h * 0.16f);
+    dl->AddRect(mn, mx, withAlpha(sign.badge, sign.highlight ? 1.0f : 0.6f), r, 0, (sign.highlight ? 2.5f : 1.5f) * k);
     const ImVec2 bc(mn.x + padX + badgeD * 0.5f, centre.y);
-    dl->AddCircleFilled(bc, badgeD * 0.5f, badge);
-    drawIcon(dl, icon, bc, badgeD * 0.68f, col::kBar);
+    dl->AddCircleFilled(bc, badgeD * 0.5f, sign.badge);
+    drawIcon(dl, sign.icon, bc, badgeD * 0.68f, col::kBar);
     const float x = mn.x + padX + badgeD + gap, top = centre.y - textH * 0.5f;
-    dl->AddText(tf, ts, ImVec2(x, top), col::kText, title);
-    if (detail) dl->AddText(df, ds, ImVec2(x, top + tsz.y + lineGap), col::kTextMuted, detail);
+    dl->AddText(tf, ts, ImVec2(x, top), col::kText, sign.title);
+    if (sign.detail) dl->AddText(df, ds, ImVec2(x, top + tsz.y + lineGap), col::kTextMuted, sign.detail);
+    if (sign.chips.empty()) return -1;
+    const float divider = x + std::max(tsz.x, dsz.x) + gap;
+    dl->AddLine(ImVec2(divider, mn.y + padY * 1.5f), ImVec2(divider, mx.y - padY * 1.5f), col::kBorderStrong, std::max(1.0f, k));
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    int hovered = -1;
+    float cx = divider + gap + chipD * 0.5f;
+    for (usize i = 0; i < sign.chips.size(); ++i, cx += chipD + chipGap) {
+        const SignChip& c = sign.chips[i];
+        const ImVec2 cc(cx, centre.y);
+        const float dx = mouse.x - cc.x, dy = mouse.y - cc.y;
+        const bool hover = dx * dx + dy * dy <= chipD * chipD * 0.3f;
+        if (hover) hovered = static_cast<int>(i);
+        dl->AddCircleFilled(cc, chipD * 0.5f + (hover ? px(1.5f) * k : 0.0f), c.colour);
+        drawIcon(dl, c.icon, cc, chipD * 0.64f, col::kBar);
+        if (c.done) {
+            // A green tick on the chip's lower right.
+            const float tr = chipD * 0.24f;
+            const ImVec2 tc(cc.x + chipD * 0.36f, cc.y + chipD * 0.34f);
+            dl->AddCircleFilled(tc, tr + px(1.5f) * k, col::kBar);
+            dl->AddCircleFilled(tc, tr, col::kGreen);
+            drawIcon(dl, Icon::Check, tc, tr * 1.5f, col::kBar);
+        }
+    }
+    return hovered;
 }
 
 } // namespace tp::ui

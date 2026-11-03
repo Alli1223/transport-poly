@@ -475,20 +475,27 @@ stone, coal and ore; refrigerated vehicles take food, milk, cheese and fish; box
 goods, wool, cloth and furniture; flat wagons, timber lorries and deck cargo
 coasters take logs, planks, bricks and steel. Click an industry to see what it
 makes, its stock, how much of it was transported last month and which stations
-reach it.
+reach it. **Show nearest supplies** in a plant's window draws animated arrows over
+the map from the five nearest explored producers of each thing it needs (a
+brickworks gets arrows from the five nearest quarries), with each one's distance,
+and lists them; click one to look at it. The arrows go when the window closes.
 
 Industries are founded at least 12 tiles (`industries::kMinTownDistance`) from any
 town's houses and roads, and that far beyond the built-up area around a town's
 centre, including the sites of towns still to be founded. Their signs show an icon
-for the kind of industry and can be read from far out; zoomed in, they also show
-what the industry makes or takes.
+for the kind of industry and can be read from far out, with a chip for each thing
+it takes; zoomed in, they also show what the industry makes from what. Every cargo
+has one icon and colour, the same on the sign of the industry making it, on the
+chips of the places needing it and on the supply arrows.
 
 Towns need goods delivered to keep growing: a village asks for one of food, planks
 or cheese, and as it grows it asks for more and more elaborate things (bricks,
 cloth, goods, furniture, steel), chosen at random. Deliveries count at the town's
 shops, offices and civic buildings. Each need met speeds the town's growth, and a
 town whose needs are not all met stops growing when it reaches the size of its next
-need. The town window shows each need and this month's deliveries against it.
+need. Town signs carry a chip for each need, ticked once it was met last month;
+point at a chip for this month's deliveries. The town window shows each need and
+this month's deliveries against it.
 Worlds saved before industries keep growing as they did.
 
 The depot's train builder has separate **Engines**, **Passenger carriages** and
@@ -596,6 +603,10 @@ shows occupied carriages and a tram from outside, including both decks of a coac
 `transport-poly --preview-station-details --time 12 --no-debug --screenshot station-details.png --frames 50`
 shows the platform furniture, compact footbridges and matching pedestrian approach
 without the station panel.
+
+`transport-poly --seed 77 --demo-industries --goto-industry Brickworks --show-supplies 160 --time 12 --no-debug --screenshot supplies.png --frames 520`
+founds one of every industry near the camera, opens a brickworks and shows the arrows
+from its nearest quarries, seen from 160 tiles out.
 
 `transport-poly --seed 77 --goto-town 40 --demo-road-curves --time 12 --no-debug --screenshot curves.png --frames 900`
 lays a quarter turn and an S-curve on open land near the camera, with two bus stops,

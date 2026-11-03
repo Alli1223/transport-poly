@@ -223,6 +223,7 @@ private:
     void drawStationWindow();
     void drawTownWindow();
     void drawIndustryWindow();
+    void drawSupplyArrows(); // app_industry.cpp
     void drawTownNeeds(const Town& t);
     void drawFinanceWindow();
     void drawVehicleList();
@@ -327,6 +328,8 @@ private:
     StationId selStation_;
     TownId selTown_;
     BuildingId selIndustry_;
+    BuildingId supplyArrows_;        // the industry whose nearest supplies are shown (while its window is open)
+    double supplyArrowsShown_ = 0.0; // when they were turned on, so the arrows grow in
     VehicleId followVehicle_;
     bool showFinances_ = false;
     bool showVehicleList_ = false;
@@ -436,6 +439,8 @@ private:
     bool gotoMountain_ = false; // automation: start near high ground
     std::optional<std::string> gotoIndustry_; // automation: look at the nearest industry (whose name contains this)
     bool demoIndustries_ = false;            // automation: found one of every industry near the camera
+    bool showSupplies_ = false;              // automation: with --goto-industry, show its nearest supplies
+    double showSuppliesDistance_ = 90.0;     // ... from this far out
     bool demoFreight_ = false;               // automation: build a freight station at the camera
     // Command line choices (terrain, competitors, ground detail), applied over the saved preferences.
     std::vector<std::function<void(ClientPreferences&)>> preferenceArgs_;
@@ -471,6 +476,15 @@ private:
     std::string joinAddress_;       // --join host[:port]
     std::string openWindows_;       // automation: --open depot,station,town,finances,vehicles,towns,news
 };
+
+// A producer of something an industry needs and how far it is from it, in tiles.
+struct SupplyLink {
+    BuildingId from;
+    CargoType cargo = CargoType::None;
+    double distance = 0.0;
+};
+// The nearest `perCargo` producers of each input of an industry, nearest first (app_industry.cpp).
+std::vector<SupplyLink> nearestSupplies(const World& w, BuildingId industry, usize perCargo = 5);
 
 // Automation: curved roads with two bus stops, a depot and two buses on open land near `centre`
 // (app_roads.cpp). Returns a tile in the middle of it.
