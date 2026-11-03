@@ -84,11 +84,28 @@ void mutedText(const char* text);
 // Label above an input that spans the panel width.
 void fieldLabel(const char* text);
 
-// Name tag floating over the world (towns, stations).
+// Small name tag floating over the world (stations).
 void worldLabel(ImDrawList* dl, ImVec2 centre, const char* title, const char* detail, ImU32 dot, float scale = 1.0f);
-// A larger floating label for things seen from afar (countryside industries): a badge holding an
-// icon, the title in the heading font and, when given, a detail line under it.
-void iconWorldLabel(ImDrawList* dl, ImVec2 centre, Icon icon, ImU32 badge, const char* title, const char* detail,
-                    float scale = 1.0f);
+
+// A round chip on a world sign for something the place needs delivered; `done` ticks it off.
+struct SignChip {
+    Icon icon = Icon::None;
+    ImU32 colour = 0;
+    bool done = false;
+};
+// A larger sign for places seen from afar (towns and industries): a badge holding an icon, the
+// title in the heading font with an optional detail line under it, and the chips of what the place
+// needs after a divider. `highlight` rings it in its badge colour.
+struct WorldSign {
+    Icon icon = Icon::None;
+    ImU32 badge = 0;
+    const char* title = "";
+    const char* detail = nullptr;
+    std::span<const SignChip> chips;
+    float scale = 1.0f;
+    bool highlight = false;
+};
+// Draws the sign centred on `centre`; returns the index of the chip under the mouse, or -1.
+int worldSign(ImDrawList* dl, ImVec2 centre, const WorldSign& sign);
 
 } // namespace tp::ui

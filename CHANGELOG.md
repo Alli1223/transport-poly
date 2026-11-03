@@ -5,6 +5,21 @@ release notes on GitHub (see [RELEASING.md](RELEASING.md)).
 
 ## [Unreleased]
 
+### Industries and towns
+- Town signs match the industry signs: a badge for a city, town or village, the
+  population, and a chip with the icon of everything the town needs delivered, ticked
+  once the need was met last month. Pointing at a chip shows this month's deliveries.
+- Industry signs carry a chip for each thing the industry takes, and every cargo has
+  one icon and colour throughout: on the sign of the industry making it, on the chips
+  of the towns and plants needing it, and on the supply arrows. Food has a loaf of
+  bread. The selected town or industry's sign is ringed in its colour, and an
+  industry's window wears its icon and colour.
+- **Show nearest supplies** in a processing plant's window draws translucent,
+  animated arrows arcing over the map from the five nearest explored producers of
+  each thing it needs, with their distances and a ripple round the plant. The window
+  lists them with their distance and direction; click one to look at it. The arrows
+  go when the window closes or another industry is chosen.
+
 ## [0.7.0] - 2026-10-30
 
 ### Curved roads

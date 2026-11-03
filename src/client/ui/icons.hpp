@@ -91,6 +91,8 @@ enum class Icon : unsigned char {
     Factory,
     Chair,
     Fish,
+    // Food from the town factories
+    Bread,
 };
 
 // Draws `icon` centred on `centre`, fitting a `size` x `size` box.
